@@ -1,0 +1,11 @@
+{
+  "_comment": "LiveKit Inbound Trunk configuration for Twilio Elastic SIP Trunk. Do not include username/password unless Twilio SIP Termination credentials are explicitly required by your origination route. Ref: https://docs.livekit.io/telephony/accepting-calls/inbound-trunk/",
+  "name": "twilio-inbound-trunk",
+  "numbers": [
+    "+15551234567"
+  ],
+  "allowed_addresses": [
+    "54.172.60.0/30",
+    "54.244.51.0/30"
+  ]
+}

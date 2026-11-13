@@ -1,0 +1,17 @@
+{
+  "_comment_dispatch_rule": "LiveKit SIP Dispatch Rule (Individual). Creates a new room per incoming call with prefix 'in-'. Ref: https://docs.livekit.io/telephony/accepting-calls/dispatch-rule/",
+  "_comment_explicit_dispatch": "IMPORTANT: roomConfig.agents with agentName 'receptionist' is strictly required for explicit dispatch. Without this explicit configuration, LiveKit creates the room for the incoming caller but does NOT spawn or assign the 'receptionist' agent worker, leaving the caller in an empty room with dead air.",
+  "name": "all-tenants-inbound",
+  "rule": {
+    "dispatchRuleIndividual": {
+      "roomPrefix": "in-"
+    }
+  },
+  "roomConfig": {
+    "agents": [
+      {
+        "agentName": "receptionist"
+      }
+    ]
+  }
+}
