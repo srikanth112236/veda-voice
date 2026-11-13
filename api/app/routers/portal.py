@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -61,9 +61,13 @@ class TenantDashboardStats(BaseModel):
 
 class UpdateAgentProfileRequest(BaseModel):
     business_name: str | None = None
+    agent_name: str | None = None
     hours: str | None = None
     greeting: str | None = None
     tone: str | None = None
+    voice_id: str | None = None
+    recording_disclosure: bool | None = None
+    phonetic_glossary: list[dict[str, str]] | None = None
     services: list[str] | None = None
     pricing_policy: str | None = None
     faq: list[dict[str, str]] | None = None
@@ -74,10 +78,14 @@ class UpdateAgentProfileRequest(BaseModel):
 
 class AgentProfileResponse(BaseModel):
     business_name: str
+    agent_name: str = "receptionist"
     timezone: str
     hours: str
     greeting: str
     tone: str
+    voice_id: str = "Alex"
+    recording_disclosure: bool = True
+    phonetic_glossary: list[dict[str, str]] = Field(default_factory=list)
     services: list[str]
     pricing_policy: str
     faq: list[dict[str, str]]
@@ -219,10 +227,14 @@ def get_agent_profile(
 
     return AgentProfileResponse(
         business_name=tenant.name,
+        agent_name=getattr(profile, "agent_name", "receptionist") or "receptionist",
         timezone=tenant.timezone,
         hours=tenant.hours,
         greeting=profile.greeting,
         tone=profile.tone,
+        voice_id=getattr(profile, "voice_id", "Alex") or "Alex",
+        recording_disclosure=bool(getattr(profile, "recording_disclosure", True)),
+        phonetic_glossary=getattr(profile, "phonetic_glossary", []) or [],
         services=profile.services,
         pricing_policy=profile.pricing_policy,
         faq=profile.faq,
@@ -249,10 +261,18 @@ def update_agent_profile(
         profile = AgentProfile(tenant_id=tenant.id)
         db.add(profile)
 
+    if req.agent_name is not None:
+        profile.agent_name = req.agent_name
     if req.greeting is not None:
         profile.greeting = req.greeting
     if req.tone is not None:
         profile.tone = req.tone
+    if req.voice_id is not None:
+        profile.voice_id = req.voice_id
+    if req.recording_disclosure is not None:
+        profile.recording_disclosure = req.recording_disclosure
+    if req.phonetic_glossary is not None:
+        profile.phonetic_glossary = req.phonetic_glossary
     if req.services is not None:
         profile.services = req.services
     if req.pricing_policy is not None:
@@ -273,10 +293,14 @@ def update_agent_profile(
 
     return AgentProfileResponse(
         business_name=tenant.name,
+        agent_name=getattr(profile, "agent_name", "receptionist") or "receptionist",
         timezone=tenant.timezone,
         hours=tenant.hours,
         greeting=profile.greeting,
         tone=profile.tone,
+        voice_id=getattr(profile, "voice_id", "Alex") or "Alex",
+        recording_disclosure=bool(getattr(profile, "recording_disclosure", True)),
+        phonetic_glossary=getattr(profile, "phonetic_glossary", []) or [],
         services=profile.services,
         pricing_policy=profile.pricing_policy,
         faq=profile.faq,

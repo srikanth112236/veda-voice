@@ -66,6 +66,11 @@ class AgentProfile(Base):
     tone: Mapped[str] = mapped_column(
         String(32), default="direct", nullable=False
     )  # direct, warm, formal
+    voice_id: Mapped[str] = mapped_column(String(64), default="Alex", nullable=False)
+    recording_disclosure: Mapped[bool] = mapped_column(default=True, nullable=False)
+    phonetic_glossary: Mapped[list[dict[str, str]]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
     services: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     pricing_policy: Mapped[str] = mapped_column(
         String(64), default="diagnostic_fee_only", nullable=False

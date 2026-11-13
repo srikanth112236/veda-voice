@@ -249,3 +249,35 @@ def test_business_notes_placement_and_length_cap() -> None:
     # Placed AFTER platform rules
     assert notes_header_idx > rules_header_idx
     assert "Platform safety rules and emergency protocols above strictly take precedence" in prompt
+
+
+def test_phonetic_pronunciation_glossary_isolation_and_formatting() -> None:
+    """Verify phonetic pronunciation glossary formats correctly and remains strictly isolated."""
+    tenant_a = TenantConfig(
+        tenant_id="tenant-glossary-a",
+        business="Alpha Plumbing",
+        numbers=["+18005550501"],
+        hours="9-5",
+        greeting="Hi",
+        phonetic_glossary=[
+            {"term": "PEX", "spoken_as": "pecks", "note": "Pipe material"},
+            {"term": "Worcester", "spoken_as": "Wooster", "note": "Location"},
+        ],
+    )
+    prompt_a = build_system_prompt(tenant_a)
+    assert "PHONETIC PRONUNCIATION GLOSSARY:" in prompt_a
+    assert '- PEX -> pronounce as "pecks" (Pipe material)' in prompt_a
+    assert '- Worcester -> pronounce as "Wooster" (Location)' in prompt_a
+
+    tenant_b = TenantConfig(
+        tenant_id="tenant-glossary-b",
+        business="Beta Consulting",
+        numbers=["+18005550502"],
+        hours="9-5",
+        greeting="Hi",
+        phonetic_glossary=[],
+    )
+    prompt_b = build_system_prompt(tenant_b)
+    assert "PHONETIC PRONUNCIATION GLOSSARY" not in prompt_b
+    assert "pecks" not in prompt_b
+    assert "Wooster" not in prompt_b

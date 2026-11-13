@@ -97,3 +97,53 @@ def test_internal_tenant_resolution_by_number() -> None:
     assert "call_token" in data
     assert len(data["services"]) > 0
     assert "burst pipe" in data["emergency_keywords"]
+
+
+def test_agent_profile_module1_brand_and_acoustic_tuning() -> None:
+    """Verify Module 1 brand persona, acoustic voice, and phonetic glossary in profile API."""
+    # 1. Register tenant
+    unique_email = f"owner_{uuid.uuid4().hex[:8]}@coolhvac.com"
+    reg_resp = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": "Cool Air Pros",
+            "owner_name": "Dave Miller",
+            "email": unique_email,
+            "password": "Password123!",
+            "timezone": "America/Chicago",
+            "niche": "hvac",
+        },
+    )
+    assert reg_resp.status_code == 200
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Get initial profile
+    prof_resp = client.get("/api/v1/portal/profile", headers=headers)
+    assert prof_resp.status_code == 200
+    prof = prof_resp.json()
+    assert prof["voice_id"] == "Alex"
+    assert prof["recording_disclosure"] is True
+    assert isinstance(prof["phonetic_glossary"], list)
+
+    # 3. Update profile with Module 1 acoustic tuning & phonetic glossary
+    update_payload = {
+        "agent_name": "Ashley",
+        "tone": "warm",
+        "voice_id": "Ashley",
+        "recording_disclosure": True,
+        "phonetic_glossary": [
+            {"term": "HVAC", "spoken_as": "H-V-A-C", "note": "Acronym"},
+            {"term": "Freon", "spoken_as": "free-on", "note": "Refrigerant brand"},
+        ],
+        "greeting": "Thanks for calling Cool Air Pros. This call is recorded. How can I keep you cool today?",
+    }
+    put_resp = client.put("/api/v1/portal/profile", json=update_payload, headers=headers)
+    assert put_resp.status_code == 200
+    updated = put_resp.json()
+    assert updated["agent_name"] == "Ashley"
+    assert updated["tone"] == "warm"
+    assert updated["voice_id"] == "Ashley"
+    assert len(updated["phonetic_glossary"]) == 2
+    assert updated["phonetic_glossary"][0]["term"] == "HVAC"
+    assert updated["phonetic_glossary"][0]["spoken_as"] == "H-V-A-C"

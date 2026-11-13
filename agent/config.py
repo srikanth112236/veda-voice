@@ -42,6 +42,9 @@ class TenantConfig(BaseModel):
     hours: str
     greeting: str
     tone: Literal["direct", "warm", "formal"] = "direct"
+    voice_id: str = "Alex"
+    recording_disclosure: bool | str = True
+    phonetic_glossary: list[dict[str, str]] = Field(default_factory=list)
     pricing_mode: Literal["no_quote", "listed", "range"] = "no_quote"
     price_items: list[str] = Field(default_factory=list)
     services: list[str] = Field(default_factory=list)
@@ -50,7 +53,6 @@ class TenantConfig(BaseModel):
     emergency: EmergencyConfig = Field(default_factory=EmergencyConfig)
     tools_enabled: list[str] = Field(default_factory=lambda: ["take_message", "end_call"])
     max_call_duration_seconds: int = 600
-    recording_disclosure: bool | str = True
     business_notes: str = Field(default="", max_length=500)
     agent_name: str = "receptionist"
     transfer_number: str = ""

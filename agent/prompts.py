@@ -41,6 +41,18 @@ def build_system_prompt(
     if caller_phone:
         caller_id_hint = f"\n- Caller ID Phone Number: {caller_phone} (You may offer to use this number for callback after the caller confirms it)."
 
+    # Phonetic glossary guidance
+    glossary_block = ""
+    if getattr(config, "phonetic_glossary", None):
+        glossary_lines = [
+            f"- {g.get('term', '')} -> pronounce as \"{g.get('spoken_as', '')}\""
+            + (f" ({g.get('note', '')})" if g.get("note") else "")
+            for g in config.phonetic_glossary
+            if g.get("term") and g.get("spoken_as")
+        ]
+        if glossary_lines:
+            glossary_block = "\n\nPHONETIC PRONUNCIATION GLOSSARY:\n" + "\n".join(glossary_lines)
+
     # Tone guidance
     tone_guidelines = {
         "direct": "Speak with a direct, concise, and professional tone. Get straight to the point.",
@@ -131,7 +143,7 @@ PRICING POLICY:
 {pricing_instruction}
 
 KNOWLEDGE BASE & FAQS:
-{faq_formatted}
+{faq_formatted}{glossary_block}
 
 EMERGENCY KEYWORDS:
 {emergency_kw_str}

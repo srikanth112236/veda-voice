@@ -167,6 +167,31 @@ def seed_initial_data() -> None:
 def init_db() -> None:
     """Ensure database tables exist and seed initial platform records."""
     Base.metadata.create_all(bind=engine)
+    if str(engine.url).startswith("sqlite"):
+        with engine.connect() as conn:
+            from sqlalchemy import text
+
+            cursor = conn.execute(text("PRAGMA table_info(agent_profiles)"))
+            existing_cols = {row[1] for row in cursor.fetchall()}
+            if "voice_id" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN voice_id VARCHAR(64) DEFAULT 'Alex'"
+                    )
+                )
+            if "recording_disclosure" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN recording_disclosure BOOLEAN DEFAULT 1"
+                    )
+                )
+            if "phonetic_glossary" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN phonetic_glossary JSON DEFAULT '[]'"
+                    )
+                )
+            conn.commit()
     seed_initial_data()
 
 
