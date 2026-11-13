@@ -35,6 +35,7 @@ venv.bak/
 *.pem
 *.key
 infra/sip/*.local.json
+data/
 
 # Testing & Coverage
 .pytest_cache/

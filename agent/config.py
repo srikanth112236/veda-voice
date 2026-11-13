@@ -20,6 +20,8 @@ class BusinessConfig(BaseModel):
     business: str
     agent_name: str = "receptionist"
     greeting: str
+    record_disclosure: bool = True
+    max_call_duration_seconds: int = 600
     timezone: str = "America/New_York"
     hours: str
     services: list[str] = Field(default_factory=list)

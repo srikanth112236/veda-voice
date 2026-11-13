@@ -48,6 +48,21 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install -r api/requirements-dev.txt
+pip install -r api/requirements.txt
+```
+
+---
+
+## Call Records & Data Privacy (PII Warning)
+
+Call records are written upon call completion by the `FileCallStore` interface into individual JSON files:
+- **Location**: `data/calls/<utc_timestamp>_<call_id>.json`
+- **Contents**: Full caller phone number (for callback), dialed number, call duration, outcome, message payload, correction history, latency percentiles, and full conversation transcript.
+
+> **CRITICAL PRIVACY & SECURITY WARNING**:
+> Files inside `data/` contain **Personally Identifiable Information (PII)** including raw customer phone numbers, names, and call transcripts.
+> The entire `data/` directory is strictly **git-ignored** (`.gitignore`) and must **NEVER** be committed to version control, uploaded to public storage, or exposed in public logs.
+> All application and console logs redact phone numbers to the last 4 digits (e.g. `***-***-4567`).
 pip install -r agent/requirements-dev.txt
 ```
 
