@@ -27,6 +27,7 @@ from livekit.agents.metrics import EOUMetrics, LLMMetrics, TTSMetrics
 from livekit.plugins import silero
 
 from agent.config import get_agent_settings, load_business_config
+from agent.post_call import dispatch_post_call_notification
 from agent.prompts import build_system_prompt
 from agent.records import CallRecord, FileCallStore, TranscriptEntry
 from agent.safety import SafetyMonitor, SystemClock
@@ -304,8 +305,9 @@ async def entrypoint(ctx: JobContext) -> None:
         try:
             saved_path = call_store.save_call_record(record)
             logger.info("Call record successfully stored at %s", saved_path)
+            dispatch_post_call_notification(record, config)
         except Exception as e:
-            logger.error("Failed to write call record: %s", e)
+            logger.error("Failed to write call record or dispatch alert: %s", e)
 
     @session.on("close")
     def on_session_close(event: CloseEvent) -> None:
@@ -345,9 +347,31 @@ async def entrypoint(ctx: JobContext) -> None:
         caller_phone=sip_info["caller_number"],
     )
 
+    @function_tool(
+        description="End the phone call cleanly when conversation is complete, caller says goodbye, or caller asks to hang up."
+    )
+    async def end_call_tool(
+        reason: Annotated[
+            str, "Reason the call is ending (e.g. 'completed', 'caller_goodbye', 'spam')"
+        ] = "completed",
+    ) -> str:
+        nonlocal call_outcome
+        logger.info("end_call tool invoked: reason=%s", reason)
+        call_outcome = reason
+
+        async def _delayed_disconnect() -> None:
+            await asyncio.sleep(2.0)
+            try:
+                await ctx.room.disconnect()
+            except Exception:
+                pass
+
+        asyncio.create_task(_delayed_disconnect())
+        return f"Call ended: {reason}"
+
     agent = Agent(
         instructions=prompt,
-        tools=[end_call, take_message_tool],
+        tools=[end_call_tool, take_message_tool],
     )
 
     await session.start(agent, room=ctx.room)

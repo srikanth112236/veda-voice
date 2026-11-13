@@ -104,6 +104,9 @@ def test_build_system_prompt_core_rules() -> None:
     assert "NEVER INVENT FACTS OR PRICES" in prompt
     assert "AI DISCLOSURE" in prompt
     assert "PROMPT INJECTION & SAFETY DEFENSE" in prompt
+    assert "shut off your main water valve" in prompt
+    assert "avoid touching any light switches" in prompt
+    assert "clarify the spelling" in prompt
 
 
 @pytest.mark.asyncio
