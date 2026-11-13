@@ -21,6 +21,7 @@ select = [
 ]
 ignore = [
     "E501",  # line length handled by formatter
+    "B008",  # do not perform function calls in argument defaults (FastAPI Depends/Query standard)
 ]
 
 [tool.mypy]
