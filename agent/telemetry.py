@@ -3,6 +3,7 @@
 import math
 import re
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 # Regex matching phone digits for redaction
 _DIGIT_PATTERN = re.compile(r"\d")
@@ -17,7 +18,7 @@ def redact_phone(phone: str | None) -> str:
         "123"          -> "***"
         None or ""     -> "[unknown]"
     """
-    if not phone or not phone.strip():
+    if not phone or not isinstance(phone, str) or not phone.strip():
         return "[unknown]"
 
     clean = phone.strip()
@@ -32,7 +33,7 @@ def redact_phone(phone: str | None) -> str:
     return f"***-***-{last_four}"
 
 
-def parse_sip_attributes(attributes: Mapping[str, str] | None) -> dict[str, str]:
+def parse_sip_attributes(attributes: Any) -> dict[str, str]:
     """Parse standard LiveKit SIP attributes from participant attributes mapping.
 
     LiveKit telephony sets:
@@ -42,11 +43,20 @@ def parse_sip_attributes(attributes: Mapping[str, str] | None) -> dict[str, str]
 
     Ref: https://docs.livekit.io/reference/telephony/sip-participant/
     """
-    attrs = attributes or {}
+    if not isinstance(attributes, dict | Mapping):
+        return {
+            "caller_number": "",
+            "dialed_number": "",
+            "call_id": "",
+        }
+
+    def _safe_str(val: Any) -> str:
+        return str(val) if isinstance(val, str | int | float) else ""
+
     return {
-        "caller_number": attrs.get("sip.phoneNumber", ""),
-        "dialed_number": attrs.get("sip.trunkPhoneNumber", ""),
-        "call_id": attrs.get("sip.callID", ""),
+        "caller_number": _safe_str(attributes.get("sip.phoneNumber", "")),
+        "dialed_number": _safe_str(attributes.get("sip.trunkPhoneNumber", "")),
+        "call_id": _safe_str(attributes.get("sip.callID", "")),
     }
 
 

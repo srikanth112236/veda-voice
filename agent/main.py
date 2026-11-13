@@ -276,10 +276,17 @@ async def entrypoint(ctx: JobContext) -> None:
         elif call_outcome == "abandoned" and duration_s > 15.0 and len(transcript_log) > 2:
             call_outcome = "info_provided"
 
+        def _clean_str(val: Any) -> str:
+            return str(val) if isinstance(val, str | int | float) else ""
+
+        safe_call_id = _clean_str(sip_info.get("call_id")) or _clean_str(room_name) or "call"
+        safe_dialed = _clean_str(sip_info.get("dialed_number"))
+        safe_caller = _clean_str(sip_info.get("caller_number"))
+
         record = CallRecord(
-            call_id=sip_info["call_id"] or room_name,
-            dialed_number=sip_info["dialed_number"],
-            caller_number=sip_info["caller_number"],
+            call_id=safe_call_id,
+            dialed_number=safe_dialed,
+            caller_number=safe_caller,
             started_at=call_started_at,
             ended_at=ended_at,
             duration_s=duration_s,
