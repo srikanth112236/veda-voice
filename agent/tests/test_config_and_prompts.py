@@ -33,7 +33,7 @@ def test_agent_settings_defaults() -> None:
     """Verify LiveKit Inference model string defaults match verified inference catalog."""
     settings = get_agent_settings()
     assert settings.stt_model == "deepgram/nova-3"
-    assert settings.llm_model == "google/gemini-2.0-flash"
+    assert settings.llm_model == "google/gemini-2.5-flash"
     assert settings.tts_model == "inworld/inworld-tts-1"
     assert settings.tts_voice_id == "Alex"
 

@@ -43,12 +43,12 @@ class AgentSettings(BaseModel):
     # Covered by: LiveKit partner startup credit.
     stt_model: str = Field(default_factory=lambda: os.getenv("STT_MODEL", "deepgram/nova-3"))
 
-    # LLM: Google Gemini 2.0 Flash (Cheapest suitable model on LiveKit Inference)
+    # LLM: Google Gemini 2.5 Flash (or gemini-2.5-flash-lite)
     # Rate on Scale: $0.10/1M input tokens, $0.40/1M output tokens (~$0.00023/min conversational).
-    # Alternative LiveKit-hosted model: "google/gemma-4-31b-it" ($0.40/1M input, $0.80/1M output).
+    # Model ID verified live against LiveKit Inference SDK: "google/gemini-2.5-flash"
     # Covered by: LiveKit partner startup credit.
     llm_model: str = Field(
-        default_factory=lambda: os.getenv("LLM_MODEL", "google/gemini-2.0-flash")
+        default_factory=lambda: os.getenv("LLM_MODEL", "google/gemini-2.5-flash")
     )
 
     # TTS: Inworld Realtime TTS (or Rime Arcana)
