@@ -29,14 +29,33 @@ class BusinessConfig(BaseModel):
 
 
 class AgentSettings(BaseModel):
-    """LiveKit agent runtime model settings."""
+    """LiveKit agent runtime model settings verified against LiveKit Inference.
 
-    # LiveKit Inference model strings (SRS 7.4)
+    Model IDs & Pricing verified on 2026-11-13 against:
+      - https://docs.livekit.io/agents/models/
+      - https://livekit.com/pricing/inference
+    """
+
+    # STT: Deepgram Nova-3 (Monolingual)
+    # Rate on Scale: $0.0048/minute usage (as of 2026-10-28 / 2026-11-13).
+    # Covered by: LiveKit partner startup credit.
     stt_model: str = Field(default_factory=lambda: os.getenv("STT_MODEL", "deepgram/nova-3"))
+
+    # LLM: Google Gemini 2.0 Flash (Cheapest suitable model on LiveKit Inference)
+    # Rate on Scale: $0.10/1M input tokens, $0.40/1M output tokens (~$0.00023/min conversational).
+    # Alternative LiveKit-hosted model: "google/gemma-4-31b-it" ($0.40/1M input, $0.80/1M output).
+    # Covered by: LiveKit partner startup credit.
     llm_model: str = Field(
-        default_factory=lambda: os.getenv("LLM_MODEL", "google/gemini-2.5-flash")
+        default_factory=lambda: os.getenv("LLM_MODEL", "google/gemini-2.0-flash")
     )
-    tts_model: str = Field(default_factory=lambda: os.getenv("TTS_MODEL", "rime/arcana"))
+
+    # TTS: Inworld Realtime TTS (or Rime Arcana)
+    # Rate on Scale: Inworld is $20.00/1M characters (~$0.018/min at 900 chars/min).
+    # (Rime Arcana is $30.00/1M characters on Scale tier).
+    # Default Voice ID: "Alex" (documented default in LiveKit Inference catalog).
+    # Covered by: LiveKit partner startup credit.
+    tts_model: str = Field(default_factory=lambda: os.getenv("TTS_MODEL", "inworld/inworld-tts-1"))
+    tts_voice_id: str = Field(default_factory=lambda: os.getenv("TTS_VOICE_ID", "Alex"))
 
 
 def load_business_config(

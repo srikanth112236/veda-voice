@@ -18,7 +18,9 @@ from livekit.plugins import silero
 from agent.config import get_agent_settings, load_business_config
 from agent.prompts import build_system_prompt
 
-load_dotenv()
+# Load local environment overrides first, then default environment file
+load_dotenv(".env.local")
+load_dotenv(".env")
 logger = logging.getLogger("receptionist")
 
 AGENT_NAME = "receptionist"

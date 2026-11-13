@@ -32,7 +32,7 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-Review `.env` and configure credentials when moving beyond scaffold milestones.
+For local agent development and console mode, place your personal LiveKit credentials and local overrides in `.env.local` (e.g. `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`). The application automatically loads `.env.local` first with fallback to `.env`. Both `.env` and `.env.local` are strictly git-ignored.
 
 ### 2. Python Virtual Environment
 
