@@ -115,7 +115,10 @@ async def entrypoint(ctx: JobContext) -> None:
         stt=settings.stt_model,
         llm=settings.llm_model,
         tts=settings.tts_model,
-        vad=silero.VAD.load(),
+        vad=silero.VAD.load(
+            min_silence_duration=0.75,
+            prefix_padding_duration=0.6,
+        ),
         user_away_timeout=10.0,
     )
 
@@ -123,6 +126,10 @@ async def entrypoint(ctx: JobContext) -> None:
     clock = SystemClock()
 
     async def monitor_say(text: str) -> None:
+        # Avoid speaking silence warning over active user speech
+        if getattr(session, "user_state", None) == "speaking":
+            safety_monitor.on_user_activity()
+            return
         try:
             await session.say(text, allow_interruptions=True)
         except Exception as e:
@@ -331,9 +338,10 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.info(
                 "Call record successfully stored at %s for tenant %s", saved_path, config.tenant_id
             )
-            dispatch_post_call_notification(record, config)
+            # Dispatch post-call notification asynchronously so teardown does not block
+            asyncio.create_task(asyncio.to_thread(dispatch_post_call_notification, record, config))
         except Exception as e:
-            logger.error("Failed to write call record or dispatch alert: %s", e)
+            logger.error("Failed to write call record: %s", e)
 
     @session.on("close")
     def on_session_close(event: CloseEvent) -> None:
