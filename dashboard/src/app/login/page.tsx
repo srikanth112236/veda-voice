@@ -131,7 +131,7 @@ export default function LoginPage() {
 
               <button
                 type="button"
-                onClick={() => handleQuickLogin("owner@apexplumbing.local", "ApexOwner2026!")}
+                onClick={() => handleQuickLogin("owner@apexplumbing.com", "ApexOwner2026!")}
                 className="p-2.5 rounded-lg border border-zinc-800 bg-zinc-950/60 hover:bg-zinc-800/50 text-left transition-colors text-xs space-y-0.5"
               >
                 <div className="flex items-center gap-1.5 font-semibold text-zinc-200">

@@ -105,7 +105,7 @@ def seed_initial_data() -> None:
             # Tenant Owner User
             owner = User(
                 tenant_id=tenant.id,
-                email="owner@apexplumbing.local",
+                email="owner@apexplumbing.com",
                 hashed_password=hash_password("ApexOwner2026!"),
                 full_name="Bob Henderson",
                 role="tenant_owner",
