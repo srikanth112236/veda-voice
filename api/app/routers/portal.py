@@ -232,9 +232,11 @@ def get_agent_profile(
         hours=tenant.hours,
         greeting=profile.greeting,
         tone=profile.tone,
-        voice_id=getattr(profile, "voice_id", "Alex") or "Alex",
-        recording_disclosure=bool(getattr(profile, "recording_disclosure", True)),
-        phonetic_glossary=getattr(profile, "phonetic_glossary", []) or [],
+        voice_id=getattr(profile, "voice_id", None) or "Alex",
+        recording_disclosure=True
+        if getattr(profile, "recording_disclosure", None) is None
+        else bool(profile.recording_disclosure),
+        phonetic_glossary=getattr(profile, "phonetic_glossary", None) or [],
         services=profile.services,
         pricing_policy=profile.pricing_policy,
         faq=profile.faq,
@@ -298,9 +300,11 @@ def update_agent_profile(
         hours=tenant.hours,
         greeting=profile.greeting,
         tone=profile.tone,
-        voice_id=getattr(profile, "voice_id", "Alex") or "Alex",
-        recording_disclosure=bool(getattr(profile, "recording_disclosure", True)),
-        phonetic_glossary=getattr(profile, "phonetic_glossary", []) or [],
+        voice_id=getattr(profile, "voice_id", None) or "Alex",
+        recording_disclosure=True
+        if getattr(profile, "recording_disclosure", None) is None
+        else bool(profile.recording_disclosure),
+        phonetic_glossary=getattr(profile, "phonetic_glossary", None) or [],
         services=profile.services,
         pricing_policy=profile.pricing_policy,
         faq=profile.faq,
