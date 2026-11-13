@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,10 +16,12 @@ _DIGITS_ONLY = re.compile(r"\D")
 
 
 class FAQItem(BaseModel):
-    """FAQ question and answer pair."""
+    """FAQ question and answer pair with category tagging and caller phrasing triggers."""
 
     question: str
     answer: str
+    category: str = "general"
+    alternate_phrasings: list[str] = Field(default_factory=list)
 
 
 class EmergencyConfig(BaseModel):
@@ -27,6 +29,7 @@ class EmergencyConfig(BaseModel):
 
     keywords: list[str] = Field(default_factory=list)
     approved_safety_script: str = ""
+    mode: str = "priority_message"
 
 
 class TenantConfig(BaseModel):
@@ -46,9 +49,12 @@ class TenantConfig(BaseModel):
     recording_disclosure: bool | str = True
     phonetic_glossary: list[dict[str, str]] = Field(default_factory=list)
     pricing_mode: Literal["no_quote", "listed", "range"] = "no_quote"
-    price_items: list[str] = Field(default_factory=list)
+    price_items: list[Any] = Field(default_factory=list)
     services: list[str] = Field(default_factory=list)
     service_area: str = ""
+    service_cities: list[str] = Field(default_factory=list)
+    after_hours_policy: str = "take_message_all"
+    out_of_area_policy: str = "polite_decline"
     faq: list[FAQItem] = Field(default_factory=list)
     emergency: EmergencyConfig = Field(default_factory=EmergencyConfig)
     tools_enabled: list[str] = Field(default_factory=lambda: ["take_message", "end_call"])

@@ -62,6 +62,7 @@ class TenantDashboardStats(BaseModel):
 class UpdateAgentProfileRequest(BaseModel):
     business_name: str | None = None
     agent_name: str | None = None
+    timezone: str | None = None
     hours: str | None = None
     greeting: str | None = None
     tone: str | None = None
@@ -70,10 +71,19 @@ class UpdateAgentProfileRequest(BaseModel):
     phonetic_glossary: list[dict[str, str]] | None = None
     services: list[str] | None = None
     pricing_policy: str | None = None
-    faq: list[dict[str, str]] | None = None
+    pricing_mode: str | None = None
+    price_items: list[Any] | None = None
+    pricing_details: dict[str, Any] | None = None
+    faq: list[dict[str, Any]] | None = None
+    emergency_mode: str | None = None
     emergency_keywords: list[str] | None = None
     emergency_advice: str | None = None
+    approved_safety_script: str | None = None
     transfer_number: str | None = None
+    service_area: str | None = None
+    service_cities: list[str] | None = None
+    after_hours_policy: str | None = None
+    out_of_area_policy: str | None = None
 
 
 class AgentProfileResponse(BaseModel):
@@ -88,10 +98,19 @@ class AgentProfileResponse(BaseModel):
     phonetic_glossary: list[dict[str, str]] = Field(default_factory=list)
     services: list[str]
     pricing_policy: str
-    faq: list[dict[str, str]]
+    pricing_mode: str = "no_quote"
+    price_items: list[Any] = Field(default_factory=list)
+    pricing_details: dict[str, Any] = Field(default_factory=dict)
+    faq: list[dict[str, Any]] = Field(default_factory=list)
+    emergency_mode: str = "priority_message"
     emergency_keywords: list[str]
     emergency_advice: str
+    approved_safety_script: str = ""
     transfer_number: str
+    service_area: str = ""
+    service_cities: list[str] = Field(default_factory=list)
+    after_hours_policy: str = "take_message_all"
+    out_of_area_policy: str = "polite_decline"
 
 
 @router.get("/dashboard", response_model=TenantDashboardStats)
@@ -239,10 +258,28 @@ def get_agent_profile(
         phonetic_glossary=getattr(profile, "phonetic_glossary", None) or [],
         services=profile.services,
         pricing_policy=profile.pricing_policy,
+        pricing_mode=getattr(profile, "pricing_mode", None)
+        or (
+            "listed"
+            if profile.pricing_policy == "fixed_menu"
+            else "no_quote"
+            if profile.pricing_policy in ("diagnostic_fee_only", "no_quote_take_message")
+            else "no_quote"
+        ),
+        price_items=getattr(profile, "price_items", None) or [],
+        pricing_details=getattr(profile, "pricing_details", None) or {},
         faq=profile.faq,
+        emergency_mode=getattr(profile, "emergency_mode", None) or "priority_message",
         emergency_keywords=profile.emergency_keywords,
         emergency_advice=profile.emergency_advice,
+        approved_safety_script=getattr(profile, "approved_safety_script", None)
+        or profile.emergency_advice
+        or "",
         transfer_number=profile.transfer_number,
+        service_area=getattr(profile, "service_area", None) or "",
+        service_cities=getattr(profile, "service_cities", None) or [],
+        after_hours_policy=getattr(profile, "after_hours_policy", None) or "take_message_all",
+        out_of_area_policy=getattr(profile, "out_of_area_policy", None) or "polite_decline",
     )
 
 
@@ -255,6 +292,8 @@ def update_agent_profile(
     """Update business profile and receptionist behavior."""
     if req.business_name:
         tenant.name = req.business_name
+    if req.timezone:
+        tenant.timezone = req.timezone
     if req.hours:
         tenant.hours = req.hours
 
@@ -279,14 +318,37 @@ def update_agent_profile(
         profile.services = req.services
     if req.pricing_policy is not None:
         profile.pricing_policy = req.pricing_policy
+    if req.pricing_mode is not None:
+        profile.pricing_mode = req.pricing_mode
+        # Keep pricing_policy in sync
+        profile.pricing_policy = req.pricing_mode
+    if req.price_items is not None:
+        profile.price_items = req.price_items
+    if req.pricing_details is not None:
+        profile.pricing_details = req.pricing_details
     if req.faq is not None:
         profile.faq = req.faq
+    if req.emergency_mode is not None:
+        profile.emergency_mode = req.emergency_mode
     if req.emergency_keywords is not None:
         profile.emergency_keywords = req.emergency_keywords
     if req.emergency_advice is not None:
         profile.emergency_advice = req.emergency_advice
+        if req.approved_safety_script is None:
+            profile.approved_safety_script = req.emergency_advice
+    if req.approved_safety_script is not None:
+        profile.approved_safety_script = req.approved_safety_script
+        profile.emergency_advice = req.approved_safety_script
     if req.transfer_number is not None:
         profile.transfer_number = req.transfer_number
+    if req.service_area is not None:
+        profile.service_area = req.service_area
+    if req.service_cities is not None:
+        profile.service_cities = req.service_cities
+    if req.after_hours_policy is not None:
+        profile.after_hours_policy = req.after_hours_policy
+    if req.out_of_area_policy is not None:
+        profile.out_of_area_policy = req.out_of_area_policy
 
     profile.updated_at = datetime.now(UTC)
     db.commit()
@@ -307,8 +369,26 @@ def update_agent_profile(
         phonetic_glossary=getattr(profile, "phonetic_glossary", None) or [],
         services=profile.services,
         pricing_policy=profile.pricing_policy,
+        pricing_mode=getattr(profile, "pricing_mode", None)
+        or (
+            "listed"
+            if profile.pricing_policy == "fixed_menu"
+            else "no_quote"
+            if profile.pricing_policy in ("diagnostic_fee_only", "no_quote_take_message")
+            else "no_quote"
+        ),
+        price_items=getattr(profile, "price_items", None) or [],
+        pricing_details=getattr(profile, "pricing_details", None) or {},
         faq=profile.faq,
+        emergency_mode=getattr(profile, "emergency_mode", None) or "priority_message",
         emergency_keywords=profile.emergency_keywords,
         emergency_advice=profile.emergency_advice,
+        approved_safety_script=getattr(profile, "approved_safety_script", None)
+        or profile.emergency_advice
+        or "",
         transfer_number=profile.transfer_number,
+        service_area=getattr(profile, "service_area", None) or "",
+        service_cities=getattr(profile, "service_cities", None) or [],
+        after_hours_policy=getattr(profile, "after_hours_policy", None) or "take_message_all",
+        out_of_area_policy=getattr(profile, "out_of_area_policy", None) or "polite_decline",
     )

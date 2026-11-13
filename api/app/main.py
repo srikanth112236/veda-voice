@@ -191,6 +191,50 @@ def init_db() -> None:
                         "ALTER TABLE agent_profiles ADD COLUMN phonetic_glossary JSON DEFAULT '[]'"
                     )
                 )
+            if "pricing_mode" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN pricing_mode VARCHAR(32) DEFAULT 'no_quote'"
+                    )
+                )
+            if "price_items" not in existing_cols:
+                conn.execute(
+                    text("ALTER TABLE agent_profiles ADD COLUMN price_items JSON DEFAULT '[]'")
+                )
+            if "emergency_mode" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN emergency_mode VARCHAR(64) DEFAULT 'priority_message'"
+                    )
+                )
+            if "approved_safety_script" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN approved_safety_script TEXT DEFAULT ''"
+                    )
+                )
+            if "service_area" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN service_area VARCHAR(255) DEFAULT ''"
+                    )
+                )
+            if "service_cities" not in existing_cols:
+                conn.execute(
+                    text("ALTER TABLE agent_profiles ADD COLUMN service_cities JSON DEFAULT '[]'")
+                )
+            if "after_hours_policy" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN after_hours_policy VARCHAR(64) DEFAULT 'take_message_all'"
+                    )
+                )
+            if "out_of_area_policy" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN out_of_area_policy VARCHAR(64) DEFAULT 'polite_decline'"
+                    )
+                )
             conn.commit()
     seed_initial_data()
 

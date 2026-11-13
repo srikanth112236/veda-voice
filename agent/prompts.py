@@ -1,6 +1,7 @@
 """Prompt builder adhering to SRS 7.3 and Milestone M2-lite specifications."""
 
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from agent.config import TenantConfig
@@ -26,11 +27,50 @@ def build_system_prompt(
         if config.services
         else "- General inquiries and service intake"
     )
-    faq_formatted = (
-        "\n".join(f"Q: {item.question}\nA: {item.answer}" for item in config.faq)
-        if config.faq
-        else "No specific FAQs registered."
-    )
+    if config.faq:
+        # Group by category if multiple categories are present
+        categories: dict[str, list] = {}
+        for item in config.faq:
+            cat = getattr(item, "category", "general") or "general"
+            categories.setdefault(cat.strip().lower(), []).append(item)
+
+        category_labels = {
+            "hours_availability": "BUSINESS HOURS & AVAILABILITY",
+            "service_scope": "SERVICE SCOPE & COVERAGE",
+            "licensing_insurance": "LICENSING, INSURANCE & CREDENTIALS",
+            "booking_procedures": "BOOKING & DISPATCH PROCEDURES",
+            "pricing": "PRICING & ESTIMATES",
+            "general": "GENERAL INFORMATION",
+        }
+
+        if len(categories) == 1 and "general" in categories:
+            faq_lines = []
+            for item in config.faq:
+                triggers = getattr(item, "alternate_phrasings", []) or []
+                trigger_str = (
+                    f" (Caller may ask: {', '.join(f'\"{t}\"' for t in triggers)})"
+                    if triggers
+                    else ""
+                )
+                faq_lines.append(f"Q: {item.question}{trigger_str}\nA: {item.answer}")
+            faq_formatted = "\n".join(faq_lines)
+        else:
+            cat_sections = []
+            for cat, items in categories.items():
+                label = category_labels.get(cat, cat.replace("_", " ").upper())
+                sec_lines = [f"[{label}]"]
+                for it in items:
+                    triggers = getattr(it, "alternate_phrasings", []) or []
+                    trigger_str = (
+                        f" (Caller may ask: {', '.join(f'\"{t}\"' for t in triggers)})"
+                        if triggers
+                        else ""
+                    )
+                    sec_lines.append(f"Q: {it.question}{trigger_str}\nA: {it.answer}")
+                cat_sections.append("\n".join(sec_lines))
+            faq_formatted = "\n\n".join(cat_sections)
+    else:
+        faq_formatted = "No specific FAQs registered."
     emergency_kw_str = (
         ", ".join(f'"{kw}"' for kw in config.emergency.keywords)
         if config.emergency.keywords
@@ -61,14 +101,22 @@ def build_system_prompt(
     }.get(config.tone, "Speak naturally, warmly, and concisely for voice.")
 
     # Pricing guidance
+    def _format_price_item(item: Any) -> str:
+        if isinstance(item, dict):
+            svc = item.get("service") or item.get("name") or "Service"
+            amt = item.get("amount") or item.get("price") or ""
+            cond = item.get("conditions") or item.get("notes") or ""
+            return f"{amt} - {svc}" + (f" ({cond})" if cond else "")
+        return str(item)
+
     if config.pricing_mode == "listed" and config.price_items:
-        items_bullets = "\n".join(f"  * {item}" for item in config.price_items)
+        items_bullets = "\n".join(f"  * {_format_price_item(item)}" for item in config.price_items)
         pricing_instruction = (
             f"You may quote ONLY the following approved prices:\n{items_bullets}\n"
             "For any other service or repair, state that an upfront quote is provided on-site after an inspection."
         )
     elif config.pricing_mode == "range" and config.price_items:
-        items_bullets = "\n".join(f"  * {item}" for item in config.price_items)
+        items_bullets = "\n".join(f"  * {_format_price_item(item)}" for item in config.price_items)
         pricing_instruction = (
             f"You may provide the following estimated price ranges:\n{items_bullets}\n"
             "Always state that final pricing depends on an on-site assessment."
@@ -106,11 +154,28 @@ def build_system_prompt(
    - This line is not configured to take customer messages or collect caller details.
    - Politely inform the caller to check the website or contact the office during normal operating hours, then end the call."""
 
-    service_area_line = (
-        f"- Service Area: {config.service_area}"
-        if config.service_area
-        else "- Service Area: None specified"
-    )
+    # Service area and geofencing
+    area_parts = []
+    if config.service_area:
+        area_parts.append(f"Territory: {config.service_area}")
+    if config.service_cities:
+        area_parts.append(f"Covered Cities: {', '.join(config.service_cities)}")
+    service_area_desc = " | ".join(area_parts) if area_parts else "None specified"
+
+    if config.out_of_area_policy == "strict_decline":
+        geofence_instruction = "If the caller's address or city is outside our service area, politely decline service and suggest they contact a local provider in their area."
+    elif config.out_of_area_policy == "travel_surcharge":
+        geofence_instruction = "If caller is outside our primary service area, inform them that service may be available with an extended travel surcharge, and offer to take a message."
+    else:  # polite_decline (default)
+        geofence_instruction = "If caller is outside our service area, state that we cannot send a technician to their location, but offer to write down their details for manager follow-up."
+
+    # After-hours call policy
+    if config.after_hours_policy == "emergency_only":
+        after_hours_guidance = "If the call is outside normal working hours, inform the caller the office is closed for routine business and that only emergency dispatch calls are handled after hours."
+    elif config.after_hours_policy == "informational_only":
+        after_hours_guidance = "If the call is outside normal working hours, state our normal hours and website, and do not take messages."
+    else:  # take_message_all (default)
+        after_hours_guidance = "If the call is outside normal working hours, politely inform the caller that the office is currently closed and offer to take a message for the morning team."
 
     # Business notes block (max 500 characters, strictly placed AFTER platform rules)
     business_notes_block = ""
@@ -135,7 +200,9 @@ TODAY'S DATE & TIME:
 BUSINESS PROFILE:
 - Business Name: {config.business}
 - Working Hours: {config.hours}
-{service_area_line}
+- After-Hours Policy: {after_hours_guidance}
+- Service Area: {service_area_desc}
+- Geofence Rule: {geofence_instruction}
 - Primary Services:
 {services_formatted}
 

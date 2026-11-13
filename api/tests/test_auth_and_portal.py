@@ -147,3 +147,86 @@ def test_agent_profile_module1_brand_and_acoustic_tuning() -> None:
     assert len(updated["phonetic_glossary"]) == 2
     assert updated["phonetic_glossary"][0]["term"] == "HVAC"
     assert updated["phonetic_glossary"][0]["spoken_as"] == "H-V-A-C"
+
+
+def test_agent_profile_modules_3_4_5_enterprise_guardrails() -> None:
+    """Test Module 3 (Pricing), Module 4 (Emergency), and Module 5 (Hours & Geofence)."""
+    unique_email = f"owner-{uuid.uuid4().hex[:8]}@apexplumbing.com"
+    reg_resp = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": "Lone Star Emergency Plumbing",
+            "owner_name": "Sarah Connor",
+            "email": unique_email,
+            "password": "Password123!",
+            "timezone": "America/Chicago",
+            "niche": "plumbing",
+        },
+    )
+    assert reg_resp.status_code == 200
+    token = reg_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Update profile with all Module 3, 4, 5 fields
+    update_payload = {
+        # Module 3
+        "pricing_mode": "listed",
+        "price_items": [
+            {
+                "service": "Diagnostic Trip Fee",
+                "amount": "$89",
+                "type": "fixed",
+                "conditions": "Credited toward repair",
+            },
+            {
+                "service": "Standard Drain Snaking",
+                "amount": "$150 - $250",
+                "type": "range",
+                "conditions": "Up to 50ft line access",
+            },
+        ],
+        # Module 4
+        "emergency_mode": "live_transfer",
+        "emergency_keywords": ["burst pipe", "flooding", "gas smell", "sewage backup"],
+        "approved_safety_script": "If safe, turn off your main water valve immediately.",
+        "transfer_number": "+18005550199",
+        # Module 5
+        "timezone": "America/Chicago",
+        "hours": "Monday through Friday 8:00 AM to 5:00 PM Central, closed weekends.",
+        "service_area": "Greater Austin within 25 miles",
+        "service_cities": ["Austin", "Round Rock", "Cedar Park", "Georgetown"],
+        "after_hours_policy": "emergency_only",
+        "out_of_area_policy": "polite_decline",
+    }
+
+    put_resp = client.put("/api/v1/portal/profile", json=update_payload, headers=headers)
+    assert put_resp.status_code == 200
+    updated = put_resp.json()
+
+    # Verify Module 3
+    assert updated["pricing_mode"] == "listed"
+    assert len(updated["price_items"]) == 2
+    assert updated["price_items"][0]["amount"] == "$89"
+
+    # Verify Module 4
+    assert updated["emergency_mode"] == "live_transfer"
+    assert "burst pipe" in updated["emergency_keywords"]
+    assert "main water valve" in updated["approved_safety_script"]
+    assert updated["transfer_number"] == "+18005550199"
+
+    # Verify Module 5
+    assert updated["timezone"] == "America/Chicago"
+    assert "Monday through Friday" in updated["hours"]
+    assert updated["service_area"] == "Greater Austin within 25 miles"
+    assert "Round Rock" in updated["service_cities"]
+    assert updated["after_hours_policy"] == "emergency_only"
+    assert updated["out_of_area_policy"] == "polite_decline"
+
+    # Verify GET persistence
+    get_resp = client.get("/api/v1/portal/profile", headers=headers)
+    assert get_resp.status_code == 200
+    persisted = get_resp.json()
+    assert persisted["pricing_mode"] == "listed"
+    assert persisted["emergency_mode"] == "live_transfer"
+    assert persisted["after_hours_policy"] == "emergency_only"
+    assert len(persisted["service_cities"]) == 4

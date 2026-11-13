@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -75,11 +75,27 @@ class AgentProfile(Base):
     pricing_policy: Mapped[str] = mapped_column(
         String(64), default="diagnostic_fee_only", nullable=False
     )
-    pricing_details: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
-    faq: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list, nullable=False)
+    pricing_mode: Mapped[str] = mapped_column(
+        String(32), default="no_quote", nullable=False
+    )  # no_quote, listed, range
+    price_items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    pricing_details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    faq: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    emergency_mode: Mapped[str] = mapped_column(
+        String(64), default="priority_message", nullable=False
+    )
     emergency_keywords: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     emergency_advice: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    approved_safety_script: Mapped[str] = mapped_column(Text, default="", nullable=False)
     transfer_number: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    service_area: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    service_cities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    after_hours_policy: Mapped[str] = mapped_column(
+        String(64), default="take_message_all", nullable=False
+    )
+    out_of_area_policy: Mapped[str] = mapped_column(
+        String(64), default="polite_decline", nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

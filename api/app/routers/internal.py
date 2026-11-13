@@ -26,8 +26,8 @@ class InternalTenantConfigResponse(BaseModel):
     tone: str
     services: list[str]
     pricing_policy: str
-    pricing_details: dict[str, str]
-    faq: list[dict[str, str]]
+    pricing_details: dict[str, Any]
+    faq: list[dict[str, Any]]
     emergency_keywords: list[str]
     emergency_advice: str
     transfer_number: str

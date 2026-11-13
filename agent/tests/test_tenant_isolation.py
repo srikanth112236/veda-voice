@@ -281,3 +281,65 @@ def test_phonetic_pronunciation_glossary_isolation_and_formatting() -> None:
     assert "PHONETIC PRONUNCIATION GLOSSARY" not in prompt_b
     assert "pecks" not in prompt_b
     assert "Wooster" not in prompt_b
+
+
+def test_modules_3_4_5_pricing_emergency_geofence_prompts() -> None:
+    """Verify Module 3 (Pricing), Module 4 (Emergency), and Module 5 (Geofence) in prompts."""
+    tenant_a = TenantConfig(
+        tenant_id="tenant-advanced-a",
+        business="CoolAir HVAC",
+        numbers=["+18005550601"],
+        hours="Monday through Friday 8am-5pm",
+        greeting="Hi",
+        pricing_mode="range",
+        price_items=[
+            {
+                "service": "AC Seasonal Tune-Up",
+                "amount": "$150 to $300",
+                "conditions": "Standard single unit",
+            }
+        ],
+        emergency=EmergencyConfig(
+            keywords=["furnace spark", "gas smell"],
+            approved_safety_script="Evacuate the basement mechanical room immediately.",
+        ),
+        service_area="Greater Chicagoland",
+        service_cities=["Chicago", "Naperville", "Evanston"],
+        out_of_area_policy="strict_decline",
+        after_hours_policy="emergency_only",
+    )
+    prompt_a = build_system_prompt(tenant_a)
+
+    # Module 3 checks
+    assert "You may provide the following estimated price ranges:" in prompt_a
+    assert "$150 to $300 - AC Seasonal Tune-Up (Standard single unit)" in prompt_a
+    assert "Always state that final pricing depends on an on-site assessment." in prompt_a
+
+    # Module 4 checks
+    assert "Approved Safety Script: Evacuate the basement mechanical room immediately." in prompt_a
+    assert "gas smell" in prompt_a
+
+    # Module 5 checks
+    assert "Territory: Greater Chicagoland" in prompt_a
+    assert "Chicago, Naperville, Evanston" in prompt_a
+    assert "decline service and suggest they contact a local provider" in prompt_a
+    assert "only emergency dispatch calls are handled after hours" in prompt_a
+
+    # Verify strict isolation against Tenant B
+    tenant_b = TenantConfig(
+        tenant_id="tenant-advanced-b",
+        business="Acme Web Studio",
+        numbers=["+18005550602"],
+        hours="9-5",
+        greeting="Hi",
+        pricing_mode="no_quote",
+        price_items=[],
+        out_of_area_policy="polite_decline",
+        after_hours_policy="take_message_all",
+    )
+    prompt_b = build_system_prompt(tenant_b)
+
+    assert "Do NOT provide price quotes or estimates over the phone." in prompt_b
+    assert "$150 to $300" not in prompt_b
+    assert "Greater Chicagoland" not in prompt_b
+    assert "Naperville" not in prompt_b
