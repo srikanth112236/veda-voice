@@ -1,12 +1,20 @@
 {
-  "default": {
+  "+18005550199": {
+    "tenant_id": "apex-plumbing",
     "business": "Apex Plumbing & Heating",
-    "agent_name": "receptionist",
-    "greeting": "Thanks for calling Apex Plumbing & Heating. I'm an automated assistant, and this call may be recorded and transcribed for quality assurance. How can I help you today?",
-    "record_disclosure": true,
-    "max_call_duration_seconds": 600,
+    "numbers": [
+      "+18005550199"
+    ],
     "timezone": "America/New_York",
     "hours": "Monday through Friday 8:00 AM to 5:00 PM Eastern, Saturday 9:00 AM to 1:00 PM Eastern, closed Sunday.",
+    "greeting": "Thanks for calling Apex Plumbing & Heating. I'm an automated assistant, and this call may be recorded and transcribed for quality assurance. How can I help you today?",
+    "tone": "direct",
+    "pricing_mode": "listed",
+    "price_items": [
+      "$89 dispatch diagnostic fee (credited towards any completed repair)",
+      "$150 standard drain clearing",
+      "$220 water heater maintenance flush"
+    ],
     "services": [
       "Emergency plumbing repairs",
       "Drain cleaning",
@@ -14,16 +22,7 @@
       "Pipe leak detection",
       "HVAC maintenance and seasonal inspection"
     ],
-    "emergency_keywords": [
-      "smell gas",
-      "gas leak",
-      "pipe burst",
-      "burst pipe",
-      "flooding",
-      "water everywhere",
-      "sewage backup"
-    ],
-    "transfer_number": "+15551234567",
+    "service_area": "Metropolitan area and surrounding suburbs within a 25-mile radius",
     "faq": [
       {
         "question": "What are your business hours?",
@@ -43,8 +42,128 @@
       },
       {
         "question": "How much does a routine service visit cost?",
-        "answer": "We provide transparent, upfront estimates on-site after assessing the issue before performing any work."
+        "answer": "We charge an $89 diagnostic fee to inspect the issue and provide an upfront price before starting work."
       }
-    ]
+    ],
+    "emergency": {
+      "keywords": [
+        "smell gas",
+        "gas leak",
+        "pipe burst",
+        "burst pipe",
+        "flooding",
+        "water everywhere",
+        "sewage backup"
+      ],
+      "approved_safety_script": "If safe to do so, locate and shut off your main water valve right away to prevent further damage."
+    },
+    "tools_enabled": [
+      "take_message",
+      "end_call"
+    ],
+    "max_call_duration_seconds": 600,
+    "transfer_number": "+18005550199",
+    "recording_disclosure": true,
+    "business_notes": "Technicians are on rotating call. Do not promise specific technician arrival times."
+  },
+  "+18005550188": {
+    "tenant_id": "coolair-hvac",
+    "business": "CoolAir HVAC",
+    "numbers": [
+      "+18005550188"
+    ],
+    "timezone": "America/Chicago",
+    "hours": "Monday through Saturday 7:00 AM to 7:00 PM Central, closed Sunday.",
+    "greeting": "Thank you for calling CoolAir HVAC. Calls may be recorded for quality. How can we keep you comfortable today?",
+    "tone": "warm",
+    "pricing_mode": "range",
+    "price_items": [
+      "AC seasonal tune-up: $79 to $129",
+      "Furnace safety inspection: $89 to $149",
+      "Duct cleaning: $250 to $450 depending on home size"
+    ],
+    "services": [
+      "AC repair and installation",
+      "Furnace maintenance",
+      "Heat pump diagnostics",
+      "Ductwork sealing",
+      "Thermostat installation"
+    ],
+    "service_area": "Greater Chicagoland area within 30 miles",
+    "faq": [
+      {
+        "question": "What areas do you serve?",
+        "answer": "We serve Chicago and surrounding suburbs within a 30-mile radius."
+      },
+      {
+        "question": "Do you offer financing?",
+        "answer": "Yes, we offer 0% financing for 12 months on new HVAC system installations with approved credit."
+      }
+    ],
+    "emergency": {
+      "keywords": [
+        "furnace sparks",
+        "carbon monoxide",
+        "gas smell",
+        "freezing inside",
+        "burning odor"
+      ],
+      "approved_safety_script": "If you smell gas or suspect carbon monoxide, evacuate immediately and call 911 from outside. If the furnace is sparking, shut off the furnace breaker switch if safe to reach."
+    },
+    "tools_enabled": [
+      "take_message",
+      "end_call"
+    ],
+    "max_call_duration_seconds": 600,
+    "transfer_number": "+18005550199",
+    "recording_disclosure": true,
+    "business_notes": "Senior citizen discount: 10% off labor on all maintenance visits."
+  },
+  "+18005550177": {
+    "tenant_id": "acme-web",
+    "business": "Acme Web Studio",
+    "numbers": [
+      "+18005550177"
+    ],
+    "timezone": "America/Los_Angeles",
+    "hours": "Monday through Friday 9:00 AM to 6:00 PM Pacific.",
+    "greeting": "Welcome to Acme Web Studio. This call may be recorded for quality. How may we assist with your web project today?",
+    "tone": "formal",
+    "pricing_mode": "no_quote",
+    "price_items": [],
+    "services": [
+      "Custom web application development",
+      "UX/UI design",
+      "Cloud API integrations",
+      "Site maintenance and performance optimization"
+    ],
+    "service_area": "Worldwide / Remote clients",
+    "faq": [
+      {
+        "question": "Do you build mobile apps?",
+        "answer": "We build responsive web apps and cross-platform progressive web apps."
+      },
+      {
+        "question": "What is your typical project timeline?",
+        "answer": "Most custom web projects take between 4 to 12 weeks depending on scope."
+      }
+    ],
+    "emergency": {
+      "keywords": [
+        "site down",
+        "database breach",
+        "production outage",
+        "critical security bug"
+      ],
+      "approved_safety_script": ""
+    },
+    "tools_enabled": [
+      "take_message",
+      "end_call"
+    ],
+    "max_call_duration_seconds": 600,
+    "transfer_number": "+18005550199",
+    "recording_disclosure": true,
+    "business_notes": "Projects start at a $5,000 minimum engagement. All quotes require a technical scoping call."
   }
 }

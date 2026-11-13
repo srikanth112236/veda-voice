@@ -1,4 +1,4 @@
-"""LiveKit Voice Agent entrypoint for Milestones M1a, M1b & M1c-a."""
+"""LiveKit Voice Agent entrypoint for Milestones M1a, M1b, M1c & M2-lite."""
 
 import asyncio
 import logging
@@ -26,7 +26,7 @@ from livekit.agents.llm import ChatMessage
 from livekit.agents.metrics import EOUMetrics, LLMMetrics, TTSMetrics
 from livekit.plugins import silero
 
-from agent.config import get_agent_settings, load_business_config
+from agent.config import get_agent_settings, load_business_config, resolve_tenant
 from agent.post_call import dispatch_post_call_notification
 from agent.prompts import build_system_prompt
 from agent.records import CallRecord, FileCallStore, TranscriptEntry
@@ -42,11 +42,12 @@ logger = logging.getLogger("receptionist")
 AGENT_NAME = "receptionist"
 
 
-def get_agent_info() -> dict[str, str]:
+def get_agent_info(dialed_number: str = "") -> dict[str, str]:
     """Return basic agent metadata for verification."""
-    config = load_business_config("default")
+    config = resolve_tenant(dialed_number) if dialed_number else load_business_config("default")
     return {
         "name": AGENT_NAME,
+        "tenant_id": config.tenant_id,
         "business": config.business,
         "status": "ready",
         "livekit_url": os.getenv("LIVEKIT_URL", "wss://<project>.livekit.cloud"),
@@ -67,10 +68,9 @@ async def end_call(
 
 
 async def entrypoint(ctx: JobContext) -> None:
-    """Main worker entrypoint for LiveKit Agent session."""
+    """Main worker entrypoint for LiveKit Agent session with multi-tenant resolution."""
     room_name = ctx.room.name
     logger.info("Starting receptionist agent in room %s", room_name)
-    config = load_business_config("default")
     settings = get_agent_settings()
 
     # Session state collectors
@@ -90,6 +90,23 @@ async def entrypoint(ctx: JobContext) -> None:
     call_outcome: str = "abandoned"  # Default if closed before resolution
     call_record_written = False
 
+    # Check pre-connected participant attributes if available
+    for participant in ctx.room.remote_participants.values():
+        attrs: Any = getattr(participant, "attributes", {})
+        sip_info = parse_sip_attributes(attrs)
+        break
+
+    # Resolve tenant config from dialed number
+    config = resolve_tenant(sip_info["dialed_number"])
+    message_collector.tenant_id = config.tenant_id
+    message_collector.caller_id_phone = sip_info["caller_number"]
+    logger.info(
+        "Resolved tenant '%s' (%s) for dialed number '%s'",
+        config.tenant_id,
+        config.business,
+        redact_phone(sip_info["dialed_number"]),
+    )
+
     # Initialize take_message tool bound to this session's collector
     take_message_tool = create_take_message_tool(message_collector)
 
@@ -99,7 +116,7 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=settings.llm_model,
         tts=settings.tts_model,
         vad=silero.VAD.load(),
-        user_away_timeout=10.0,  # LiveKit inactivity detection fires user_state_changed at 10s
+        user_away_timeout=10.0,
     )
 
     # Safety Monitor (Inactivity prompts + max call length)
@@ -182,6 +199,9 @@ async def entrypoint(ctx: JobContext) -> None:
             llm_calls = max(1, current_llm_calls_this_turn)
             tracker.record_turn(
                 pipeline_latency_ms=pipeline_latency_ms,
+                eou_delay_ms=current_eou_delay_ms,
+                llm_ttft_ms=current_llm_ttft_ms,
+                tts_ttfb_ms=tts_ttfb_ms,
                 library_e2e_ms=lib_e2e_ms,
                 llm_calls=llm_calls,
             )
@@ -229,7 +249,7 @@ async def entrypoint(ctx: JobContext) -> None:
             )
             # Scan for emergency keywords or spam in text
             low = text_str.lower()
-            for kw in config.emergency_keywords:
+            for kw in config.emergency.keywords:
                 if kw in low:
                     recorded_tags.add("emergency")
             if "spam" in low or "robocall" in low:
@@ -237,23 +257,26 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @ctx.room.on("participant_connected")
     def on_participant_connected(participant: rtc.RemoteParticipant) -> None:
-        """Log incoming participant details with phone numbers redacted."""
-        nonlocal sip_info
+        """Log incoming participant details with phone numbers redacted and resolve tenant."""
+        nonlocal sip_info, config
         sip_info = parse_sip_attributes(participant.attributes)
+        config = resolve_tenant(sip_info["dialed_number"])
+        message_collector.tenant_id = config.tenant_id
         message_collector.caller_id_phone = sip_info["caller_number"]
         caller_masked = redact_phone(sip_info["caller_number"])
         dialed_masked = redact_phone(sip_info["dialed_number"])
         logger.info(
-            "Caller joined room %s: identity=%s caller=%s dialed=%s call_id=%s",
+            "Caller joined room %s: identity=%s caller=%s dialed=%s call_id=%s tenant=%s",
             room_name,
             participant.identity,
             caller_masked,
             dialed_masked,
             sip_info["call_id"] or "none",
+            config.tenant_id,
         )
 
     def write_shutdown_call_record(close_reason: str = "") -> None:
-        """Persist final CallRecord to data/calls/ upon any session termination."""
+        """Persist final CallRecord to data/calls/<tenant_id>/ upon any session termination."""
         nonlocal call_record_written, call_outcome
         if call_record_written:
             return
@@ -285,6 +308,7 @@ async def entrypoint(ctx: JobContext) -> None:
         safe_caller = _clean_str(sip_info.get("caller_number"))
 
         record = CallRecord(
+            tenant_id=config.tenant_id,
             call_id=safe_call_id,
             dialed_number=safe_dialed,
             caller_number=safe_caller,
@@ -303,8 +327,10 @@ async def entrypoint(ctx: JobContext) -> None:
         )
 
         try:
-            saved_path = call_store.save_call_record(record)
-            logger.info("Call record successfully stored at %s", saved_path)
+            saved_path = call_store.save_call_record(record, tenant_id=config.tenant_id)
+            logger.info(
+                "Call record successfully stored at %s for tenant %s", saved_path, config.tenant_id
+            )
             dispatch_post_call_notification(record, config)
         except Exception as e:
             logger.error("Failed to write call record or dispatch alert: %s", e)
@@ -328,19 +354,23 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Pre-connected participant check
     for participant in ctx.room.remote_participants.values():
-        attrs: Any = getattr(participant, "attributes", {})
+        attrs = getattr(participant, "attributes", {})
         sip_info = parse_sip_attributes(attrs)
+        config = resolve_tenant(sip_info["dialed_number"])
+        message_collector.tenant_id = config.tenant_id
         message_collector.caller_id_phone = sip_info["caller_number"]
         caller_masked = redact_phone(sip_info["caller_number"])
         dialed_masked = redact_phone(sip_info["dialed_number"])
         logger.info(
-            "Pre-connected caller in room %s: identity=%s caller=%s dialed=%s call_id=%s",
+            "Pre-connected caller in room %s: identity=%s caller=%s dialed=%s call_id=%s tenant=%s",
             room_name,
             participant.identity,
             caller_masked,
             dialed_masked,
             sip_info["call_id"] or "none",
+            config.tenant_id,
         )
+        break
 
     prompt = build_system_prompt(
         config,
@@ -358,35 +388,49 @@ async def entrypoint(ctx: JobContext) -> None:
         nonlocal call_outcome
         logger.info("end_call tool invoked: reason=%s", reason)
         call_outcome = reason
+        try:
+            await session.say(
+                f"Thank you for calling {config.business}. Goodbye!", allow_interruptions=False
+            )
+        except Exception:
+            pass
+        await ctx.room.disconnect()
+        return f"Call ended cleanly: {reason}"
 
-        async def _delayed_disconnect() -> None:
-            await asyncio.sleep(2.0)
-            try:
-                await ctx.room.disconnect()
-            except Exception:
-                pass
+    # Tools enabled per tenant config
+    active_tools: list[Any] = [end_call_tool]
+    if "take_message" in config.tools_enabled:
+        active_tools.append(take_message_tool)
 
-        asyncio.create_task(_delayed_disconnect())
-        return f"Call ended: {reason}"
-
+    # Initialize Voice Agent
     agent = Agent(
         instructions=prompt,
-        tools=[end_call_tool, take_message_tool],
+        tools=active_tools,
     )
 
-    await session.start(agent, room=ctx.room)
-    await session.say(config.greeting, allow_interruptions=True)
+    # Start session with greeting
+    await session.start(
+        room=ctx.room,
+        agent=agent,
+    )
+
+    greeting_text = config.greeting
+    if config.recording_disclosure and "recorded" not in greeting_text.lower():
+        greeting_text = f"This call may be recorded for quality assurance. {greeting_text}"
+
+    logger.info("Speaking greeting for tenant '%s': '%s'", config.tenant_id, greeting_text)
+    await session.say(greeting_text, allow_interruptions=True)
 
 
-def main() -> None:
-    """Run the LiveKit agent worker."""
+def run_app() -> None:
+    """CLI runner for LiveKit agent."""
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
-            agent_name="receptionist",
+            agent_name=AGENT_NAME,
         )
     )
 
 
 if __name__ == "__main__":
-    main()
+    run_app()

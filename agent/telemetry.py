@@ -89,9 +89,12 @@ def calculate_percentiles(values: Sequence[float]) -> tuple[float, float]:
 
 
 class LatencyTracker:
-    """Tracks per-turn pipeline and end-to-end latencies during voice agent calls."""
+    """Tracks per-turn pipeline and end-to-end latencies during voice agent calls across all 3 stages."""
 
     def __init__(self) -> None:
+        self.eou_latencies_ms: list[float] = []
+        self.llm_ttft_latencies_ms: list[float] = []
+        self.tts_ttfb_latencies_ms: list[float] = []
         self.pipeline_latencies_ms: list[float] = []
         self.library_e2e_latencies_ms: list[float] = []
         self.total_llm_calls: int = 0
@@ -99,28 +102,46 @@ class LatencyTracker:
     def record_turn(
         self,
         pipeline_latency_ms: float,
+        eou_delay_ms: float = 0.0,
+        llm_ttft_ms: float = 0.0,
+        tts_ttfb_ms: float = 0.0,
         library_e2e_ms: float | None = None,
         llm_calls: int = 1,
     ) -> None:
-        """Record a single turn's latencies and LLM call count.
+        """Record a single turn's latencies across all 3 stages plus e2e.
 
-        Skips turns where pipeline_latency_ms is negative or zero (e.g. no speech produced).
+        Skips turns where pipeline_latency_ms is negative or zero.
         """
         if pipeline_latency_ms > 0:
             self.pipeline_latencies_ms.append(pipeline_latency_ms)
+            if eou_delay_ms > 0:
+                self.eou_latencies_ms.append(eou_delay_ms)
+            if llm_ttft_ms > 0:
+                self.llm_ttft_latencies_ms.append(llm_ttft_ms)
+            if tts_ttfb_ms > 0:
+                self.tts_ttfb_latencies_ms.append(tts_ttfb_ms)
             if library_e2e_ms is not None and library_e2e_ms > 0:
                 self.library_e2e_latencies_ms.append(library_e2e_ms)
             self.total_llm_calls += max(0, llm_calls)
 
     def summary(self) -> dict[str, float | int]:
-        """Return count, median (p50), and p95 summary for pipeline and library e2e latencies."""
+        """Return count, median (p50), and p95 summary for the three stages, pipeline, and e2e."""
         pipe_p50, pipe_p95 = calculate_percentiles(self.pipeline_latencies_ms)
+        eou_p50, eou_p95 = calculate_percentiles(self.eou_latencies_ms)
+        ttft_p50, ttft_p95 = calculate_percentiles(self.llm_ttft_latencies_ms)
+        ttfb_p50, ttfb_p95 = calculate_percentiles(self.tts_ttfb_latencies_ms)
         e2e_p50, e2e_p95 = calculate_percentiles(self.library_e2e_latencies_ms)
         return {
             "turn_count": len(self.pipeline_latencies_ms),
             "total_llm_calls": self.total_llm_calls,
             "pipeline_median_ms": pipe_p50,
             "pipeline_p95_ms": pipe_p95,
+            "eou_p50_ms": eou_p50,
+            "eou_p95_ms": eou_p95,
+            "ttft_p50_ms": ttft_p50,
+            "ttft_p95_ms": ttft_p95,
+            "ttfb_p50_ms": ttfb_p50,
+            "ttfb_p95_ms": ttfb_p95,
             "e2e_median_ms": e2e_p50,
             "e2e_p95_ms": e2e_p95,
         }

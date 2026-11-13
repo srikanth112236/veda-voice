@@ -1,7 +1,7 @@
 """Call record models and CallStore storage interface (FileCallStore).
 
-Persists one JSON file per call atomically to data/calls/<utc_timestamp>_<call_id>.json.
-# TODO: Implement 90-day retention cleanup policy (purge records older than 90 days).
+Persists one JSON file per call atomically to data/calls/<tenant_id>/<utc_timestamp>_<call_id>.json.
+Adheres strictly to tenant isolation requirements.
 """
 
 import json
@@ -32,6 +32,7 @@ class TranscriptEntry(BaseModel):
 class MessagePayload(BaseModel):
     """Payload collected by the take_message tool."""
 
+    tenant_id: str = "default"
     name: str
     phone: str
     message: str
@@ -44,9 +45,12 @@ class MessagePayload(BaseModel):
 class CallRecord(BaseModel):
     """Complete record of a phone conversation."""
 
+    tenant_id: str = "default"
     call_id: str
     dialed_number: str
-    caller_number: str  # Full number for callback, kept strictly in data/calls (git-ignored)
+    caller_number: (
+        str  # Full number for callback, kept strictly in data/calls/<tenant_id> (git-ignored)
+    )
     started_at: str
     ended_at: str
     duration_s: float
@@ -64,25 +68,30 @@ class CallRecord(BaseModel):
 class CallStore(Protocol):
     """Interface for persisting call records."""
 
-    def save_call_record(self, record: CallRecord) -> Path:
+    def save_call_record(self, record: CallRecord, tenant_id: str | None = None) -> Path:
         """Persist a call record and return the path where it is saved."""
         ...
 
 
 class FileCallStore:
-    """Saves one JSON record per call atomically to disk under storage_dir."""
+    """Saves one JSON record per call atomically to disk under storage_dir/<tenant_id>/."""
 
     def __init__(self, storage_dir: Path | str = "data/calls") -> None:
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-    def save_call_record(self, record: CallRecord) -> Path:
-        """Atomically write record to <utc_timestamp>_<sanitized_call_id>.json."""
+    def save_call_record(self, record: CallRecord, tenant_id: str | None = None) -> Path:
+        """Atomically write record to storage_dir/<tenant_id>/<utc_timestamp>_<sanitized_call_id>.json."""
+        tid = tenant_id or record.tenant_id or "unassigned"
+        safe_tid = _SAFE_FILENAME_PATTERN.sub("_", tid)
+        target_dir = self.storage_dir / safe_tid
+        target_dir.mkdir(parents=True, exist_ok=True)
+
         timestamp_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         raw_id = record.call_id or "unknown"
         safe_id = _SAFE_FILENAME_PATTERN.sub("_", raw_id)
         target_filename = f"{timestamp_str}_{safe_id}.json"
-        target_path = self.storage_dir / target_filename
+        target_path = target_dir / target_filename
 
         data = record.model_dump()
         payload = json.dumps(data, indent=2)
@@ -90,7 +99,7 @@ class FileCallStore:
         # Write to temporary file in same directory and atomic replace
         with tempfile.NamedTemporaryFile(
             mode="w",
-            dir=self.storage_dir,
+            dir=target_dir,
             delete=False,
             encoding="utf-8",
             suffix=".tmp",
@@ -98,11 +107,6 @@ class FileCallStore:
             tmp.write(payload)
             tmp_path = Path(tmp.name)
 
-        try:
-            os.replace(tmp_path, target_path)
-            logger.info("Call record written atomically to %s", target_path)
-            return target_path
-        except Exception:
-            if tmp_path.exists():
-                tmp_path.unlink()
-            raise
+        os.replace(tmp_path, target_path)
+        logger.info("Saved call record to %s for tenant %s", target_path, safe_tid)
+        return target_path

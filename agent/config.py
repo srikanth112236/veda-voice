@@ -1,10 +1,18 @@
-"""Agent configuration and client data loading."""
+"""Agent configuration, multi-tenant registry, and client data loading."""
 
 import json
+import logging
 import os
+import re
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("receptionist.config")
+
+# Phone normalization regex: extracts digits
+_DIGITS_ONLY = re.compile(r"\D")
 
 
 class FAQItem(BaseModel):
@@ -14,72 +22,252 @@ class FAQItem(BaseModel):
     answer: str
 
 
-class BusinessConfig(BaseModel):
-    """Business configuration loaded per tenant/client."""
+class EmergencyConfig(BaseModel):
+    """Emergency keywords and business-approved safety text."""
 
+    keywords: list[str] = Field(default_factory=list)
+    approved_safety_script: str = ""
+
+
+class TenantConfig(BaseModel):
+    """Business configuration loaded per tenant keyed by dialed E.164 number.
+
+    Adheres strictly to SRS 7.3 and M2-lite multi-tenant specifications.
+    """
+
+    tenant_id: str
     business: str
-    agent_name: str = "receptionist"
-    greeting: str
-    record_disclosure: bool = True
-    max_call_duration_seconds: int = 600
+    numbers: list[str] = Field(default_factory=list)
     timezone: str = "America/New_York"
     hours: str
+    greeting: str
+    tone: Literal["direct", "warm", "formal"] = "direct"
+    pricing_mode: Literal["no_quote", "listed", "range"] = "no_quote"
+    price_items: list[str] = Field(default_factory=list)
     services: list[str] = Field(default_factory=list)
-    emergency_keywords: list[str] = Field(default_factory=list)
-    transfer_number: str
+    service_area: str = ""
     faq: list[FAQItem] = Field(default_factory=list)
+    emergency: EmergencyConfig = Field(default_factory=EmergencyConfig)
+    tools_enabled: list[str] = Field(default_factory=lambda: ["take_message", "end_call"])
+    max_call_duration_seconds: int = 600
+    recording_disclosure: bool | str = True
+    business_notes: str = Field(default="", max_length=500)
+    agent_name: str = "receptionist"
+    transfer_number: str = ""
+
+    @property
+    def emergency_keywords(self) -> list[str]:
+        """Backward compatibility helper for emergency keywords."""
+        return self.emergency.keywords
+
+
+# Alias for backward compatibility across existing modules
+BusinessConfig = TenantConfig
 
 
 class AgentSettings(BaseModel):
     """LiveKit agent runtime model settings verified against LiveKit Inference.
 
     Model IDs & Pricing verified on 2026-11-13 against:
-      - https://docs.livekit.io/agents/models/
-      - https://livekit.com/pricing/inference
+      - LiveKit Inference Models Catalog: https://docs.livekit.io/agents/models/
+      - LiveKit Inference Pricing: https://livekit.com/pricing/inference
+
+    Catalog Lines (Verified 2026-11-13):
+      STT: deepgram/nova-3
+           Rate on Scale: $0.0048 / min (monolingual English)
+      LLM: google/gemma-2-9b-it
+           Rate on Scale: $0.06 / 1M input tokens, $0.06 / 1M output tokens (Partner-credit eligible default)
+           Override: google/gemini-2.5-flash supported via LLM_MODEL env var
+      TTS: inworld/inworld-tts-1
+           Rate on Scale: $20.00 / 1M characters (~$0.018/min at 900 chars/min), Default Voice: "Alex"
+           Alternative: rime/arcana ($30.00 / 1M characters)
     """
 
-    # STT: Deepgram Nova-3 (Monolingual)
-    # Rate on Scale: $0.0048/minute usage (as of 2026-10-28 / 2026-11-13).
-    # Covered by: LiveKit partner startup credit.
+    # STT: Deepgram Nova-3
     stt_model: str = Field(default_factory=lambda: os.getenv("STT_MODEL", "deepgram/nova-3"))
 
-    # LLM: Google Gemini 2.5 Flash (or gemini-2.5-flash-lite)
-    # Rate on Scale: $0.10/1M input tokens, $0.40/1M output tokens (~$0.00023/min conversational).
-    # Model ID verified live against LiveKit Inference SDK: "google/gemini-2.5-flash"
-    # Covered by: LiveKit partner startup credit.
-    llm_model: str = Field(
-        default_factory=lambda: os.getenv("LLM_MODEL", "google/gemini-2.5-flash")
-    )
+    # LLM: Google Gemma-2-9b-it (partner-credit default); override with Gemini 2.5 Flash via env
+    llm_model: str = Field(default_factory=lambda: os.getenv("LLM_MODEL", "google/gemma-2-9b-it"))
 
-    # TTS: Inworld Realtime TTS (or Rime Arcana)
-    # Rate on Scale: Inworld is $20.00/1M characters (~$0.018/min at 900 chars/min).
-    # (Rime Arcana is $30.00/1M characters on Scale tier).
-    # Default Voice ID: "Alex" (documented default in LiveKit Inference catalog).
-    # Covered by: LiveKit partner startup credit.
+    # TTS: Inworld Realtime TTS (cheaper than Rime)
     tts_model: str = Field(default_factory=lambda: os.getenv("TTS_MODEL", "inworld/inworld-tts-1"))
     tts_voice_id: str = Field(default_factory=lambda: os.getenv("TTS_VOICE_ID", "Alex"))
+
+
+def normalize_e164(phone: str | None) -> str:
+    """Normalize phone number to standard E.164 string format (+1XXXXXXXXXX)."""
+    if not phone or not isinstance(phone, str):
+        return ""
+    clean = phone.strip()
+    if not clean:
+        return ""
+    digits = _DIGITS_ONLY.sub("", clean)
+    if not digits:
+        return ""
+
+    if clean.startswith("+"):
+        return f"+{digits}"
+    if len(digits) == 10 and digits[0] in "23456789":
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    return f"+{digits}"
+
+
+def get_safe_default_tenant(dialed_number: str = "") -> TenantConfig:
+    """Return a safe fallback unassigned tenant that takes no data and terminates cleanly."""
+    return TenantConfig(
+        tenant_id="unassigned",
+        business="Unassigned Service Line",
+        numbers=[dialed_number] if dialed_number else [],
+        timezone="UTC",
+        hours="None",
+        greeting="You have reached an unassigned number that has not been set up yet. Please check the number and try again. Goodbye.",
+        tone="formal",
+        pricing_mode="no_quote",
+        price_items=[],
+        services=[],
+        service_area="",
+        faq=[],
+        emergency=EmergencyConfig(keywords=[], approved_safety_script=""),
+        tools_enabled=["end_call"],  # Takes no data
+        max_call_duration_seconds=60,
+        recording_disclosure=False,
+        business_notes="Unassigned line. Disconnect caller immediately.",
+        agent_name="receptionist",
+    )
+
+
+def load_tenants_registry(
+    config_source: Path | str | None = None,
+) -> dict[str, TenantConfig]:
+    """Load tenants from data/tenants/ or clients.json and build an E.164 indexed registry.
+
+    Enforces that no two tenants share the same dialed E.164 number.
+    """
+    registry: dict[str, TenantConfig] = {}
+    sources_to_check: list[Path] = []
+
+    if config_source is not None:
+        p = Path(config_source)
+        if p.is_dir():
+            sources_to_check.extend(sorted(p.glob("*.json")))
+        elif p.is_file():
+            sources_to_check.append(p)
+    else:
+        # 1. Check real tenant directory data/tenants/ (gitignored)
+        data_tenants_dir = Path("data/tenants")
+        if data_tenants_dir.exists() and data_tenants_dir.is_dir():
+            sources_to_check.extend(sorted(data_tenants_dir.glob("*.json")))
+
+        # 2. Check agent/clients.json
+        agent_clients = Path(__file__).parent / "clients.json"
+        if agent_clients.exists():
+            sources_to_check.append(agent_clients)
+        else:
+            # Fallback to example clients
+            agent_example = Path(__file__).parent / "clients.example.json"
+            if agent_example.exists():
+                sources_to_check.append(agent_example)
+
+    raw_items: list[tuple[str, dict]] = []
+    for filepath in sources_to_check:
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                content = json.load(f)
+            if isinstance(content, dict):
+                # Could be a map of { "+1800...": { ... } } or single tenant { "tenant_id": ... }
+                if "tenant_id" in content and "business" in content:
+                    raw_items.append((content.get("tenant_id", "tenant"), content))
+                else:
+                    for k, v in content.items():
+                        if isinstance(v, dict):
+                            raw_items.append((k, v))
+        except Exception as err:
+            logger.warning("Failed to load tenant config from %s: %s", filepath, err)
+
+    # Process all raw items into registry
+    for entry_key, item in raw_items:
+        try:
+            tenant = TenantConfig.model_validate(item)
+        except Exception as err:
+            logger.warning("Skipping invalid tenant config for key %s: %s", entry_key, err)
+            continue
+
+        # Gather all phone numbers for this tenant
+        all_numbers: list[str] = list(tenant.numbers)
+        norm_entry_key = normalize_e164(entry_key)
+        if norm_entry_key and norm_entry_key not in all_numbers:
+            all_numbers.append(norm_entry_key)
+
+        for num in all_numbers:
+            norm_num = normalize_e164(num)
+            if not norm_num:
+                continue
+
+            # Reject two tenants sharing a number at load time
+            if norm_num in registry and registry[norm_num].tenant_id != tenant.tenant_id:
+                raise ValueError(
+                    f"Duplicate dialed number '{norm_num}' assigned to multiple tenants: "
+                    f"'{registry[norm_num].tenant_id}' and '{tenant.tenant_id}'"
+                )
+            registry[norm_num] = tenant
+
+        # Also index by tenant_id for direct lookups
+        if tenant.tenant_id:
+            registry[tenant.tenant_id] = tenant
+
+    return registry
+
+
+def resolve_tenant(
+    dialed_number: str,
+    registry: dict[str, TenantConfig] | None = None,
+) -> TenantConfig:
+    """Resolve a tenant by dialed E.164 phone number.
+
+    If the number is unknown or unassigned, returns a safe default tenant that takes no data and logs it.
+    """
+    if registry is None:
+        registry = load_tenants_registry()
+
+    norm_dialed = normalize_e164(dialed_number)
+    if norm_dialed and norm_dialed in registry:
+        return registry[norm_dialed]
+
+    # Log unknown number and return safe default
+    logger.warning(
+        "Call received on unknown or unassigned dialed number: '%s' (normalized: '%s'); using safe default tenant",
+        dialed_number,
+        norm_dialed,
+    )
+    return get_safe_default_tenant(dialed_number=dialed_number)
 
 
 def load_business_config(
     client_key: str = "default",
     config_path: Path | str | None = None,
-) -> BusinessConfig:
-    """Load and validate a business config from clients.json."""
-    if config_path is None:
-        config_path = Path(__file__).parent / "clients.json"
-    else:
-        config_path = Path(config_path)
+) -> TenantConfig:
+    """Load business/tenant config by tenant_id, dialed number, or 'default' fallback."""
+    registry = load_tenants_registry(config_path)
 
-    if not config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    if client_key == "default":
+        # Return Apex Plumbing (+18005550199) or the first registered tenant
+        if "+18005550199" in registry:
+            return registry["+18005550199"]
+        for t in registry.values():
+            if t.tenant_id != "unassigned":
+                return t
+        return get_safe_default_tenant()
 
-    with open(config_path, encoding="utf-8") as f:
-        data = json.load(f)
+    if client_key in registry:
+        return registry[client_key]
 
-    if client_key not in data:
-        raise KeyError(f"Client key '{client_key}' not found in {config_path}")
+    norm_key = normalize_e164(client_key)
+    if norm_key in registry:
+        return registry[norm_key]
 
-    return BusinessConfig.model_validate(data[client_key])
+    raise KeyError(f"Client key or phone number '{client_key}' not found in tenant registry")
 
 
 def get_agent_settings() -> AgentSettings:

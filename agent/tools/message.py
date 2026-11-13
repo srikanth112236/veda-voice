@@ -1,4 +1,4 @@
-"""take_message tool for receptionist agent with phone validation and confirmation guard."""
+"""take_message tool for receptionist agent with phone validation, confirmation guard, and tenant scoping."""
 
 import re
 from typing import Annotated
@@ -37,8 +37,9 @@ def validate_and_normalize_phone(phone: str | None) -> tuple[bool, str]:
 class MessageCollector:
     """Stores the latest message and correction history for a call session."""
 
-    def __init__(self, caller_id_phone: str = "") -> None:
+    def __init__(self, caller_id_phone: str = "", tenant_id: str = "default") -> None:
         self.caller_id_phone = caller_id_phone
+        self.tenant_id = tenant_id
         self.latest_message: MessagePayload | None = None
         self.history: list[MessagePayload] = []
 
@@ -84,8 +85,9 @@ def create_take_message_tool(collector: MessageCollector) -> FunctionTool:
         if clean_urgency not in ALLOWED_URGENCIES:
             clean_urgency = "normal"
 
-        # 4. Save payload
+        # 4. Save payload scoped by tenant_id
         payload = MessagePayload(
+            tenant_id=collector.tenant_id,
             name=name.strip(),
             phone=normalized_phone,
             message=message.strip(),
@@ -100,7 +102,10 @@ def create_take_message_tool(collector: MessageCollector) -> FunctionTool:
                 f"SUCCESS: Emergency details recorded for {payload.name}. "
                 "Inform the caller: 'I've written down your details. If anyone is in immediate danger or injured, please call 911 immediately.'"
             )
-        return f"SUCCESS: Message recorded for {payload.name}. Callback phone {payload.phone} confirmed."
+        return (
+            f"SUCCESS: Message recorded for {payload.name}. Callback phone {payload.phone} confirmed. "
+            "Inform the caller: 'I've written down your details.'"
+        )
 
     return function_tool(
         take_message_impl,
