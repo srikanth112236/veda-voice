@@ -83,13 +83,26 @@ class FileCallStore:
     def save_call_record(self, record: CallRecord, tenant_id: str | None = None) -> Path:
         """Atomically write record to storage_dir/<tenant_id>/<utc_timestamp>_<sanitized_call_id>.json."""
         tid = tenant_id or record.tenant_id or "unassigned"
-        safe_tid = _SAFE_FILENAME_PATTERN.sub("_", tid)
-        target_dir = self.storage_dir / safe_tid
+        safe_tid = _SAFE_FILENAME_PATTERN.sub("_", os.path.basename(tid))
+        if not safe_tid or safe_tid.strip(".") == "":
+            safe_tid = "unassigned"
+
+        base_storage = self.storage_dir.resolve()
+        target_dir = (self.storage_dir / safe_tid).resolve()
+
+        # Enforce containment within storage_dir to eliminate any directory traversal attempt
+        try:
+            target_dir.relative_to(base_storage)
+        except ValueError:
+            raise ValueError(f"Path traversal detected in tenant identifier: {tid}") from None
+
         target_dir.mkdir(parents=True, exist_ok=True)
 
         timestamp_str = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         raw_id = record.call_id or "unknown"
-        safe_id = _SAFE_FILENAME_PATTERN.sub("_", raw_id)
+        safe_id = _SAFE_FILENAME_PATTERN.sub("_", os.path.basename(raw_id))
+        if not safe_id or safe_id.strip(".") == "":
+            safe_id = "unknown"
         target_filename = f"{timestamp_str}_{safe_id}.json"
         target_path = target_dir / target_filename
 

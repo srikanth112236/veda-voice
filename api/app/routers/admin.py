@@ -183,9 +183,9 @@ def list_tenants(db: Session = Depends(get_db)) -> Any:
                 phone_numbers=phone_nums,
                 call_count=call_count,
                 emergency_count=emergency_count,
-                max_concurrent_inbound=4,
-                max_concurrent_outbound=2,
-                monthly_minute_quota=500,
+                max_concurrent_inbound=t.max_concurrent_calls,
+                max_concurrent_outbound=t.max_concurrent_outbound,
+                monthly_minute_quota=t.monthly_minute_quota,
                 minutes_used=tenant_mins,
                 health_status="operational",
             )

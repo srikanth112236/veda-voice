@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.app.models.base import Base
@@ -28,6 +28,9 @@ class Tenant(Base):
     status: Mapped[str] = mapped_column(
         String(32), default="active", nullable=False
     )  # active, suspended, trial
+    max_concurrent_calls: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    max_concurrent_outbound: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    monthly_minute_quota: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

@@ -235,6 +235,39 @@ def init_db() -> None:
                         "ALTER TABLE agent_profiles ADD COLUMN out_of_area_policy VARCHAR(64) DEFAULT 'polite_decline'"
                     )
                 )
+
+            # Tenants table capacity columns
+            cursor = conn.execute(text("PRAGMA table_info(tenants)"))
+            existing_tenant_cols = {row[1] for row in cursor.fetchall()}
+            if "max_concurrent_calls" not in existing_tenant_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE tenants ADD COLUMN max_concurrent_calls INTEGER DEFAULT 3 NOT NULL"
+                    )
+                )
+            if "max_concurrent_outbound" not in existing_tenant_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE tenants ADD COLUMN max_concurrent_outbound INTEGER DEFAULT 2 NOT NULL"
+                    )
+                )
+            if "monthly_minute_quota" not in existing_tenant_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE tenants ADD COLUMN monthly_minute_quota INTEGER DEFAULT 500 NOT NULL"
+                    )
+                )
+
+            # Calls table direction column
+            cursor = conn.execute(text("PRAGMA table_info(calls)"))
+            existing_call_cols = {row[1] for row in cursor.fetchall()}
+            if "direction" not in existing_call_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE calls ADD COLUMN direction VARCHAR(16) DEFAULT 'inbound' NOT NULL"
+                    )
+                )
+
             conn.commit()
     seed_initial_data()
 

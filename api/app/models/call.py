@@ -25,6 +25,7 @@ class Call(Base):
     call_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     caller_number: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     dialed_number: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), default="inbound", nullable=False)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
