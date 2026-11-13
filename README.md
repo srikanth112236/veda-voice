@@ -69,12 +69,38 @@ PostgreSQL 16 is bound to `127.0.0.1:5432`.
 
 ---
 
+## Running the Voice Agent (Console Mode on Windows)
+
+Milestone **M1a** introduces the `receptionist` voice agent, which can be run locally in interactive `console` mode from a Windows laptop using your microphone and speakers.
+
+### Prerequisites for Console Mode
+Ensure your `.env` contains valid LiveKit credentials (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`).
+LiveKit Inference model strings are loaded from environment variables with defaults:
+- `STT_MODEL`: defaults to `deepgram/nova-3`
+- `LLM_MODEL`: defaults to `google/gemini-2.5-flash`
+- `TTS_MODEL`: defaults to `rime/arcana`
+
+### Launch Console Mode
+```powershell
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Start the agent in interactive console mode
+python -m agent.main console
+```
+You can speak to the agent directly from your terminal. It will greet you, answer questions using the `clients.json` knowledge base, adhere to safety and anti-hallucination rules, and call `end_call` when conversation completes.
+
+---
+
 ## Running Tests and Linters
 
 ### Windows PowerShell (`tasks.ps1`)
 ```powershell
-# Run unit tests
+# Run unit tests (runs 100% offline without API keys)
 .\tasks.ps1 test
+
+# Run LLM scenario conversation tests (requires network/keys)
+.\.venv\Scripts\python -m pytest -m llm -v
 
 # Run code linters and type checkers (ruff + mypy)
 .\tasks.ps1 lint

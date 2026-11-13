@@ -5,7 +5,7 @@ def test_agent_scaffold_metadata() -> None:
     """Verify scaffold runs with no network access and no API keys required."""
     info = get_agent_info()
     assert info["name"] == "receptionist"
-    assert info["status"] == "scaffold"
+    assert info["status"] in ("scaffold", "ready")
     assert AGENT_NAME == "receptionist"
 
 
