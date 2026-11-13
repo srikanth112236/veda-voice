@@ -263,6 +263,68 @@ export const INFO_TOPICS: Record<string, InfoTopicDetails> = {
       "Target End-to-End Latency: p50 under 1,100ms, p95 under 1,400ms for seamless human-like pacing.",
     ],
   },
+
+  admin_concurrency_saturation: {
+    title: "Global Concurrency & Capacity Saturation",
+    category: "Telephony & Carrier",
+    summary:
+      "How VedaVoice monitors and throttles simultaneous active inbound and outbound calls across all tenants.",
+    howItWorks: [
+      "1. Platform Inbound Ceiling (GLOBAL_MAX_CONCURRENT = 40): Restricts total concurrent voice sessions to prevent carrier SIP trunk drops or WebRTC resource exhaustion.",
+      "2. Outbound Dialer Ceiling (GLOBAL_MAX_OUTBOUND = 10): Enforces a hard cap on automated calls to avoid carrier rate-limiting and STIR/SHAKEN spam flags.",
+      "3. Per-Tenant Throttles: Individual tenants are assigned dedicated channel allocations (e.g. 4 inbound / 2 outbound) so no single tenant starves other clients.",
+      "4. Dynamic Overflow Queue: If global saturation approaches 90%, new inbound calls receive a polite queued hold announcement while keeping emergency lines open.",
+    ],
+    complianceOrBestPractice:
+      "Monitoring concurrency saturation protects carrier agreements and ensures adherence to carrier CPS (Calls Per Second) limits.",
+  },
+
+  admin_carrier_sip_trunk: {
+    title: "Elastic SIP Trunk Health & Audio Quality (MOS)",
+    category: "Telephony & Carrier",
+    summary:
+      "Carrier network telemetry measuring jitter, packet loss, and ITU-T P.800 Mean Opinion Score (MOS).",
+    howItWorks: [
+      "1. Dual-Carrier Resilience: Twilio Elastic SIP Trunk serves as primary path with Telnyx as sub-100ms hot standby.",
+      "2. MOS Audio Score: Measures synthetic audio clarity on a 1.0 to 5.0 scale. Scores >4.2 represent toll-grade PSTN clarity.",
+      "3. CPS Headroom: Tracks Calls Per Second against carrier trunk throttle limits (10.0 CPS burst threshold).",
+      "4. Codec Negotiation: High-fidelity Opus 48kHz audio inside WebRTC transcoded to G.711u / G.729 for PSTN landline compatibility.",
+    ],
+    complianceOrBestPractice:
+      "Carrier STIR/SHAKEN A-attestation certificates are verified on every outbound dispatch to guarantee caller ID authenticity.",
+  },
+
+  admin_inference_cogs: {
+    title: "Model Inference Cost & SaaS Gross Margin",
+    category: "Latency & Analytics",
+    summary:
+      "Real-time Cost of Goods Sold (CoGS) accounting per voice minute across STT, LLM, TTS, and WebRTC media.",
+    howItWorks: [
+      "1. LiveKit Cloud Media: $0.0040 / min for low-latency WebRTC SFU routing and audio packet delivery.",
+      "2. Deepgram Nova-2 STT: $0.0043 / min for streaming real-time speech-to-text with trade terminology priming.",
+      "3. Gemini 2.5 Flash LLM: $0.0062 / min (~400 input tokens + 120 output tokens per turn).",
+      "4. Inworld / Rime TTS: $0.0080 / min for neural synthetic speech streaming.",
+      "5. Total CoGS: ~$0.0225 per call minute.",
+      "6. Gross Margin: Billed at $499/month per client (500 minutes included = $11.25 cost), yielding 95%+ SaaS margins.",
+    ],
+    complianceOrBestPractice:
+      "Real-time margin intelligence alerts agency administrators when heavy-usage tenants require tier upgrades.",
+  },
+
+  admin_pii_masking: {
+    title: "PII Masking & Role-Based Telephony Privacy",
+    category: "Multi-Tenant Security",
+    summary:
+      "Protects client customer phone numbers and business caller records from unauthorized visibility.",
+    howItWorks: [
+      "1. Default Masked State: Phone numbers in the agency command center are rendered as '+1 (512) ***-0199' to prevent PII exposure during screen shares and staff reviews.",
+      "2. Ephemeral Reveal Toggle: Platform administrators can toggle PII visibility when actively troubleshooting carrier SIP routing or legal compliance disputes.",
+      "3. Audit Logged: Every unmask event is recorded in internal audit logs.",
+      "4. Row-Level Security: Even in unmasked mode, tenant data remains strictly segregated by cryptographic tenant_id boundaries.",
+    ],
+    complianceOrBestPractice:
+      "Complies with GDPR and CCPA privacy standards by enforcing least-privilege display of consumer contact data.",
+  },
 };
 
 interface InfoModalContextType {

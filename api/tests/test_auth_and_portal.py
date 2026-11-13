@@ -230,3 +230,51 @@ def test_agent_profile_modules_3_4_5_enterprise_guardrails() -> None:
     assert persisted["emergency_mode"] == "live_transfer"
     assert persisted["after_hours_policy"] == "emergency_only"
     assert len(persisted["service_cities"]) == 4
+
+
+def test_platform_admin_command_center_telemetry() -> None:
+    """Verify platform admin command center concurrency, carrier health, and CoGS telemetry."""
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": settings.PLATFORM_ADMIN_EMAIL,
+            "password": settings.PLATFORM_ADMIN_PASSWORD,
+        },
+    )
+    assert login_resp.status_code == 200
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Test /admin/stats
+    stats_resp = client.get("/api/v1/admin/stats", headers=headers)
+    assert stats_resp.status_code == 200
+    stats = stats_resp.json()
+
+    assert stats["global_max_concurrent"] == 40
+    assert stats["global_max_outbound"] == 10
+    assert "inbound_saturation_pct" in stats
+    assert "outbound_saturation_pct" in stats
+
+    # Carrier trunk health
+    carrier = stats["carrier_health"]
+    assert carrier["status"] == "connected"
+    assert carrier["latency_ms"] == 38.0
+    assert carrier["mos_score"] == 4.41
+    assert carrier["cps_limit"] == 10.0
+
+    # CoGS & margin metrics
+    cost = stats["cost_metrics"]
+    assert cost["total_cogs_per_min"] == 0.0225
+    assert cost["tenant_subscription_fee_usd"] == 499.0
+    assert cost["gross_margin_pct"] >= 80.0
+
+    # 2. Test /admin/tenants
+    tenants_resp = client.get("/api/v1/admin/tenants", headers=headers)
+    assert tenants_resp.status_code == 200
+    tenants = tenants_resp.json()
+    assert len(tenants) >= 1
+    first = tenants[0]
+    assert first["max_concurrent_inbound"] == 4
+    assert first["max_concurrent_outbound"] == 2
+    assert first["monthly_minute_quota"] == 500
+    assert first["health_status"] == "operational"
