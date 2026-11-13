@@ -1,4 +1,4 @@
-"""Offline unit tests for SIP attribute parsing, phone number redaction, and latency calculation.
+"""Offline unit tests for SIP attribute parsing, phone number redaction, and pipeline latency calculation.
 
 Runs 100% offline with zero network or API keys required.
 """
@@ -9,7 +9,7 @@ from agent.telemetry import (
     parse_sip_attributes,
     redact_phone,
 )
-from agent.tools.latency_report import extract_latencies_from_text, format_report
+from agent.tools.latency_report import extract_metrics_from_text, format_report
 
 
 def test_redact_phone_standard() -> None:
@@ -71,35 +71,54 @@ def test_calculate_percentiles() -> None:
     assert p95 == 400.0
 
 
-def test_latency_tracker() -> None:
-    """Test LatencyTracker summary accumulation."""
+def test_latency_tracker_pipeline_and_e2e() -> None:
+    """Test LatencyTracker handles pipeline formula, e2e latency, and skips zero-speech turns."""
     tracker = LatencyTracker()
-    assert tracker.summary() == {"count": 0, "median_ms": 0.0, "p95_ms": 0.0}
+    initial_summary = tracker.summary()
+    assert initial_summary["turn_count"] == 0
+    assert initial_summary["total_llm_calls"] == 0
+    assert initial_summary["pipeline_median_ms"] == 0.0
 
-    # Record 10 turns
-    for val in [250.0, 300.0, 320.0, 350.0, 380.0, 400.0, 410.0, 450.0, 490.0, 800.0]:
-        tracker.record_turn(val)
+    # Skip invalid or zero speech turns
+    tracker.record_turn(pipeline_latency_ms=0.0, library_e2e_ms=0.0, llm_calls=1)
+    tracker.record_turn(pipeline_latency_ms=-10.0, library_e2e_ms=None, llm_calls=1)
+    assert tracker.summary()["turn_count"] == 0
+
+    # Record 3 valid turns:
+    # Turn 1: EOU=100ms, TTFT=150ms, TTFB=200ms -> Pipeline = 450ms, Library e2e = 430ms
+    # Turn 2: EOU=120ms, TTFT=180ms, TTFB=220ms -> Pipeline = 520ms, Library e2e = 510ms
+    # Turn 3: EOU=80ms, TTFT=120ms, TTFB=150ms -> Pipeline = 350ms, Library e2e = 340ms
+    tracker.record_turn(pipeline_latency_ms=450.0, library_e2e_ms=430.0, llm_calls=1)
+    tracker.record_turn(pipeline_latency_ms=520.0, library_e2e_ms=510.0, llm_calls=2)
+    tracker.record_turn(pipeline_latency_ms=350.0, library_e2e_ms=340.0, llm_calls=1)
 
     summary = tracker.summary()
-    assert summary["count"] == 10
-    # Values: [250, 300, 320, 350, 380, 400, 410, 450, 490, 800]
-    # mid = (380 + 400) / 2 = 390.0
-    assert summary["median_ms"] == 390.0
-    assert summary["p95_ms"] == 800.0
+    assert summary["turn_count"] == 3
+    assert summary["total_llm_calls"] == 4
+    # Pipeline sorted: [350, 450, 520] -> median 450.0, p95 520.0
+    assert summary["pipeline_median_ms"] == 450.0
+    assert summary["pipeline_p95_ms"] == 520.0
+    # E2E sorted: [340, 430, 510] -> median 430.0, p95 510.0
+    assert summary["e2e_median_ms"] == 430.0
+    assert summary["e2e_p95_ms"] == 510.0
 
 
 def test_latency_report_extraction_and_format() -> None:
-    """Test regex extraction and report formatting."""
+    """Test regex extraction of pipeline, e2e, and llm_calls plus report formatting."""
     log_sample = """
-    2026-11-13 10:00:00 INFO receptionist: turn_latency_ms=340.50 (eou_ms=120.00 tts_ttfb_ms=220.50)
-    2026-11-13 10:00:05 INFO receptionist: turn_latency_ms=410.25 (eou_ms=150.00 tts_ttfb_ms=260.25)
-    2026-11-13 10:00:10 INFO receptionist: {"turn_latency_ms": 520.00}
+    2026-11-13 10:00:00 INFO receptionist: pipeline_latency_ms=450.00 e2e_latency_ms=430.00 (eou_ms=100.00 ttft_ms=150.00 tts_ttfb_ms=200.00 llm_calls=1)
+    2026-11-13 10:00:05 INFO receptionist: turn_latency_ms=520.00 e2e_latency_ms=510.00 (eou_ms=120.00 ttft_ms=180.00 tts_ttfb_ms=220.00 llm_calls=2)
+    2026-11-13 10:00:10 INFO receptionist: {"pipeline_latency_ms": 350.00, "e2e_latency_ms": 340.00, "llm_calls": 1}
     """
-    extracted = extract_latencies_from_text(log_sample)
-    assert extracted == [340.50, 410.25, 520.00]
+    pipe, e2e, llm_calls = extract_metrics_from_text(log_sample)
+    assert pipe == [450.00, 520.00, 350.00]
+    assert e2e == [430.00, 510.00, 340.00]
+    assert llm_calls == 4
 
-    report = format_report(extracted)
-    assert "server-side pipeline latency, not including phone-network delay" in report
-    assert "Sample Count (Turns): 3" in report
-    assert "Median (p50):         410.25 ms" in report
-    assert "95th Percentile (p95): 520.00 ms" in report
+    report = format_report(pipe, e2e, llm_calls)
+    assert "Metric 1: Pipeline Latency = EOU Delay + LLM TTFT + TTS TTFB" in report
+    assert "Metric 2: Library E2E Latency" in report
+    assert "Spoken Turns Measured:    3" in report
+    assert "Total LLM Invocations:    4" in report
+    assert "Median (p50):           450.00 ms" in report
+    assert "95th Percentile (p95):  520.00 ms" in report

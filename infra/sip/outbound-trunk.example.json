@@ -1,0 +1,12 @@
+{
+  "_comment": "LiveKit Outbound Trunk configuration for Telnyx FQDN SIP connection with Credentials authentication. Ref: https://developers.telnyx.com/docs/voice/sip-trunking/livekit-configuration-guide",
+  "trunk": {
+    "name": "telnyx-outbound-trunk",
+    "address": "sip.telnyx.com",
+    "numbers": [
+      "${TELNYX_PHONE_NUMBER}"
+    ],
+    "auth_username": "${TELNYX_SIP_USERNAME}",
+    "auth_password": "${TELNYX_SIP_PASSWORD}"
+  }
+}

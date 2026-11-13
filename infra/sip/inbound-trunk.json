@@ -1,11 +1,8 @@
 {
-  "_comment": "LiveKit Inbound Trunk configuration for Twilio Elastic SIP Trunk. Do not include username/password unless Twilio SIP Termination credentials are explicitly required by your origination route. Ref: https://docs.livekit.io/telephony/accepting-calls/inbound-trunk/",
-  "name": "twilio-inbound-trunk",
+  "_comment": "LiveKit Inbound Trunk configuration for Telnyx FQDN SIP connection. Ref: https://developers.telnyx.com/docs/voice/sip-trunking/livekit-configuration-guide",
+  "_security_notes": "Compensating controls: strict +E.164 numbers allowlist, per-client max concurrent calls, max call duration limits, and daily minute alerts. TODO: add allowed_addresses once Telnyx published signaling IPs are verified and cited.",
+  "name": "telnyx-inbound-trunk",
   "numbers": [
     "+15551234567"
-  ],
-  "allowed_addresses": [
-    "54.172.60.0/30",
-    "54.244.51.0/30"
   ]
 }

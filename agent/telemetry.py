@@ -40,7 +40,7 @@ def parse_sip_attributes(attributes: Mapping[str, str] | None) -> dict[str, str]
       - sip.trunkPhoneNumber: dialed destination number (DID)
       - sip.callID: SIP Call-ID header
 
-    Ref: https://docs.livekit.io/telephony/accepting-calls/inbound-trunk/
+    Ref: https://docs.livekit.io/reference/telephony/sip-participant/
     """
     attrs = attributes or {}
     return {
@@ -79,21 +79,38 @@ def calculate_percentiles(values: Sequence[float]) -> tuple[float, float]:
 
 
 class LatencyTracker:
-    """Tracks per-turn pipeline latencies (end of speech to first audio) during calls."""
+    """Tracks per-turn pipeline and end-to-end latencies during voice agent calls."""
 
     def __init__(self) -> None:
-        self.turn_latencies_ms: list[float] = []
+        self.pipeline_latencies_ms: list[float] = []
+        self.library_e2e_latencies_ms: list[float] = []
+        self.total_llm_calls: int = 0
 
-    def record_turn(self, latency_ms: float) -> None:
-        """Record a single turn's server-side pipeline latency in milliseconds."""
-        if latency_ms >= 0:
-            self.turn_latencies_ms.append(latency_ms)
+    def record_turn(
+        self,
+        pipeline_latency_ms: float,
+        library_e2e_ms: float | None = None,
+        llm_calls: int = 1,
+    ) -> None:
+        """Record a single turn's latencies and LLM call count.
+
+        Skips turns where pipeline_latency_ms is negative or zero (e.g. no speech produced).
+        """
+        if pipeline_latency_ms > 0:
+            self.pipeline_latencies_ms.append(pipeline_latency_ms)
+            if library_e2e_ms is not None and library_e2e_ms > 0:
+                self.library_e2e_latencies_ms.append(library_e2e_ms)
+            self.total_llm_calls += max(0, llm_calls)
 
     def summary(self) -> dict[str, float | int]:
-        """Return count, median (p50), and p95 summary in milliseconds."""
-        p50, p95 = calculate_percentiles(self.turn_latencies_ms)
+        """Return count, median (p50), and p95 summary for pipeline and library e2e latencies."""
+        pipe_p50, pipe_p95 = calculate_percentiles(self.pipeline_latencies_ms)
+        e2e_p50, e2e_p95 = calculate_percentiles(self.library_e2e_latencies_ms)
         return {
-            "count": len(self.turn_latencies_ms),
-            "median_ms": p50,
-            "p95_ms": p95,
+            "turn_count": len(self.pipeline_latencies_ms),
+            "total_llm_calls": self.total_llm_calls,
+            "pipeline_median_ms": pipe_p50,
+            "pipeline_p95_ms": pipe_p95,
+            "e2e_median_ms": e2e_p50,
+            "e2e_p95_ms": e2e_p95,
         }
