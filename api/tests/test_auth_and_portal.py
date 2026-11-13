@@ -1,5 +1,7 @@
 """Unit tests for Auth, Platform Admin, Tenant Portal, and Internal routing."""
 
+import uuid
+
 from fastapi.testclient import TestClient
 
 from api.app.core.config import settings
@@ -54,7 +56,7 @@ def test_platform_admin_stats_access() -> None:
 
 def test_tenant_registration_and_portal_access() -> None:
     """Verify public client self-service onboarding and dashboard access."""
-    unique_email = "owner@smilecaredental.com"
+    unique_email = f"owner_{uuid.uuid4().hex[:8]}@smilecaredental.com"
     reg_resp = client.post(
         "/api/v1/auth/register",
         json={
