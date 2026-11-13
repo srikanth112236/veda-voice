@@ -210,7 +210,7 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("user_state_changed")
     def on_user_state_changed(event: UserStateChangedEvent) -> None:
         """User state changed from speaking/listening/away."""
-        if event.new_state == "speaking":
+        if event.new_state in ("speaking", "listening"):
             safety_monitor.on_user_activity()
 
     @session.on("conversation_item_added")
