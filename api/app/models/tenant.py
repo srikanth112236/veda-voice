@@ -110,23 +110,32 @@ class AgentProfile(Base):
 
 
 class PhoneNumber(Base):
-    """Inbound phone number linked to a tenant."""
+    """Inbound phone number linked to a tenant or held in agency pool."""
 
     __tablename__ = "phone_numbers"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    tenant_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True
     )
     e164: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
     provider: Mapped[str] = mapped_column(
         String(32), default="livekit", nullable=False
     )  # livekit, telnyx, twilio
+    purpose: Mapped[str] = mapped_column(
+        String(32), default="inbound_outbound", nullable=False
+    )  # inbound_outbound, inbound, outbound
+    label: Mapped[str] = mapped_column(String(64), default="Main Inbound Line", nullable=False)
+    locality: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    region: Mapped[str] = mapped_column(String(16), default="US", nullable=False)
+    trunk_id: Mapped[str] = mapped_column(
+        String(64), default="ST_inbound_livekit_scale", nullable=False
+    )
     status: Mapped[str] = mapped_column(
         String(32), default="active", nullable=False
-    )  # active, reserved, released
+    )  # active, pool, released
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
-    tenant: Mapped[Tenant] = relationship("Tenant", back_populates="phone_numbers")
+    tenant: Mapped[Tenant | None] = relationship("Tenant", back_populates="phone_numbers")

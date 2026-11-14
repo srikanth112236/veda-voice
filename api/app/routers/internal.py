@@ -131,7 +131,9 @@ def resolve_tenant_by_number(e164: str, db: Session = Depends(get_db)) -> Any:
     )
     phone = db.scalar(stmt)
 
-    if not phone:
+    if phone and phone.tenant:
+        tenant = phone.tenant
+    else:
         fallback_tenant = db.scalar(
             select(Tenant).where(Tenant.status == "active").order_by(Tenant.created_at.asc())
         )
@@ -140,8 +142,6 @@ def resolve_tenant_by_number(e164: str, db: Session = Depends(get_db)) -> Any:
                 status_code=status.HTTP_404_NOT_FOUND, detail="No active tenant found"
             )
         tenant = fallback_tenant
-    else:
-        tenant = phone.tenant
 
     return _build_tenant_config(tenant)
 
@@ -153,7 +153,7 @@ def start_call(payload: CallStartRequest, db: Session = Depends(get_db)) -> Any:
     phone = db.scalar(
         select(PhoneNumber).where(PhoneNumber.e164 == clean_number, PhoneNumber.status == "active")
     )
-    if phone:
+    if phone and phone.tenant:
         tenant = phone.tenant
     else:
         fallback_tenant = db.scalar(

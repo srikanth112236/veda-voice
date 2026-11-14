@@ -47,5 +47,12 @@ class Settings(BaseSettings):
     GLOBAL_MAX_CONCURRENT: int = 40
     GLOBAL_MAX_OUTBOUND: int = 10
 
+    # LiveKit SIP Trunking & Carrier Telephony
+    LIVEKIT_SIP_INBOUND_TRUNK_ID: str = "ST_inbound_livekit_scale"
+    LIVEKIT_SIP_OUTBOUND_TRUNK_ID: str = "ST_outbound_twilio_elastic"
+    LIVEKIT_SIP_DISPATCH_RULE_NAME: str = "all-tenants-inbound"
+    CARRIER_PRIMARY_PROVIDER: str = "Twilio Elastic SIP Trunk"
+    CARRIER_HOT_STANDBY_PROVIDER: str = "Telnyx SIP (Hot Standby)"
+
 
 settings = Settings()

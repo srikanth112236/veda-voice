@@ -139,6 +139,47 @@ export interface CarrierTrunkHealth {
   codecs: string[];
 }
 
+export interface PhoneNumberRecord {
+  id: string;
+  tenant_id: string | null;
+  tenant_name: string | null;
+  e164: string;
+  formatted: string;
+  provider: string;
+  purpose: string;
+  label: string;
+  locality: string;
+  region: string;
+  trunk_id: string;
+  status: "active" | "pool" | "released";
+  monthly_cost_usd: number;
+  created_at: string;
+}
+
+export interface SipTrunkTelemetry {
+  inbound_trunk_id: string;
+  outbound_trunk_id: string;
+  dispatch_rule_name: string;
+  room_prefix: string;
+  agent_name: string;
+  total_bound_numbers: number;
+  active_tenant_numbers: number;
+  pool_available_numbers: number;
+  primary_carrier: CarrierTrunkHealth;
+  standby_carrier: CarrierTrunkHealth;
+  sync_status: string;
+  last_synced_at: string;
+}
+
+export interface SyncTrunkResult {
+  synced: boolean;
+  dispatch_rule: string;
+  inbound_trunk_id: string;
+  total_numbers_bound: number;
+  bindings: string[];
+  message: string;
+}
+
 export interface InferenceCostMetrics {
   cost_livekit_per_min: number;
   cost_deepgram_per_min: number;
@@ -312,5 +353,48 @@ export const api = {
     request<TenantSummary>("/api/v1/admin/tenants", {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+
+  // Automated Phone Number Inventory & SIP Trunk Binding
+  getNumbers: (params?: { status?: string; provider?: string; tenant_id?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.append("status", params.status);
+    if (params?.provider) q.append("provider", params.provider);
+    if (params?.tenant_id) q.append("tenant_id", params.tenant_id);
+    const queryStr = q.toString() ? `?${q.toString()}` : "";
+    return request<PhoneNumberRecord[]>(`/api/v1/numbers${queryStr}`);
+  },
+
+  provisionNumber: (data: {
+    e164: string;
+    provider?: string;
+    purpose?: string;
+    label?: string;
+    locality?: string;
+    region?: string;
+    tenant_id?: string;
+    trunk_id?: string;
+  }) =>
+    request<PhoneNumberRecord>("/api/v1/numbers", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  attachNumber: (numberId: string, data: { tenant_id?: string; label?: string; trunk_id?: string }) =>
+    request<PhoneNumberRecord>(`/api/v1/numbers/${numberId}/attach`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  detachNumber: (numberId: string, releaseToPool = true) =>
+    request<PhoneNumberRecord>(`/api/v1/numbers/${numberId}/detach?release_to_pool=${releaseToPool}`, {
+      method: "POST",
+    }),
+
+  getSipTrunkTelemetry: () => request<SipTrunkTelemetry>("/api/v1/numbers/trunks"),
+
+  syncSipTrunkDispatchRules: () =>
+    request<SyncTrunkResult>("/api/v1/numbers/trunks/sync", {
+      method: "POST",
     }),
 };

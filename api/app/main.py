@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from api.app.core.config import settings
 from api.app.core.security import hash_password
@@ -21,6 +21,7 @@ from api.app.models.user import User
 from api.app.routers.admin import router as admin_router
 from api.app.routers.auth import router as auth_router
 from api.app.routers.internal import router as internal_router
+from api.app.routers.numbers import router as numbers_router
 from api.app.routers.portal import router as portal_router
 
 
@@ -112,6 +113,51 @@ def seed_initial_data() -> None:
                 is_active=True,
             )
             db.add(owner)
+            db.commit()
+
+        # Seed Agency Pool Numbers if empty
+        pool_count = db.scalar(
+            select(func.count(PhoneNumber.id)).where(PhoneNumber.status == "pool")
+        )
+        if not pool_count:
+            pool_seeds = [
+                {
+                    "e164": "+15129002244",
+                    "provider": "livekit",
+                    "label": "Agency Pool - Austin Metro",
+                    "locality": "Austin",
+                    "region": "TX",
+                },
+                {
+                    "e164": "+14158003311",
+                    "provider": "telnyx",
+                    "label": "Agency Pool - San Francisco",
+                    "locality": "San Francisco",
+                    "region": "CA",
+                },
+                {
+                    "e164": "+13127629011",
+                    "provider": "twilio",
+                    "label": "Agency Pool - Chicago Metro",
+                    "locality": "Chicago",
+                    "region": "IL",
+                },
+            ]
+            for seed in pool_seeds:
+                existing = db.scalar(select(PhoneNumber).where(PhoneNumber.e164 == seed["e164"]))
+                if not existing:
+                    db.add(
+                        PhoneNumber(
+                            tenant_id=None,
+                            e164=seed["e164"],
+                            provider=seed["provider"],
+                            label=seed["label"],
+                            locality=seed["locality"],
+                            region=seed["region"],
+                            trunk_id="ST_inbound_livekit_scale",
+                            status="pool",
+                        )
+                    )
             db.commit()
 
         # 3. Import existing calls from data/calls/ if database calls are empty
@@ -268,6 +314,76 @@ def init_db() -> None:
                     )
                 )
 
+            # Phone numbers table columns
+            cursor = conn.execute(text("PRAGMA table_info(phone_numbers)"))
+            existing_phone_cols = {row[1] for row in cursor.fetchall()}
+            if "purpose" not in existing_phone_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE phone_numbers ADD COLUMN purpose VARCHAR(32) DEFAULT 'inbound_outbound' NOT NULL"
+                    )
+                )
+            if "label" not in existing_phone_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE phone_numbers ADD COLUMN label VARCHAR(64) DEFAULT 'Main Inbound Line' NOT NULL"
+                    )
+                )
+            if "locality" not in existing_phone_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE phone_numbers ADD COLUMN locality VARCHAR(64) DEFAULT '' NOT NULL"
+                    )
+                )
+            if "region" not in existing_phone_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE phone_numbers ADD COLUMN region VARCHAR(16) DEFAULT 'US' NOT NULL"
+                    )
+                )
+            if "trunk_id" not in existing_phone_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE phone_numbers ADD COLUMN trunk_id VARCHAR(64) DEFAULT 'ST_inbound_livekit_scale' NOT NULL"
+                    )
+                )
+
+            # Check if tenant_id has NOT NULL constraint and migrate if needed
+            cursor = conn.execute(text("PRAGMA table_info(phone_numbers)"))
+            cols_info = {row[1]: row for row in cursor.fetchall()}
+            if cols_info.get("tenant_id") and cols_info["tenant_id"][3] == 1:
+                conn.execute(text("PRAGMA foreign_keys=OFF;"))
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE phone_numbers_new (
+                            id VARCHAR(36) PRIMARY KEY,
+                            tenant_id VARCHAR(36) NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                            e164 VARCHAR(32) UNIQUE NOT NULL,
+                            provider VARCHAR(32) NOT NULL DEFAULT 'livekit',
+                            purpose VARCHAR(32) NOT NULL DEFAULT 'inbound_outbound',
+                            label VARCHAR(64) NOT NULL DEFAULT 'Main Inbound Line',
+                            locality VARCHAR(64) NOT NULL DEFAULT '',
+                            region VARCHAR(16) NOT NULL DEFAULT 'US',
+                            trunk_id VARCHAR(64) NOT NULL DEFAULT 'ST_inbound_livekit_scale',
+                            status VARCHAR(32) NOT NULL DEFAULT 'active',
+                            created_at DATETIME NOT NULL
+                        );
+                        """
+                    )
+                )
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO phone_numbers_new (id, tenant_id, e164, provider, purpose, label, locality, region, trunk_id, status, created_at)
+                        SELECT id, tenant_id, e164, provider, purpose, label, locality, region, trunk_id, status, created_at FROM phone_numbers;
+                        """
+                    )
+                )
+                conn.execute(text("DROP TABLE phone_numbers;"))
+                conn.execute(text("ALTER TABLE phone_numbers_new RENAME TO phone_numbers;"))
+                conn.execute(text("PRAGMA foreign_keys=ON;"))
+
             conn.commit()
     seed_initial_data()
 
@@ -301,6 +417,7 @@ app.add_middleware(
 # Mount API routers
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(numbers_router, prefix="/api/v1")
 app.include_router(portal_router, prefix="/api/v1")
 app.include_router(internal_router, prefix="/api/v1")
 

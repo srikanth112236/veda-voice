@@ -2,7 +2,13 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, PlatformStats, TenantSummary } from "@/lib/api";
+import {
+  api,
+  PlatformStats,
+  TenantSummary,
+  PhoneNumberRecord,
+  SipTrunkTelemetry,
+} from "@/lib/api";
 import { InfoTrigger } from "@/context/info-modal-context";
 import {
   Users,
@@ -27,28 +33,118 @@ import {
   Lock,
   RefreshCw,
   TrendingUp,
+  Phone,
+  Link2,
+  Unlink,
+  Network,
+  X,
+  Check,
 } from "lucide-react";
 
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
+  const [numbers, setNumbers] = useState<PhoneNumberRecord[]>([]);
+  const [trunkTelemetry, setTrunkTelemetry] = useState<SipTrunkTelemetry | null>(null);
   const [loading, setLoading] = useState(true);
   const [maskPii, setMaskPii] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [provisioningMode, setProvisioningMode] = useState<"carrier_search" | "agency_pool">("carrier_search");
 
+  // Phone number inventory filter & actions state
+  const [numberFilter, setNumberFilter] = useState<"all" | "active" | "pool">("all");
+  const [syncingTrunk, setSyncingTrunk] = useState(false);
+  const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
+  const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [showAttachModal, setShowAttachModal] = useState<PhoneNumberRecord | null>(null);
+  const [targetTenantId, setTargetTenantId] = useState<string>("");
+  const [provisioningNumber, setProvisioningNumber] = useState(false);
+  const [newProvisionData, setNewProvisionData] = useState({
+    e164: "+15125550199",
+    provider: "Twilio Elastic SIP",
+    locality: "Austin Metro",
+    region: "TX",
+    target_tenant_id: "",
+  });
+
   const loadData = () => {
     setRefreshing(true);
-    Promise.all([api.getAdminStats(), api.getAdminTenants()])
-      .then(([statsRes, tenantsRes]) => {
+    Promise.all([
+      api.getAdminStats(),
+      api.getAdminTenants(),
+      api.getNumbers(),
+      api.getSipTrunkTelemetry(),
+    ])
+      .then(([statsRes, tenantsRes, numbersRes, trunkRes]) => {
         setStats(statsRes);
         setTenants(tenantsRes);
+        setNumbers(numbersRes);
+        setTrunkTelemetry(trunkRes);
       })
       .catch((err) => console.error("Failed to load admin data:", err))
       .finally(() => {
         setLoading(false);
         setRefreshing(false);
       });
+  };
+
+  const handleSyncTrunkDispatch = async () => {
+    setSyncingTrunk(true);
+    setSyncSuccessMsg(null);
+    try {
+      const res = await api.syncSipTrunkDispatchRules();
+      setSyncSuccessMsg(res.message);
+      // Refresh telemetry and numbers
+      const [nums, trunk] = await Promise.all([api.getNumbers(), api.getSipTrunkTelemetry()]);
+      setNumbers(nums);
+      setTrunkTelemetry(trunk);
+      setTimeout(() => setSyncSuccessMsg(null), 5000);
+    } catch (err: unknown) {
+      console.error("Failed to sync trunks:", err);
+    } finally {
+      setSyncingTrunk(false);
+    }
+  };
+
+  const handleAttachNumber = async (numberId: string) => {
+    if (!targetTenantId) return;
+    try {
+      await api.attachNumber(numberId, { tenant_id: targetTenantId });
+      setShowAttachModal(null);
+      setTargetTenantId("");
+      loadData();
+    } catch (err: unknown) {
+      console.error("Failed to attach number:", err);
+    }
+  };
+
+  const handleDetachNumber = async (numberId: string) => {
+    try {
+      await api.detachNumber(numberId, true);
+      loadData();
+    } catch (err: unknown) {
+      console.error("Failed to detach number:", err);
+    }
+  };
+
+  const handleCreateProvisionedNumber = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProvisioningNumber(true);
+    try {
+      await api.provisionNumber({
+        e164: newProvisionData.e164,
+        provider: newProvisionData.provider.toLowerCase().includes("telnyx") ? "telnyx" : "twilio",
+        locality: newProvisionData.locality,
+        region: newProvisionData.region,
+        tenant_id: newProvisionData.target_tenant_id || undefined,
+      });
+      setShowProvisionModal(false);
+      loadData();
+    } catch (err: unknown) {
+      console.error("Failed to provision number:", err);
+    } finally {
+      setProvisioningNumber(false);
+    }
   };
 
   useEffect(() => {
@@ -408,6 +504,362 @@ export default function AdminDashboardPage() {
             <span className="text-[10px] text-zinc-500">Full Attestation</span>
           </div>
         </div>
+      </div>
+
+      {/* SECTION 2B: Automated Phone Number Inventory & LiveKit SIP Trunk Binding */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-800 gap-3">
+          <div className="flex items-center gap-2">
+            <Phone className="w-4 h-4 text-indigo-400" />
+            <h2 className="text-sm font-bold text-zinc-100 font-mono uppercase tracking-wide">
+              Phone Number Inventory &amp; LiveKit SIP Trunk Binding
+            </h2>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+              {numbers.length} Total Lines
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSyncTrunkDispatch}
+              disabled={syncingTrunk}
+              className="px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-mono flex items-center gap-1.5 transition-colors"
+              title="Synchronize all active tenant E.164 phone numbers to LiveKit Inbound SIP dispatch rules"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingTrunk ? "animate-spin" : ""}`} />
+              <span>{syncingTrunk ? "Syncing Dispatch..." : "Sync Trunk Dispatch"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowProvisionModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Provision Carrier Line</span>
+            </button>
+          </div>
+        </div>
+
+        {/* SIP Trunk & Dispatch Rule Health Metadata Card */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-lg bg-zinc-950/80 border border-zinc-850 font-mono text-xs">
+          <div>
+            <span className="text-[10px] uppercase text-zinc-500">Inbound SIP Trunk ID</span>
+            <div className="text-xs font-bold text-zinc-200 mt-0.5 truncate" title={trunkTelemetry?.inbound_trunk_id || "ST_inbound_livekit_scale"}>
+              {trunkTelemetry?.inbound_trunk_id || "ST_inbound_livekit_scale"}
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase text-zinc-500">Outbound SIP Trunk ID</span>
+            <div className="text-xs font-bold text-zinc-200 mt-0.5 truncate" title={trunkTelemetry?.outbound_trunk_id || "ST_outbound_twilio_elastic"}>
+              {trunkTelemetry?.outbound_trunk_id || "ST_outbound_twilio_elastic"}
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase text-zinc-500">Dispatch Rule &amp; Agent</span>
+            <div className="text-xs font-bold text-emerald-400 mt-0.5">
+              all-tenants-inbound &rarr; receptionist
+            </div>
+          </div>
+          <div>
+            <span className="text-[10px] uppercase text-zinc-500">Inventory Allocation</span>
+            <div className="text-xs font-bold text-zinc-200 mt-0.5">
+              <span className="text-emerald-400">{numbers.filter((n) => n.status === "active").length} Assigned</span> &bull;{" "}
+              <span className="text-indigo-400">{numbers.filter((n) => n.status === "pool").length} In Pool</span>
+            </div>
+          </div>
+        </div>
+
+        {syncSuccessMsg && (
+          <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2 font-mono animate-in fade-in duration-200">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{syncSuccessMsg}</span>
+          </div>
+        )}
+
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-1 border-b border-zinc-800 pb-2">
+          {[
+            { id: "all", label: `All Numbers (${numbers.length})` },
+            { id: "active", label: `Active Tenant Lines (${numbers.filter((n) => n.status === "active").length})` },
+            { id: "pool", label: `Agency Pool Inventory (${numbers.filter((n) => n.status === "pool").length})` },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setNumberFilter(tab.id as "all" | "active" | "pool")}
+              className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
+                numberFilter === tab.id
+                  ? "bg-indigo-600 text-white font-semibold"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Phone Numbers Table */}
+        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 shadow-xl">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-zinc-950/80 border-b border-zinc-800 font-mono text-[10px] uppercase text-zinc-500">
+              <tr>
+                <th className="p-3">Phone Number (E.164)</th>
+                <th className="p-3">Assigned Tenant / Pool</th>
+                <th className="p-3">Carrier Provider</th>
+                <th className="p-3">Locality / Region</th>
+                <th className="p-3">Trunk Binding</th>
+                <th className="p-3">Status</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800/60">
+              {numbers
+                .filter((n) => numberFilter === "all" || n.status === numberFilter)
+                .map((num) => {
+                  const isPool = num.status === "pool";
+                  return (
+                    <tr key={num.id} className="hover:bg-zinc-800/30 transition-colors">
+                      <td className="p-3">
+                        <div className="font-mono font-bold text-zinc-200">
+                          {maskPhoneNumber(num.formatted || num.e164)}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 font-sans">{num.label}</div>
+                      </td>
+
+                      <td className="p-3">
+                        {num.tenant_id ? (
+                          <div className="font-semibold text-zinc-200">
+                            {num.tenant_name || "Apex Plumbing & Heating"}
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            Agency Pre-Bought Pool
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="p-3 font-mono text-zinc-300">
+                        <span className="text-[11px] font-semibold text-zinc-200 capitalize">
+                          {num.provider}
+                        </span>
+                        <div className="text-[9px] text-zinc-500">STIR/SHAKEN A</div>
+                      </td>
+
+                      <td className="p-3 text-zinc-400">
+                        {num.locality ? `${num.locality}, ${num.region}` : num.region}
+                      </td>
+
+                      <td className="p-3 font-mono text-[11px] text-zinc-400">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                          {num.trunk_id || "ST_inbound_livekit_scale"}
+                        </span>
+                      </td>
+
+                      <td className="p-3">
+                        {isPool ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            Available in Pool
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            Active Tenant Line
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="p-3 text-right">
+                        {isPool ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAttachModal(num);
+                              setTargetTenantId(tenants[0]?.id || "");
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-sans transition-colors shadow-sm"
+                          >
+                            <Link2 className="w-3 h-3" />
+                            Attach to Tenant
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleDetachNumber(num.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 hover:bg-red-500/20 hover:text-red-300 text-zinc-400 text-xs font-sans transition-colors"
+                          >
+                            <Unlink className="w-3 h-3" />
+                            Detach to Pool
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              {numbers.filter((n) => numberFilter === "all" || n.status === numberFilter).length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-6 text-center text-zinc-500 font-mono text-xs">
+                    No phone numbers found in this view.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Provision Carrier Number Modal */}
+        {showProvisionModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 max-w-md w-full space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-emerald-400" />
+                  Provision Carrier Phone Number
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowProvisionModal(false)}
+                  className="p-1 rounded text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateProvisionedNumber} className="space-y-3 text-xs">
+                <div className="space-y-1">
+                  <label className="font-medium text-zinc-300">E.164 Phone Number *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newProvisionData.e164}
+                    onChange={(e) => setNewProvisionData({ ...newProvisionData, e164: e.target.value })}
+                    className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 font-mono focus:outline-none focus:border-indigo-500"
+                    placeholder="+15125550199"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="font-medium text-zinc-300">Carrier Provider</label>
+                    <select
+                      value={newProvisionData.provider}
+                      onChange={(e) => setNewProvisionData({ ...newProvisionData, provider: e.target.value })}
+                      className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="Twilio Elastic SIP">Twilio Elastic SIP</option>
+                      <option value="Telnyx SIP">Telnyx SIP</option>
+                      <option value="LiveKit Dedicated SIP">LiveKit Dedicated SIP</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-medium text-zinc-300">Locality / Metro</label>
+                    <input
+                      type="text"
+                      value={newProvisionData.locality}
+                      onChange={(e) => setNewProvisionData({ ...newProvisionData, locality: e.target.value })}
+                      className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
+                      placeholder="e.g. Austin Metro"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-medium text-zinc-300">Assign Directly to Tenant (Optional)</label>
+                  <select
+                    value={newProvisionData.target_tenant_id}
+                    onChange={(e) => setNewProvisionData({ ...newProvisionData, target_tenant_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Hold in Agency Pool (Unassigned)</option>
+                    {tenants.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowProvisionModal(false)}
+                    className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={provisioningNumber}
+                    className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5"
+                  >
+                    {provisioningNumber ? "Binding Trunk..." : "Provision & Bind Trunk"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Attach Number to Tenant Modal */}
+        {showAttachModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-indigo-400" />
+                  Attach Pool Number
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAttachModal(null)}
+                  className="p-1 rounded text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div className="p-2.5 rounded bg-zinc-950 border border-zinc-850 font-mono">
+                  <span className="text-[10px] text-zinc-500 uppercase">Selected Number</span>
+                  <div className="font-bold text-zinc-200 mt-0.5">{showAttachModal.formatted || showAttachModal.e164}</div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-medium text-zinc-300">Select Target Tenant Organization</label>
+                  <select
+                    value={targetTenantId}
+                    onChange={(e) => setTargetTenantId(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    {tenants.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowAttachModal(null)}
+                    className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAttachNumber(showAttachModal.id)}
+                    className="px-4 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs"
+                  >
+                    Attach Number
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* SECTION 3: Model Inference Cost & Profit Margin Intelligence */}
