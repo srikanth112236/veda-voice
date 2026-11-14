@@ -3,7 +3,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,9 +28,23 @@ class RegisterTenantRequest(BaseModel):
     password: str
     timezone: str = "America/New_York"
     hours: str = "Monday to Friday, 8:00 AM to 6:00 PM EST"
-    niche: str = "plumbing"  # plumbing, dental, legal, general
+    niche: str = "plumbing"  # plumbing, dental, hvac, legal, general
     phone_number: str | None = None
     voice_id: str = "Alex"
+    agent_name: str = "receptionist"
+    greeting: str | None = None
+    tone: str = "direct"
+    recording_disclosure: bool = True
+    pricing_policy: str = "diagnostic_fee_only"
+    diagnostic_fee: str | None = "$89.00"
+    services: list[str] = Field(
+        default_factory=lambda: ["General Services", "Repairs", "Maintenance"]
+    )
+    emergency_advice: str | None = None
+    emergency_keywords: list[str] = Field(
+        default_factory=lambda: ["burst pipe", "flooding", "gas leak", "urgent"]
+    )
+    faq: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class UserResponse(BaseModel):
@@ -96,24 +110,56 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
     db.add(tenant)
     db.flush()
 
-    # 2. Create Default Agent Profile for this niche
+    # 2. Build Agent Profile
+    greeting_text = req.greeting
+    if not greeting_text:
+        disclosure_phrase = (
+            " This call may be recorded and transcribed for quality assurance."
+            if req.recording_disclosure
+            else ""
+        )
+        greeting_text = f"Thanks for calling {req.business_name}. I'm an automated assistant.{disclosure_phrase} How can I help you today?"
+
+    default_emergency_advice = (
+        "If safe, locate and shut off your main water valve right away."
+        if req.niche == "plumbing"
+        else "In case of immediate danger, please call 911."
+    )
+
+    pricing_details: dict[str, Any] = {}
+    if req.diagnostic_fee:
+        pricing_details["diagnostic_fee"] = req.diagnostic_fee
+
     agent_profile = AgentProfile(
         tenant_id=tenant.id,
-        agent_name="receptionist",
-        greeting=f"Thanks for calling {req.business_name}. I'm an automated assistant, and this call may be recorded and transcribed for quality assurance. How can I help you today?",
-        tone="direct" if req.niche == "plumbing" else "warm",
+        agent_name=req.agent_name or "receptionist",
+        greeting=greeting_text,
+        tone=req.tone,
         voice_id=req.voice_id or "Alex",
-        pricing_policy="diagnostic_fee_only" if req.niche == "plumbing" else "fixed_menu",
-        emergency_advice="If safe, locate and shut off your main water valve right away."
-        if req.niche == "plumbing"
-        else "In case of immediate danger, please call 911.",
-        services=["General Services", "Repairs", "Maintenance"],
-        emergency_keywords=["burst pipe", "flooding", "gas leak", "urgent"],
+        recording_disclosure=req.recording_disclosure,
+        pricing_policy=req.pricing_policy,
+        pricing_details=pricing_details,
+        services=req.services,
+        emergency_advice=req.emergency_advice or default_emergency_advice,
+        emergency_keywords=req.emergency_keywords,
+        faq=req.faq,
     )
     db.add(agent_profile)
 
     # Attach phone number if provided
     if req.phone_number:
+        # Check if number is already in use by active tenant
+        existing_phone = db.scalar(
+            select(PhoneNumber).where(
+                PhoneNumber.e164 == req.phone_number,
+                PhoneNumber.status == "active",
+            )
+        )
+        if existing_phone:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Phone number {req.phone_number} is already assigned to an active tenant",
+            )
         phone = PhoneNumber(
             tenant_id=tenant.id,
             e164=req.phone_number,

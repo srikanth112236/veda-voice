@@ -340,3 +340,90 @@ def test_admin_number_search_and_voice_sync() -> None:
     assert synced["tts_model"] == "inworld/inworld-tts-1"
     assert synced["tone"] == "warm"
     assert synced["recording_disclosure"] is True
+
+
+def test_self_serve_onboarding_wizard_full_flow() -> None:
+    """Verify Phase 2 complete public self-serve client onboarding wizard (/onboarding)."""
+    unique_suffix = uuid.uuid4().hex[:6]
+    test_e164 = f"+1512888{unique_suffix[:4]}"
+    client_email = f"marcus_{unique_suffix}@aquatechplumbing.com"
+
+    onboarding_payload = {
+        "business_name": f"AquaTech Plumbers {unique_suffix}",
+        "owner_name": "Marcus Vance",
+        "email": client_email,
+        "password": "Password123!",
+        "timezone": "America/New_York",
+        "hours": "24/7 Emergency Dispatch",
+        "niche": "plumbing",
+        "phone_number": test_e164,
+        "voice_id": "Arcana",  # Rime TTS model
+        "agent_name": "Arcana",
+        "greeting": "Thanks for calling AquaTech. How can we help?",
+        "tone": "direct",
+        "recording_disclosure": True,
+        "pricing_policy": "diagnostic_fee_only",
+        "diagnostic_fee": "$99.00",
+        "services": ["Pipe Bursts", "Sump Pump Repair"],
+        "emergency_advice": "Locate and shut off your main water valve right away.",
+        "emergency_keywords": ["burst pipe", "flooding", "sewer backup"],
+        "faq": [
+            {"question": "Are you open 24/7?", "answer": "Yes, our technicians are always ready."}
+        ],
+    }
+
+    # 1. Submit public self-serve registration (no admin auth header required)
+    reg_resp = client.post("/api/v1/auth/register", json=onboarding_payload)
+    assert reg_resp.status_code == 200, reg_resp.text
+    reg_data = reg_resp.json()
+
+    assert "access_token" in reg_data
+    token = reg_data["access_token"]
+    user_info = reg_data["user"]
+    assert user_info["email"] == client_email.lower()
+    assert user_info["role"] == "tenant_owner"
+    tenant_id = user_info["tenant_id"]
+    assert tenant_id is not None
+
+    tenant_headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Verify instant portal access using the returned JWT
+    dash_resp = client.get("/api/v1/portal/dashboard", headers=tenant_headers)
+    assert dash_resp.status_code == 200
+    dash_data = dash_resp.json()
+    assert dash_data["tenant_name"] == f"AquaTech Plumbers {unique_suffix}"
+    assert test_e164 in dash_data["phone_numbers"]
+
+    # 3. Verify persisted agent profile matches all 5-step onboarding configurations
+    profile_resp = client.get("/api/v1/portal/profile", headers=tenant_headers)
+    assert profile_resp.status_code == 200
+    profile_data = profile_resp.json()
+    assert profile_data["voice_id"] == "Arcana"
+    assert profile_data["tone"] == "direct"
+    assert profile_data["recording_disclosure"] is True
+    assert profile_data["pricing_policy"] == "diagnostic_fee_only"
+    assert profile_data["pricing_details"]["diagnostic_fee"] == "$99.00"
+    assert "Pipe Bursts" in profile_data["services"]
+    assert "burst pipe" in profile_data["emergency_keywords"]
+    assert len(profile_data["faq"]) == 1
+
+    # 4. Verify LiveKit Dynamic Sync resolves Rime TTS Arcana immediately
+    sync_resp = client.get(f"/api/v1/internal/tenants/by-number/{test_e164}")
+    assert sync_resp.status_code == 200
+    synced = sync_resp.json()
+    assert synced["voice_id"] == "Arcana"
+    assert synced["tts_model"] == "rime/arcana"
+    assert synced["tone"] == "direct"
+    assert synced["recording_disclosure"] is True
+
+    # 5. Verify duplicate registration rejection (Email already registered)
+    dup_email_resp = client.post("/api/v1/auth/register", json=onboarding_payload)
+    assert dup_email_resp.status_code == 409
+    assert "already exists" in dup_email_resp.json()["detail"].lower()
+
+    # 6. Verify duplicate phone number rejection
+    different_email_payload = dict(onboarding_payload)
+    different_email_payload["email"] = f"other_{unique_suffix}@otherplumbing.com"
+    dup_phone_resp = client.post("/api/v1/auth/register", json=different_email_payload)
+    assert dup_phone_resp.status_code == 409
+    assert "already assigned" in dup_phone_resp.json()["detail"].lower()

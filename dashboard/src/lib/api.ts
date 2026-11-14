@@ -238,6 +238,16 @@ export const api = {
     niche?: string;
     phone_number?: string;
     voice_id?: string;
+    agent_name?: string;
+    greeting?: string;
+    tone?: string;
+    recording_disclosure?: boolean;
+    pricing_policy?: string;
+    diagnostic_fee?: string;
+    services?: string[];
+    emergency_advice?: string;
+    emergency_keywords?: string[];
+    faq?: Array<{ question: string; answer: string }>;
   }) =>
     request<AuthResponse>("/api/v1/auth/register", {
       method: "POST",
