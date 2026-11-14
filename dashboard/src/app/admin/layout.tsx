@@ -21,8 +21,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && (!user || user.role !== "platform_admin")) {
-      router.replace("/login");
+    if (!loading) {
+      if (!user) {
+        router.replace("/login");
+      } else if (user.role !== "platform_admin") {
+        router.replace("/portal/dashboard");
+      }
     }
   }, [user, loading, router]);
 

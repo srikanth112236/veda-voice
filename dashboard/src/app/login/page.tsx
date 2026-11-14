@@ -33,8 +33,12 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      await login(email, password);
-      router.push("/");
+      const u = await login(email, password);
+      if (u.role === "platform_admin") {
+        router.push("/admin/dashboard");
+      } else {
+        router.push("/portal/dashboard");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
@@ -48,8 +52,12 @@ export default function LoginPage() {
     setError("");
     setSubmitting(true);
     try {
-      await login(demoEmail, demoPass);
-      router.push("/");
+      const u = await login(demoEmail, demoPass);
+      if (u.role === "platform_admin") {
+        router.push("/admin/dashboard");
+      } else {
+        router.push("/portal/dashboard");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Quick login failed");
     } finally {

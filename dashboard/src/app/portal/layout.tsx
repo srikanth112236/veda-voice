@@ -21,15 +21,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.replace("/login");
+    if (!loading) {
+      if (!user) {
+        router.replace("/login");
+      } else if (user.role === "platform_admin") {
+        router.replace("/admin/dashboard");
+      }
     }
   }, [user, loading, router]);
 
-  if (loading || !user) {
+  if (loading || !user || user.role === "platform_admin") {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-zinc-50 font-mono text-xs text-zinc-500">
-        Loading tenant portal...
+        Authenticating client workspace...
       </div>
     );
   }
@@ -91,19 +95,6 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-zinc-200 space-y-3">
-          {user.role === "platform_admin" && (
-            <Link
-              href="/admin/dashboard"
-              className="flex items-center justify-between p-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-semibold"
-            >
-              <span className="flex items-center gap-1.5">
-                <ShieldAlert className="w-3.5 h-3.5 text-indigo-600" />
-                Agency Admin
-              </span>
-              <span>&rarr;</span>
-            </Link>
-          )}
-
           <div className="flex items-center justify-between pt-1">
             <div className="space-y-0.5 truncate pr-2">
               <div className="text-xs font-bold text-zinc-900 truncate">{user.full_name}</div>

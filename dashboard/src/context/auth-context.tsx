@@ -6,7 +6,7 @@ import { api, UserProfile } from "@/lib/api";
 interface AuthContextType {
   user: UserProfile | null;
   loading: boolean;
-  login: (email: string, pass: string) => Promise<void>;
+  login: (email: string, pass: string) => Promise<UserProfile>;
   logout: () => void;
   setUser: (u: UserProfile | null) => void;
 }
@@ -14,7 +14,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-  login: async () => {},
+  login: async () => ({} as UserProfile),
   logout: () => {},
   setUser: () => {},
 });
@@ -44,10 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
-  const login = async (email: string, pass: string) => {
+  const login = async (email: string, pass: string): Promise<UserProfile> => {
     const res = await api.login({ email, password: pass });
     localStorage.setItem("vedavoice_token", res.access_token);
     setUser(res.user);
+    return res.user;
   };
 
   const logout = () => {

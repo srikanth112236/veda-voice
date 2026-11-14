@@ -349,3 +349,90 @@ def test_portal_tenant_isolation_boundary(isolated_tenants: dict[str, Any]) -> N
     # Tenant A attempts to access Tenant B's call detail via /portal/calls/{call_id}
     resp = client.get(f"/api/v1/portal/calls/{call_b_id}", headers=headers_a)
     assert resp.status_code == 404  # Strictly not found under Tenant A's scope!
+
+
+def test_tenant_cannot_access_platform_admin_endpoints(isolated_tenants: dict[str, Any]) -> None:
+    """Verify tenant users are strictly rejected with 403 Forbidden from all admin routes."""
+    tenant_a = isolated_tenants["tenant_a"]
+    user_a = isolated_tenants["user_a"]
+    token_a = create_access_token({"sub": user_a.id, "tenant_id": tenant_a.id, "role": user_a.role})
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    # 1. Admin stats
+    res_stats = client.get("/api/v1/admin/stats", headers=headers_a)
+    assert res_stats.status_code == 403
+    assert "Platform administrator access required" in res_stats.json()["detail"]
+
+    # 2. Admin tenant list
+    res_tenants = client.get("/api/v1/admin/tenants", headers=headers_a)
+    assert res_tenants.status_code == 403
+
+    # 3. Admin subscriptions master list
+    res_subs = client.get("/api/v1/admin/subscriptions", headers=headers_a)
+    assert res_subs.status_code == 403
+
+    # 4. Admin coupons
+    res_coups = client.get("/api/v1/admin/coupons", headers=headers_a)
+    assert res_coups.status_code == 403
+
+
+def test_tenant_cannot_access_other_tenant_lead_forms_or_leads(
+    isolated_tenants: dict[str, Any],
+) -> None:
+    """Verify Tenant A cannot view, query, or mutate Tenant B's lead forms or captured leads."""
+    from api.app.models.lead_form import Lead, LeadForm
+
+    tenant_a = isolated_tenants["tenant_a"]
+    user_a = isolated_tenants["user_a"]
+    tenant_b = isolated_tenants["tenant_b"]
+
+    token_a = create_access_token({"sub": user_a.id, "tenant_id": tenant_a.id, "role": user_a.role})
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    # Seed form and lead for Tenant B
+    db = SessionLocal()
+    form_b = LeadForm(
+        tenant_id=tenant_b.id,
+        title="Tenant B Secret Intake",
+        fields=[{"name": "caller_name", "label": "Name", "type": "text", "required": True}],
+        is_active=True,
+    )
+    db.add(form_b)
+    db.flush()
+
+    lead_b = Lead(
+        tenant_id=tenant_b.id,
+        form_id=form_b.id,
+        caller_name="Private Patient",
+        caller_phone="+15125559999",
+        status="pending",
+    )
+    db.add(lead_b)
+    db.commit()
+    form_b_id = form_b.id
+    lead_b_id = lead_b.id
+    db.close()
+
+    # Tenant A attempts to delete Tenant B's form
+    del_res = client.delete(f"/api/v1/forms/{form_b_id}", headers=headers_a)
+    assert del_res.status_code == 404
+
+    # Tenant A attempts to mutate Tenant B's lead status
+    status_res = client.post(
+        f"/api/v1/forms/leads/{lead_b_id}/status",
+        headers=headers_a,
+        json={"status": "converted"},
+    )
+    assert status_res.status_code == 404
+
+    # Tenant A lists forms - Tenant B's form must not be in list
+    forms_res = client.get("/api/v1/forms", headers=headers_a)
+    assert forms_res.status_code == 200
+    form_ids = [f["id"] for f in forms_res.json()]
+    assert form_b_id not in form_ids
+
+    # Tenant A lists leads - Tenant B's lead must not be in list
+    leads_res = client.get("/api/v1/forms/leads/all", headers=headers_a)
+    assert leads_res.status_code == 200
+    lead_ids = [item["id"] for item in leads_res.json()]
+    assert lead_b_id not in lead_ids
