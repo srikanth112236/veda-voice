@@ -171,14 +171,14 @@ export default function CallsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-800 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-zinc-100 flex items-center gap-2">
-            <PhoneCall className="w-5 h-5 text-emerald-400" />
+          <h1 className="text-xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
+            <PhoneCall className="w-5 h-5 text-emerald-600" />
             Telephony Call Explorer &amp; Audio Analytics
             <InfoTrigger topic="inbound_telephony" />
           </h1>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="text-xs text-zinc-500 mt-1">
             Complete audit trail of inbound phone interactions, turn-by-turn latencies, audio playback, and customer intake.
           </p>
         </div>
@@ -188,19 +188,19 @@ export default function CallsPage() {
           <button
             type="button"
             onClick={handleExportCSV}
-            className="px-2.5 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:border-zinc-700 text-xs text-zinc-300 flex items-center gap-1.5 transition-colors font-mono"
+            className="px-3 py-1.5 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-700 flex items-center gap-1.5 transition-colors font-mono shadow-sm"
             title="Download CSV for CRM or Spreadsheet"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
             Export CSV
           </button>
           <button
             type="button"
             onClick={handleExportJSON}
-            className="px-2.5 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:border-zinc-700 text-xs text-zinc-300 flex items-center gap-1.5 transition-colors font-mono"
+            className="px-3 py-1.5 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-700 flex items-center gap-1.5 transition-colors font-mono shadow-sm"
             title="Download JSON Payload"
           >
-            <FileCode className="w-3.5 h-3.5 text-sky-400" />
+            <FileCode className="w-3.5 h-3.5 text-sky-600" />
             JSON
           </button>
         </div>
@@ -210,47 +210,47 @@ export default function CallsPage() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         {/* Search Bar */}
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-2.5" />
+          <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by caller, phone, address, or call ID..."
-            className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 font-mono"
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-300 bg-white text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-zinc-900 font-mono"
           />
         </div>
 
         {/* Filters Group */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Urgency Filter Tabs */}
-          <div className="flex items-center gap-1 p-0.5 rounded-lg border border-zinc-800 bg-zinc-900 text-xs">
+          <div className="flex items-center gap-1 p-1 rounded-xl border border-zinc-200 bg-white text-xs shadow-sm">
             <button
               onClick={() => setFilterUrgency("")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+              className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                 filterUrgency === ""
-                  ? "bg-zinc-800 text-zinc-100 shadow-sm"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  ? "bg-zinc-900 text-white shadow-sm"
+                  : "text-zinc-600 hover:text-zinc-900"
               }`}
             >
               All Urgency
             </button>
             <button
               onClick={() => setFilterUrgency("emergency")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors flex items-center gap-1 ${
+              className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 ${
                 filterUrgency === "emergency"
-                  ? "bg-red-500/20 text-red-400 font-bold shadow-sm"
-                  : "text-zinc-400 hover:text-red-400"
+                  ? "bg-red-600 text-white shadow-sm"
+                  : "text-zinc-600 hover:text-red-600"
               }`}
             >
-              <Flame className="w-3 h-3 text-red-400" />
+              <Flame className="w-3 h-3" />
               Emergencies
             </button>
             <button
               onClick={() => setFilterUrgency("urgent")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+              className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                 filterUrgency === "urgent"
-                  ? "bg-amber-500/20 text-amber-400 font-bold shadow-sm"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  ? "bg-amber-500 text-zinc-950 font-bold shadow-sm"
+                  : "text-zinc-600 hover:text-zinc-900"
               }`}
             >
               Urgent
@@ -261,7 +261,7 @@ export default function CallsPage() {
           <select
             value={filterOutcome}
             onChange={(e) => setFilterOutcome(e.target.value)}
-            className="rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-300 font-mono focus:outline-none focus:border-zinc-600"
+            className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-700 font-medium focus:outline-none focus:border-zinc-900 shadow-sm"
           >
             <option value="">All Outcomes</option>
             <option value="message_taken">Message Taken</option>
@@ -274,32 +274,32 @@ export default function CallsPage() {
       </div>
 
       {/* Calls Table */}
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 shadow-lg">
+      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
         <table className="w-full text-left text-xs">
-          <thead className="bg-zinc-950/80 border-b border-zinc-800 font-mono text-[10px] uppercase text-zinc-500">
+          <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-bold">
             <tr>
-              <th className="p-3 w-32">Status / Urgency</th>
-              <th className="p-3">Caller Name</th>
-              <th className="p-3">Callback Number</th>
-              <th className="p-3">Service Address</th>
-              <th className="p-3">Duration &amp; Turns</th>
-              <th className="p-3 flex items-center gap-1">
+              <th className="p-3.5 w-32">Status / Urgency</th>
+              <th className="p-3.5">Caller Name</th>
+              <th className="p-3.5">Callback Number</th>
+              <th className="p-3.5">Service Address</th>
+              <th className="p-3.5">Duration &amp; Turns</th>
+              <th className="p-3.5 flex items-center gap-1">
                 P50 Latency
                 <InfoTrigger topic="call_latency_metrics" />
               </th>
-              <th className="p-3 text-right">Started At</th>
+              <th className="p-3.5 text-right">Started At</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-800/60 font-mono">
+          <tbody className="divide-y divide-zinc-200 font-mono">
             {loading ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-zinc-500">
+                <td colSpan={7} className="p-8 text-center text-zinc-500 font-mono">
                   Loading call records...
                 </td>
               </tr>
             ) : filteredCalls.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-zinc-500">
+                <td colSpan={7} className="p-8 text-center text-zinc-500 font-sans">
                   No calls matching your criteria.
                 </td>
               </tr>
@@ -308,55 +308,55 @@ export default function CallsPage() {
                 <tr
                   key={call.id}
                   onClick={() => handleSelectCall(call.id)}
-                  className={`cursor-pointer hover:bg-zinc-800/40 transition-colors ${
-                    selectedCallId === call.id ? "bg-zinc-800/60" : ""
+                  className={`cursor-pointer hover:bg-zinc-50 transition-colors ${
+                    selectedCallId === call.id ? "bg-zinc-100/80 font-medium" : ""
                   }`}
                 >
-                  <td className="p-3">
+                  <td className="p-3.5">
                     {call.urgency === "emergency" ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
                         🚨 Emergency
                       </span>
                     ) : call.urgency === "urgent" ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
                         ⚠️ Urgent
                       </span>
                     ) : call.outcome === "message_taken" ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
                         📝 Message
                       </span>
                     ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] text-zinc-400 bg-zinc-800/60 border border-zinc-700/40">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] text-zinc-600 bg-zinc-100 border border-zinc-200">
                         Normal
                       </span>
                     )}
                   </td>
-                  <td className="p-3 font-sans font-medium text-zinc-200">
+                  <td className="p-3.5 font-sans font-bold text-zinc-900">
                     {call.caller_name || "Unknown Caller"}
                   </td>
-                  <td className="p-3 text-zinc-300">
+                  <td className="p-3.5 text-zinc-800 font-semibold">
                     {call.caller_number || "Unavailable"}
                   </td>
-                  <td className="p-3 text-zinc-400 font-sans truncate max-w-xs">
+                  <td className="p-3.5 text-zinc-600 font-sans truncate max-w-xs">
                     {call.service_address || "None specified"}
                   </td>
-                  <td className="p-3 text-zinc-400">
+                  <td className="p-3.5 text-zinc-600">
                     {Math.floor(call.duration_s / 60)}m {Math.floor(call.duration_s % 60)}s ({call.turn_count} turns)
                   </td>
-                  <td className="p-3">
+                  <td className="p-3.5">
                     <span
-                      className={`font-bold font-mono px-1.5 py-0.5 rounded text-[11px] ${
+                      className={`font-bold font-mono px-2 py-0.5 rounded-md text-[11px] ${
                         call.latency_p50_ms < 1200
-                          ? "text-emerald-400 bg-emerald-500/10"
+                          ? "text-emerald-800 bg-emerald-100"
                           : call.latency_p50_ms < 1600
-                          ? "text-amber-400 bg-amber-500/10"
-                          : "text-red-400 bg-red-500/10"
+                          ? "text-amber-800 bg-amber-100"
+                          : "text-red-800 bg-red-100"
                       }`}
                     >
                       {call.latency_p50_ms ? `${call.latency_p50_ms}ms` : "—"}
                     </span>
                   </td>
-                  <td className="p-3 text-right text-zinc-500 font-sans text-[11px]">
+                  <td className="p-3.5 text-right text-zinc-500 font-sans text-[11px]">
                     {new Date(call.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </td>
                 </tr>
@@ -368,21 +368,21 @@ export default function CallsPage() {
 
       {/* Slide-out Call Detail Drawer with Audio Waveform & Turn Waterfall */}
       {selectedCallId && (
-        <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-zinc-950 border-l border-zinc-800 shadow-2xl p-6 z-50 overflow-y-auto space-y-6 animate-in slide-in-from-right duration-200">
+        <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white border-l border-zinc-200 shadow-2xl p-6 z-50 overflow-y-auto space-y-6 animate-in slide-in-from-right duration-200">
           {/* Header */}
-          <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+          <div className="flex items-center justify-between pb-4 border-b border-zinc-200">
             <div className="space-y-0.5">
-              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider flex items-center gap-1.5 font-bold">
+                <Activity className="w-3.5 h-3.5 text-emerald-600" />
                 Call Telemetry &amp; Audio Inspection
               </span>
-              <h2 className="text-base font-bold text-zinc-100 font-mono">
+              <h2 className="text-base font-bold text-zinc-900 font-mono">
                 {detailCall?.call_id || "Loading..."}
               </h2>
             </div>
             <button
               onClick={() => setSelectedCallId(null)}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -395,11 +395,11 @@ export default function CallsPage() {
           ) : (
             <div className="space-y-6">
               {/* Interactive Audio Player with Animated Waveform */}
-              <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/90 space-y-3">
+              <div className="p-5 rounded-2xl border border-zinc-200 bg-zinc-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Volume2 className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-semibold text-zinc-200">Call Audio Recording</span>
+                    <Volume2 className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-bold text-zinc-900">Call Audio Recording</span>
                     <span className="text-[10px] font-mono text-zinc-500">
                       ({Math.floor(detailCall.duration_s / 60)}:
                       {Math.floor(detailCall.duration_s % 60).toString().padStart(2, "0")})
@@ -413,10 +413,10 @@ export default function CallsPage() {
                         key={spd}
                         type="button"
                         onClick={() => setPlaybackSpeed(spd as 1 | 1.5 | 2)}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-mono transition-colors ${
                           playbackSpeed === spd
-                            ? "bg-emerald-500/20 text-emerald-400 font-bold"
-                            : "text-zinc-500 hover:text-zinc-300"
+                            ? "bg-zinc-900 text-white font-bold"
+                            : "text-zinc-600 hover:text-zinc-900 bg-white border border-zinc-200"
                         }`}
                       >
                         {spd}x
@@ -426,7 +426,7 @@ export default function CallsPage() {
                 </div>
 
                 {/* Animated Waveform Bars */}
-                <div className="flex items-end gap-1 h-10 py-1 bg-zinc-950/80 rounded-lg px-3 border border-zinc-800/80 overflow-hidden">
+                <div className="flex items-end gap-1 h-12 py-1 bg-white rounded-xl px-3 border border-zinc-200 overflow-hidden shadow-inner">
                   {Array.from({ length: 42 }).map((_, bIdx) => {
                     const isPlayed = (bIdx / 42) * 100 <= playbackProgress;
                     const heightPercent = 20 + Math.sin(bIdx * 0.5) * 40 + (bIdx % 3) * 15;
@@ -435,8 +435,8 @@ export default function CallsPage() {
                         key={bIdx}
                         className={`flex-1 rounded-full transition-all duration-150 ${
                           isPlayed
-                            ? "bg-emerald-400"
-                            : "bg-zinc-800"
+                            ? "bg-emerald-600"
+                            : "bg-zinc-200"
                         } ${isPlaying && isPlayed ? "animate-pulse" : ""}`}
                         style={{ height: `${Math.max(15, Math.min(95, heightPercent))}%` }}
                       />

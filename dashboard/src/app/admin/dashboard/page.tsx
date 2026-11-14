@@ -205,29 +205,29 @@ export default function AdminDashboardPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-800 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold tracking-tight text-zinc-100 flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-indigo-400" />
+            <h1 className="text-xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-indigo-600" />
               VedaVoice Platform Command Center
             </h1>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               All Systems Operational
             </span>
           </div>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="text-xs text-zinc-500 mt-1">
             Global multi-tenant telephony oversight, concurrency saturation, carrier trunk health, and CoGS margin intelligence.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
           {/* Phone Number Provisioning Mode Toggle */}
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/90 text-xs font-mono">
-            <span className="text-[10px] text-zinc-500 uppercase">Number Model:</span>
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-mono shadow-sm">
+            <span className="text-[10px] text-zinc-500 uppercase font-bold">Number Model:</span>
             <button
               type="button"
               onClick={() =>
@@ -235,10 +235,10 @@ export default function AdminDashboardPage() {
                   provisioningMode === "carrier_search" ? "agency_pool" : "carrier_search"
                 )
               }
-              className="text-zinc-200 hover:text-emerald-400 font-semibold flex items-center gap-1.5 transition-colors"
+              className="text-zinc-900 hover:text-emerald-600 font-bold flex items-center gap-1.5 transition-colors"
               title="Click to switch between Option B: Live Carrier Search and Option A: Agency Managed Pool"
             >
-              <Radio className="w-3.5 h-3.5 text-emerald-400" />
+              <Radio className="w-3.5 h-3.5 text-emerald-600" />
               <span>
                 {provisioningMode === "carrier_search" ? "Option B (Live Carrier API)" : "Option A (Agency Pool)"}
               </span>
@@ -249,16 +249,16 @@ export default function AdminDashboardPage() {
             type="button"
             onClick={loadData}
             disabled={refreshing}
-            className="px-3 py-2 rounded-lg border border-zinc-800 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 text-xs font-mono flex items-center gap-1.5 transition-colors"
+            className="px-3 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-mono flex items-center gap-1.5 transition-colors shadow-sm"
             title="Refresh real-time platform telemetry"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-indigo-400" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-indigo-600" : ""}`} />
             Refresh
           </button>
 
           <Link
             href="/onboarding"
-            className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
           >
             <Plus className="w-4 h-4" />
             Onboard New Client
@@ -268,35 +268,35 @@ export default function AdminDashboardPage() {
 
       {/* Primary KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/60 space-y-1">
-          <div className="flex items-center justify-between text-zinc-400 text-xs">
+        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Active Tenants</span>
             <Building2 className="w-4 h-4 text-zinc-400" />
           </div>
-          <div className="text-2xl font-bold font-mono text-zinc-100">
+          <div className="text-3xl font-extrabold font-mono text-zinc-900">
             {stats?.total_tenants || 0}
           </div>
-          <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
-            <Lock className="w-3 h-3 text-emerald-400" />
+          <div className="text-[11px] text-emerald-700 font-mono font-medium flex items-center gap-1">
+            <Lock className="w-3 h-3 text-emerald-600" />
             100% RLS Isolation Active
           </div>
         </div>
 
-        <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/60 space-y-1">
-          <div className="flex items-center justify-between text-zinc-400 text-xs">
+        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Total Calls Handled</span>
             <PhoneCall className="w-4 h-4 text-zinc-400" />
           </div>
-          <div className="text-2xl font-bold font-mono text-zinc-100">
+          <div className="text-3xl font-extrabold font-mono text-zinc-900">
             {stats?.total_calls || 0}
           </div>
           <div className="text-[11px] text-zinc-500 font-mono">Platform lifetime volume</div>
         </div>
 
-        <div className="p-4 rounded-xl border border-red-500/20 bg-red-500/5 space-y-1">
-          <div className="flex items-center justify-between text-red-400 text-xs font-medium">
+        <div className="p-5 rounded-2xl border border-red-200 bg-red-50/50 shadow-sm space-y-1">
+          <div className="flex items-center justify-between text-red-700 text-xs font-semibold">
             <span>Emergency Escalations</span>
-            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <AlertTriangle className="w-4 h-4 text-red-600" />
           </div>
           <div className="text-2xl font-bold font-mono text-red-400">
             {stats?.emergency_calls || 0}
