@@ -88,6 +88,14 @@ export default function AdminDashboardPage() {
   const [grantMinutesVal, setGrantMinutesVal] = useState(100);
   const [grantReason, setGrantReason] = useState("Agency VIP Bonus");
 
+  // Admin Master Subscription Control Modal
+  const [showManageSubModal, setShowManageSubModal] = useState<any | null>(null);
+  const [subTierSelect, setSubTierSelect] = useState<string>("starter");
+  const [subStatusSelect, setSubStatusSelect] = useState<string>("active");
+  const [subCustomMinutes, setSubCustomMinutes] = useState<number | "">("");
+  const [subResetUsage, setSubResetUsage] = useState<boolean>(false);
+  const [updatingSub, setUpdatingSub] = useState(false);
+
   const loadData = () => {
     setRefreshing(true);
     Promise.all([
@@ -203,6 +211,41 @@ export default function AdminDashboardPage() {
       console.error("Failed to grant bonus minutes:", err);
     } finally {
       setGrantingMinutes(false);
+    }
+  };
+
+  const openManageSubModal = (sub: any) => {
+    setShowManageSubModal(sub);
+    setSubTierSelect(sub.tier);
+    setSubStatusSelect(sub.status);
+    setSubCustomMinutes(sub.monthly_included_minutes);
+    setSubResetUsage(false);
+  };
+
+  const handleUpdateTenantSubscription = async () => {
+    if (!showManageSubModal) return;
+    setUpdatingSub(true);
+    try {
+      await api.updateAdminSubscriptionTier(
+        showManageSubModal.tenant_id,
+        subTierSelect,
+        subCustomMinutes !== "" ? Number(subCustomMinutes) : undefined,
+        subResetUsage
+      );
+      if (subStatusSelect !== showManageSubModal.status) {
+        await api.updateAdminSubscriptionStatus(showManageSubModal.tenant_id, subStatusSelect);
+      }
+      setShowManageSubModal(null);
+      const [refreshedSubs, refreshedTenants] = await Promise.all([
+        api.getAdminSubscriptions(),
+        api.getAdminTenants(),
+      ]);
+      setSubscriptions(refreshedSubs);
+      setTenants(refreshedTenants);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to update tenant subscription");
+    } finally {
+      setUpdatingSub(false);
     }
   };
 
@@ -1057,11 +1100,27 @@ export default function AdminDashboardPage() {
                       <div className="text-[10px] text-zinc-500 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
                     </td>
                     <td className="p-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
-                        {sub.tier}
-                      </span>
-                      {sub.status === "active" && (
-                        <span className="ml-1 text-[10px] text-emerald-600 font-medium">● Active</span>
+                      <div className="flex items-center gap-1">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
+                          {sub.tier}
+                        </span>
+                        {sub.status === "active" && (
+                          <span className="text-[10px] text-emerald-600 font-medium">● Active</span>
+                        )}
+                        {sub.status === "suspended" && (
+                          <span className="text-[10px] text-red-600 font-medium">● Suspended</span>
+                        )}
+                      </div>
+                      {sub.pending_tier && (
+                        <div className="text-[10px] text-amber-700 font-mono mt-1 font-semibold flex items-center gap-1">
+                          <span>⏳ Queued:</span>
+                          <span className="uppercase">{sub.pending_tier}</span>
+                        </div>
+                      )}
+                      {sub.is_cycle_locked && (
+                        <div className="text-[9px] text-zinc-400 font-mono">
+                          Auto-renews: {sub.cycle_end_date ? new Date(sub.cycle_end_date).toLocaleDateString() : "30d"}
+                        </div>
                       )}
                     </td>
                     <td className="p-3 font-mono font-bold text-zinc-800">
@@ -1075,7 +1134,14 @@ export default function AdminDashboardPage() {
                     <td className="p-3 font-mono text-zinc-600">
                       {sub.used_minutes_this_cycle.toFixed(1)} mins
                     </td>
-                    <td className="p-3 text-right">
+                    <td className="p-3 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => openManageSubModal(sub)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold mr-1.5 shadow-sm transition-all"
+                      >
+                        Manage Plan
+                      </button>
                       <button
                         type="button"
                         onClick={() => setShowGrantModal(sub.tenant_id)}
@@ -1209,6 +1275,105 @@ export default function AdminDashboardPage() {
                   className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm"
                 >
                   {grantingMinutes ? "Granting..." : "Grant Minutes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Subscription Master Modal */}
+      {showManageSubModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div>
+                <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-zinc-900" />
+                  Manage Tenant Subscription
+                </h3>
+                <p className="text-[11px] text-zinc-500 font-mono mt-0.5">
+                  {showManageSubModal.tenant_name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowManageSubModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-semibold text-zinc-700">Subscription Tier</label>
+                <select
+                  value={subTierSelect}
+                  onChange={(e) => setSubTierSelect(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
+                >
+                  <option value="trial">Free Trial (100 Mins / 14 Days)</option>
+                  <option value="starter">Starter Plan (1,000 Mins - $299/mo)</option>
+                  <option value="pro">Professional Plan (1,200 Mins - $399/mo)</option>
+                  <option value="enterprise">Enterprise Scale Plan (1,500 Mins - $499/mo)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-zinc-700">Account Status</label>
+                <select
+                  value={subStatusSelect}
+                  onChange={(e) => setSubStatusSelect(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
+                >
+                  <option value="active">Active (Normal Operational Billing)</option>
+                  <option value="suspended">Suspended (Pause Answering &amp; Webhooks)</option>
+                  <option value="trialing">Trialing (Active Sandbox Evaluation)</option>
+                  <option value="canceled">Canceled (Service Disconnected)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-zinc-700">
+                  Custom Monthly Minutes Override (Optional)
+                </label>
+                <input
+                  type="number"
+                  placeholder="Leave empty for plan default"
+                  value={subCustomMinutes}
+                  onChange={(e) => setSubCustomMinutes(e.target.value ? Number(e.target.value) : "")}
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
+                />
+              </div>
+
+              <div className="pt-2">
+                <label className="flex items-center gap-2 cursor-pointer text-zinc-700 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={subResetUsage}
+                    onChange={(e) => setSubResetUsage(e.target.checked)}
+                    className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                  />
+                  <span>Reset current month used minutes to 0</span>
+                </label>
+              </div>
+
+              <div className="pt-4 flex items-center justify-end gap-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setShowManageSubModal(null)}
+                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={updatingSub}
+                  onClick={handleUpdateTenantSubscription}
+                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5"
+                >
+                  {updatingSub ? "Saving Changes..." : "Apply Plan Update"}
                 </button>
               </div>
             </div>

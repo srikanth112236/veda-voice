@@ -80,6 +80,11 @@ export interface SubscriptionCurrent {
   trial_minutes_used: number;
   cycle_start_date: string;
   cycle_end_date: string;
+  auto_renew?: boolean;
+  is_cycle_locked?: boolean;
+  cycle_change_locked_until?: string | null;
+  pending_tier?: string | null;
+  pending_effective_at?: string | null;
   applied_coupon_code: string | null;
   available_plans: Array<{
     tier: string;
@@ -540,4 +545,33 @@ export const api = {
       )}`,
       { method: "POST" }
     ),
+  updateAdminSubscriptionTier: (
+    tenantId: string,
+    tier: string,
+    customMinutes?: number,
+    resetUsage = false
+  ) =>
+    request<any>(`/api/v1/admin/subscriptions/${tenantId}/tier`, {
+      method: "PUT",
+      body: JSON.stringify({ tier, custom_minutes: customMinutes, reset_usage: resetUsage }),
+    }),
+  updateAdminSubscriptionStatus: (tenantId: string, status: string, reason?: string) =>
+    request<any>(`/api/v1/admin/subscriptions/${tenantId}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, reason }),
+    }),
+  updateAdminSubscriptionLimits: (
+    tenantId: string,
+    monthlyIncludedMinutes: number,
+    overageRateUsd = 0.2,
+    allowOverage = true
+  ) =>
+    request<any>(`/api/v1/admin/subscriptions/${tenantId}/limits`, {
+      method: "PUT",
+      body: JSON.stringify({
+        monthly_included_minutes: monthlyIncludedMinutes,
+        overage_rate_usd: overageRateUsd,
+        allow_overage: allowOverage,
+      }),
+    }),
 };

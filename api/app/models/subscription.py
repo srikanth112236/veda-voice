@@ -52,7 +52,7 @@ class Subscription(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    # Cycle Dates
+    # Cycle Dates & 1-Sub-Per-Month Locking
     cycle_start_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
@@ -60,6 +60,14 @@ class Subscription(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC) + timedelta(days=30),
         nullable=False,
+    )
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    cycle_change_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pending_tier: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    pending_effective_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     applied_coupon_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -106,6 +114,16 @@ class Subscription(Base):
         if self.trial_minutes_used >= float(self.trial_minutes_allocated):
             return True
         return False
+
+    @property
+    def is_cycle_locked(self) -> bool:
+        """Check if client subscription changes are locked for the current 30-day cycle."""
+        if not self.cycle_change_locked_until:
+            return False
+        locked_until = self.cycle_change_locked_until
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=UTC)
+        return bool(datetime.now(UTC) < locked_until)
 
 
 class Coupon(Base):

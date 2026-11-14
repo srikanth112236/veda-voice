@@ -54,6 +54,23 @@ class GrantMinutesRequest(BaseModel):
     reason: str = Field("Admin courtesy credit", description="Reason for audit log")
 
 
+class AdminUpdateTierRequest(BaseModel):
+    tier: str = Field(..., description="Target tier: starter, pro, enterprise, or trial")
+    custom_minutes: int | None = Field(None, description="Optional custom minutes override")
+    reset_usage: bool = Field(False, description="Whether to reset current cycle usage to 0")
+
+
+class AdminUpdateStatusRequest(BaseModel):
+    status: str = Field(..., description="active, suspended, trialing, canceled")
+    reason: str | None = Field(None, description="Audit reason")
+
+
+class AdminUpdateLimitsRequest(BaseModel):
+    monthly_included_minutes: int = Field(..., ge=0)
+    overage_rate_usd: float = Field(0.20, ge=0.0)
+    allow_overage: bool = Field(True)
+
+
 def _is_expired(dt: datetime | None) -> bool:
     if not dt:
         return False
@@ -137,6 +154,15 @@ def get_current_subscription(
         "trial_minutes_used": round(sub.trial_minutes_used, 2),
         "cycle_start_date": sub.cycle_start_date.isoformat(),
         "cycle_end_date": sub.cycle_end_date.isoformat(),
+        "auto_renew": sub.auto_renew,
+        "is_cycle_locked": sub.is_cycle_locked,
+        "cycle_change_locked_until": (
+            sub.cycle_change_locked_until.isoformat() if sub.cycle_change_locked_until else None
+        ),
+        "pending_tier": sub.pending_tier,
+        "pending_effective_at": (
+            sub.pending_effective_at.isoformat() if sub.pending_effective_at else None
+        ),
         "applied_coupon_code": sub.applied_coupon_code,
         "available_plans": [
             {
@@ -187,6 +213,47 @@ def upgrade_subscription(
     plan = TIER_PLANS[tier_key]
     sub = get_or_create_subscription(db, user.tenant_id)
 
+    # 1-Subscription-Per-Month Enforced:
+    # If tenant is already on an active paid plan (not in trial)
+    if sub.tier != "trial" and sub.status == "active":
+        if tier_key == sub.tier:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Already actively subscribed to {plan['name']}. Your plan auto-renews on {sub.cycle_end_date.strftime('%b %d, %Y')}.",
+            )
+        # Client user attempting to change tier mid-cycle:
+        if user.role != "platform_admin" and sub.is_cycle_locked:
+            sub.pending_tier = tier_key
+            sub.pending_effective_at = sub.cycle_end_date
+            db.commit()
+            db.refresh(sub)
+            return {
+                "success": True,
+                "scheduled": True,
+                "message": (
+                    f"Plan change to {plan['name']} is scheduled for your next cycle renewal on "
+                    f"{sub.cycle_end_date.strftime('%b %d, %Y')}. Agency policy enforces 1 plan change per 30-day "
+                    f"billing cycle. Contact Agency Administrator for instant mid-cycle expansion."
+                ),
+                "tier": sub.tier,
+                "pending_tier": sub.pending_tier,
+                "pending_effective_at": (
+                    sub.pending_effective_at.isoformat() if sub.pending_effective_at else None
+                ),
+                "monthly_included_minutes": sub.monthly_included_minutes,
+                "bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+                "trial_minutes_rolled_over": 0.0,
+                "coupon_applied": sub.applied_coupon_code,
+                "coupon_bonus_minutes": 0,
+                "invoice": {
+                    "subtotal_usd": plan["price_usd"],
+                    "discount_usd": 0.0,
+                    "total_charged_usd": 0.0,
+                    "stripe_subscription_id": sub.stripe_subscription_id,
+                },
+                "cycle_end_date": sub.cycle_end_date.isoformat(),
+            }
+
     # Rollover Rule 1: 100% of unused free trial credits are credited into the first subscription!
     trial_minutes_rolled_over = 0.0
     if sub.tier == "trial":
@@ -236,6 +303,10 @@ def upgrade_subscription(
     sub.used_minutes_this_cycle = 0.0
     sub.cycle_start_date = datetime.now(UTC)
     sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+    sub.cycle_change_locked_until = datetime.now(UTC) + timedelta(days=30)
+    sub.pending_tier = None
+    sub.pending_effective_at = None
+    sub.auto_renew = True
     sub.stripe_customer_id = f"cus_mock_{user.tenant_id[:8]}"
     sub.stripe_subscription_id = f"sub_mock_{uuid.uuid4().hex[:12]}"
 
@@ -276,6 +347,16 @@ def cycle_renewal_rollover(
             status_code=400, detail="Trial subscriptions do not cycle renew. Upgrade to paid tier."
         )
 
+    # Check if a pending tier change was scheduled for this cycle renewal
+    transitioned_plan_msg = ""
+    if sub.pending_tier and sub.pending_tier in TIER_PLANS:
+        new_plan = TIER_PLANS[sub.pending_tier]
+        sub.tier = sub.pending_tier
+        sub.monthly_included_minutes = int(new_plan["minutes"])
+        transitioned_plan_msg = f" Plan transitioned to {new_plan['name']}."
+        sub.pending_tier = None
+        sub.pending_effective_at = None
+
     # Rollover Rule 2: 10% of unused monthly plan minutes roll over as complimentary bonus minutes!
     unused_base_minutes = max(
         0.0, float(sub.monthly_included_minutes) - sub.used_minutes_this_cycle
@@ -286,14 +367,17 @@ def cycle_renewal_rollover(
     sub.used_minutes_this_cycle = 0.0
     sub.cycle_start_date = datetime.now(UTC)
     sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+    sub.cycle_change_locked_until = datetime.now(UTC) + timedelta(days=30)
 
     db.commit()
     db.refresh(sub)
 
     return {
         "success": True,
-        "message": f"Cycle renewed. 10% unused complimentary rollover added ({complimentary_rollover_bonus} minutes).",
+        "message": f"Cycle renewed.{transitioned_plan_msg} 10% unused complimentary rollover added ({complimentary_rollover_bonus} minutes).",
         "new_bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+        "tier": sub.tier,
+        "monthly_included_minutes": sub.monthly_included_minutes,
         "total_available_minutes": round(
             float(sub.monthly_included_minutes) + sub.bonus_rollover_minutes, 2
         ),
@@ -371,9 +455,112 @@ def list_admin_subscriptions(
                 "trial_expired": sub.is_trial_expired,
                 "applied_coupon_code": sub.applied_coupon_code,
                 "cycle_end_date": sub.cycle_end_date.isoformat(),
+                "auto_renew": sub.auto_renew,
+                "is_cycle_locked": sub.is_cycle_locked,
+                "pending_tier": sub.pending_tier,
+                "pending_effective_at": (
+                    sub.pending_effective_at.isoformat() if sub.pending_effective_at else None
+                ),
             }
         )
     return results
+
+
+@router.put("/admin/subscriptions/{tenant_id}/tier")
+def admin_set_subscription_tier(
+    tenant_id: str,
+    req: AdminUpdateTierRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Agency Admin: Master override to change a tenant's plan tier immediately."""
+    target_tier = req.tier.lower()
+    if target_tier not in TIER_PLANS and target_tier != "trial":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid tier '{req.tier}'. Choose from trial, starter, pro, or enterprise.",
+        )
+
+    sub = get_or_create_subscription(db, tenant_id)
+    if target_tier == "trial":
+        sub.tier = "trial"
+        sub.status = "trialing"
+        if req.custom_minutes:
+            sub.trial_minutes_allocated = req.custom_minutes
+        if req.reset_usage:
+            sub.trial_minutes_used = 0.0
+    else:
+        plan = TIER_PLANS[target_tier]
+        sub.tier = target_tier
+        sub.status = "active"
+        sub.monthly_included_minutes = req.custom_minutes or int(plan["minutes"])
+        if req.reset_usage:
+            sub.used_minutes_this_cycle = 0.0
+        sub.pending_tier = None
+        sub.pending_effective_at = None
+        sub.cycle_change_locked_until = datetime.now(UTC) + timedelta(days=30)
+
+    db.commit()
+    db.refresh(sub)
+    return {
+        "success": True,
+        "tenant_id": tenant_id,
+        "tier": sub.tier,
+        "status": sub.status,
+        "monthly_included_minutes": sub.monthly_included_minutes,
+        "bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+        "message": f"Successfully updated tenant plan to {sub.tier.capitalize()}",
+    }
+
+
+@router.put("/admin/subscriptions/{tenant_id}/status")
+def admin_set_subscription_status(
+    tenant_id: str,
+    req: AdminUpdateStatusRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Agency Admin: Master override to set tenant subscription status (active, suspended, trialing, canceled)."""
+    sub = get_or_create_subscription(db, tenant_id)
+    valid_statuses = {"active", "suspended", "trialing", "canceled"}
+    if req.status.lower() not in valid_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{req.status}'. Choose from {valid_statuses}.",
+        )
+    sub.status = req.status.lower()
+    db.commit()
+    db.refresh(sub)
+    return {
+        "success": True,
+        "tenant_id": tenant_id,
+        "status": sub.status,
+        "message": f"Subscription status updated to {sub.status}",
+    }
+
+
+@router.put("/admin/subscriptions/{tenant_id}/limits")
+def admin_set_subscription_limits(
+    tenant_id: str,
+    req: AdminUpdateLimitsRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Agency Admin: Adjust minute allocations and overage parameters."""
+    sub = get_or_create_subscription(db, tenant_id)
+    sub.monthly_included_minutes = req.monthly_included_minutes
+    sub.overage_rate_usd = req.overage_rate_usd
+    sub.allow_overage = req.allow_overage
+    db.commit()
+    db.refresh(sub)
+    return {
+        "success": True,
+        "tenant_id": tenant_id,
+        "monthly_included_minutes": sub.monthly_included_minutes,
+        "overage_rate_usd": sub.overage_rate_usd,
+        "allow_overage": sub.allow_overage,
+        "message": "Subscription limits successfully updated",
+    }
 
 
 @router.post("/admin/subscriptions/{tenant_id}/grant-minutes")

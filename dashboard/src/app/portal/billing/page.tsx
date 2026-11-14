@@ -203,6 +203,22 @@ export default function BillingPage() {
         </div>
       )}
 
+      {sub.pending_tier && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between font-medium">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Scheduled Tier Upgrade:</strong> Your plan will automatically transition to{" "}
+              <strong className="uppercase font-mono">{sub.pending_tier}</strong> on your next cycle renewal date (
+              {new Date(sub.cycle_end_date).toLocaleDateString()}). Auto-renews monthly via Stripe.
+            </span>
+          </div>
+          <span className="text-[10px] font-mono bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-semibold uppercase">
+            Queued For Renewal
+          </span>
+        </div>
+      )}
+
       {/* TOP: ACTIVE PLAN & MINUTE USAGE TELEMETRY */}
       <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-4">
@@ -459,21 +475,52 @@ export default function BillingPage() {
         <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5">
             <span className="text-xs font-bold text-zinc-900">
-              Ready to activate {selectedTier.toUpperCase()} Plan?
+              {sub.is_trial
+                ? `Activate ${selectedTier.toUpperCase()} Plan`
+                : selectedTier === sub.tier
+                ? `Currently on ${selectedTier.toUpperCase()} Plan`
+                : `Transition to ${selectedTier.toUpperCase()} Plan`}
             </span>
             <div className="text-[11px] text-zinc-500">
-              ${finalPrice}/mo {discountAmt > 0 && `(Saved $${discountAmt} with coupon)`} • Immediate Stripe card authorization.
+              {sub.is_trial ? (
+                `$${finalPrice}/mo ${discountAmt > 0 ? `(Saved $${discountAmt} with coupon)` : ""} • 100% of unused trial credits will roll into your first month!`
+              ) : selectedTier === sub.tier ? (
+                `Plan is active and auto-renews on ${new Date(sub.cycle_end_date).toLocaleDateString()} via Stripe ($${finalPrice}/mo).`
+              ) : (
+                `1 Plan per 30-day Cycle enforced. Schedule for ${new Date(sub.cycle_end_date).toLocaleDateString()} renewal or contact admin for immediate mid-cycle expansion.`
+              )}
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowCheckoutModal(true)}
-            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
-          >
-            <CreditCard className="w-4 h-4" />
-            Proceed to Stripe Checkout (${finalPrice}/mo)
-          </button>
+          {sub.is_trial ? (
+            <button
+              type="button"
+              onClick={() => setShowCheckoutModal(true)}
+              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+            >
+              <CreditCard className="w-4 h-4" />
+              Proceed to Stripe Checkout (${finalPrice}/mo)
+            </button>
+          ) : selectedTier === sub.tier ? (
+            <div className="px-5 py-2.5 rounded-xl bg-zinc-100 text-zinc-600 text-xs font-semibold flex items-center gap-2 border border-zinc-200">
+              <Check className="w-4 h-4 text-emerald-600" />
+              Active Plan (Auto-Renews)
+            </div>
+          ) : sub.pending_tier === selectedTier ? (
+            <div className="px-5 py-2.5 rounded-xl bg-amber-50 text-amber-800 text-xs font-semibold flex items-center gap-2 border border-amber-200">
+              <Clock className="w-4 h-4 text-amber-600" />
+              Upgrade Queued for Next Cycle
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowCheckoutModal(true)}
+              className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+            >
+              <Clock className="w-4 h-4 text-amber-400" />
+              Schedule Plan Change (${finalPrice}/mo)
+            </button>
+          )}
         </div>
       </div>
 

@@ -489,6 +489,30 @@ def init_db() -> None:
                     )
                 )
 
+            # Subscriptions table columns for 1-sub-per-month locking
+            cursor = conn.execute(text("PRAGMA table_info(subscriptions)"))
+            existing_sub_cols = {row[1] for row in cursor.fetchall()}
+            if "auto_renew" not in existing_sub_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE subscriptions ADD COLUMN auto_renew BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "pending_tier" not in existing_sub_cols:
+                conn.execute(
+                    text("ALTER TABLE subscriptions ADD COLUMN pending_tier VARCHAR(32) NULL")
+                )
+            if "pending_effective_at" not in existing_sub_cols:
+                conn.execute(
+                    text("ALTER TABLE subscriptions ADD COLUMN pending_effective_at DATETIME NULL")
+                )
+            if "cycle_change_locked_until" not in existing_sub_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE subscriptions ADD COLUMN cycle_change_locked_until DATETIME NULL"
+                    )
+                )
+
             # Check if tenant_id has NOT NULL constraint and migrate if needed
             cursor = conn.execute(text("PRAGMA table_info(phone_numbers)"))
             cols_info = {row[1]: row for row in cursor.fetchall()}

@@ -33,12 +33,20 @@ def test_tenant_subscription_current_and_trial_allocation() -> None:
 
 def test_coupon_validation_and_discount_redemption() -> None:
     """Test validating coupon codes and applying them during subscription upgrade."""
-    login_res = client.post(
-        "/api/v1/auth/login",
-        json={"email": "owner@apexplumbing.com", "password": "ApexOwner2026!"},
+    import uuid
+
+    unique_suffix = uuid.uuid4().hex[:6]
+    reg_res = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": f"Coupon HVAC {unique_suffix}",
+            "owner_name": "Coupon Tester",
+            "email": f"coupon_{unique_suffix}@contractor.com",
+            "password": "Password123!",
+        },
     )
-    assert login_res.status_code == 200
-    token = login_res.json()["access_token"]
+    assert reg_res.status_code == 200
+    token = reg_res.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     # Validate valid coupon
@@ -72,15 +80,23 @@ def test_coupon_validation_and_discount_redemption() -> None:
 
 def test_monthly_cycle_renewal_rollover_10_percent() -> None:
     """Verify that 10% of unused monthly plan minutes are credited as complimentary rollover."""
-    login_res = client.post(
-        "/api/v1/auth/login",
-        json={"email": "owner@apexplumbing.com", "password": "ApexOwner2026!"},
+    import uuid
+
+    unique_suffix = uuid.uuid4().hex[:6]
+    reg_res = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": f"Rollover Clinic {unique_suffix}",
+            "owner_name": "Rollover Tester",
+            "email": f"rollover_{unique_suffix}@contractor.com",
+            "password": "Password123!",
+        },
     )
-    assert login_res.status_code == 200
-    token = login_res.json()["access_token"]
+    assert reg_res.status_code == 200
+    token = reg_res.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Upgrade to pro plan (1200 min)
+    # Upgrade from trial to pro plan (1200 min)
     client.post(
         "/api/v1/subscriptions/upgrade",
         headers=headers,
@@ -150,3 +166,120 @@ def test_admin_subscriptions_overview_and_grant_minutes() -> None:
     )
     assert create_coup_res.status_code == 200
     assert create_coup_res.json()["code"] == unique_code
+
+
+def test_one_subscription_per_month_cycle_protection_and_scheduling() -> None:
+    """Verify that clients cannot repeatedly upgrade mid-cycle and changes are scheduled for next cycle."""
+    import uuid
+
+    unique_suffix = uuid.uuid4().hex[:6]
+    client_email = f"cycle_lock_{unique_suffix}@contractor.com"
+
+    # Register fresh client tenant (starts in 14-day free trial)
+    reg_res = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": f"Cycle Lock Plumbing {unique_suffix}",
+            "owner_name": "Dave Lock",
+            "email": client_email,
+            "password": "Password123!",
+        },
+    )
+    assert reg_res.status_code == 200
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. First upgrade from trial to starter plan (activates starter plan)
+    upg1 = client.post(
+        "/api/v1/subscriptions/upgrade",
+        headers=headers,
+        json={"tier": "starter"},
+    )
+    assert upg1.status_code == 200
+    assert upg1.json()["tier"] == "starter"
+
+    # 2. Attempting to select the same tier returns 400
+    same_tier_res = client.post(
+        "/api/v1/subscriptions/upgrade",
+        headers=headers,
+        json={"tier": "starter"},
+    )
+    assert same_tier_res.status_code == 400
+    assert "Already actively subscribed" in same_tier_res.json()["detail"]
+
+    # 3. Selecting a different tier mid-cycle schedules it for the next renewal
+    upg_sched = client.post(
+        "/api/v1/subscriptions/upgrade",
+        headers=headers,
+        json={"tier": "pro"},
+    )
+    assert upg_sched.status_code == 200
+    sched_data = upg_sched.json()
+    assert sched_data["scheduled"] is True
+    assert sched_data["pending_tier"] == "pro"
+    assert "scheduled for your next cycle renewal" in sched_data["message"].lower()
+
+    # 4. Check current subscription reflects pending tier
+    cur_res = client.get("/api/v1/subscriptions/current", headers=headers)
+    assert cur_res.status_code == 200
+    assert cur_res.json()["pending_tier"] == "pro"
+    assert cur_res.json()["tier"] == "starter"  # Still on current tier until renewal!
+
+    # 5. Cycle renewal applies the pending tier
+    renew_res = client.post("/api/v1/subscriptions/cycle-renew", headers=headers)
+    assert renew_res.status_code == 200
+    renew_data = renew_res.json()
+    assert renew_data["tier"] == "pro"
+    assert renew_data["monthly_included_minutes"] == 1200
+
+
+def test_admin_master_subscription_override_and_status_controls() -> None:
+    """Verify Agency Admin has master control to override tier, status, and minute limits."""
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@vedavoice.io", "password": "Admin@VedaVoice2026!"},
+    )
+    assert admin_login.status_code == 200
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+
+    # Get target tenant
+    subs_res = client.get("/api/v1/admin/subscriptions", headers=admin_headers)
+    target_tenant = subs_res.json()[0]["tenant_id"]
+
+    # 1. Admin overrides tier to enterprise immediately
+    tier_res = client.put(
+        f"/api/v1/admin/subscriptions/{target_tenant}/tier",
+        headers=admin_headers,
+        json={"tier": "enterprise", "custom_minutes": 1800, "reset_usage": True},
+    )
+    assert tier_res.status_code == 200
+    assert tier_res.json()["tier"] == "enterprise"
+    assert tier_res.json()["monthly_included_minutes"] == 1800
+
+    # 2. Admin sets status to suspended
+    status_res = client.put(
+        f"/api/v1/admin/subscriptions/{target_tenant}/status",
+        headers=admin_headers,
+        json={"status": "suspended", "reason": "Late invoice audit"},
+    )
+    assert status_res.status_code == 200
+    assert status_res.json()["status"] == "suspended"
+
+    # 3. Admin adjusts minute limits and overage parameters
+    limits_res = client.put(
+        f"/api/v1/admin/subscriptions/{target_tenant}/limits",
+        headers=admin_headers,
+        json={"monthly_included_minutes": 2000, "overage_rate_usd": 0.15, "allow_overage": True},
+    )
+    assert limits_res.status_code == 200
+    assert limits_res.json()["monthly_included_minutes"] == 2000
+    assert limits_res.json()["overage_rate_usd"] == 0.15
+
+    # 4. Restore status to active
+    restore_res = client.put(
+        f"/api/v1/admin/subscriptions/{target_tenant}/status",
+        headers=admin_headers,
+        json={"status": "active"},
+    )
+    assert restore_res.status_code == 200
+    assert restore_res.json()["status"] == "active"
