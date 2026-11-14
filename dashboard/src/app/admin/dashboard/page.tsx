@@ -55,6 +55,16 @@ export default function AdminDashboardPage() {
   const [maskPii, setMaskPii] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<"telemetry" | "tenants" | "billing" | "inventory" | "coupons">("telemetry");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      if (tabParam && ["telemetry", "tenants", "billing", "inventory", "coupons"].includes(tabParam)) {
+        setActiveTab(tabParam as "telemetry" | "tenants" | "billing" | "inventory" | "coupons");
+      }
+    }
+  }, []);
   const [provisioningMode, setProvisioningMode] = useState<"carrier_search" | "agency_pool">("carrier_search");
 
   // Phone number inventory filter & actions state

@@ -321,7 +321,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     let errorDetail = `Request failed: ${res.status} ${res.statusText}`;
     try {
       const errJson = await res.json();
-      errorDetail = errJson.detail || errorDetail;
+      if (Array.isArray(errJson.detail)) {
+        errorDetail = errJson.detail.map((e: { msg?: string }) => e.msg || JSON.stringify(e)).join(", ");
+      } else if (typeof errJson.detail === "string") {
+        errorDetail = errJson.detail;
+      } else if (errJson.message) {
+        errorDetail = errJson.message;
+      }
     } catch {
       // ignore
     }

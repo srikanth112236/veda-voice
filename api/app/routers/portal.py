@@ -12,6 +12,7 @@ from api.app.core.deps import get_current_tenant
 from api.app.db.session import get_db
 from api.app.models.call import Call
 from api.app.models.tenant import AgentProfile, Tenant
+from api.app.services.livekit_sync import sync_tenant_to_livekit
 
 router = APIRouter(prefix="/portal", tags=["portal"])
 
@@ -354,6 +355,16 @@ def update_agent_profile(
     db.commit()
     db.refresh(tenant)
     db.refresh(profile)
+
+    # Compile & synchronize LiveKit Agent runtime configuration
+    try:
+        sync_tenant_to_livekit(tenant.id, db)
+    except Exception as e:
+        import logging
+
+        logging.getLogger("vedavoice.portal").warning(
+            "Failed to sync tenant to LiveKit config: %s", e
+        )
 
     return AgentProfileResponse(
         business_name=tenant.name,

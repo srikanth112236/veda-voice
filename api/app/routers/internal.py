@@ -132,19 +132,13 @@ def resolve_tenant_by_number(e164: str, db: Session = Depends(get_db)) -> Any:
     )
     phone = db.scalar(stmt)
 
-    if phone and phone.tenant:
-        tenant = phone.tenant
-    else:
-        fallback_tenant = db.scalar(
-            select(Tenant).where(Tenant.status == "active").order_by(Tenant.created_at.asc())
+    if not (phone and phone.tenant):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Phone number '{clean_number}' is not assigned to any active tenant",
         )
-        if not fallback_tenant:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="No active tenant found"
-            )
-        tenant = fallback_tenant
 
-    return _build_tenant_config(tenant)
+    return _build_tenant_config(phone.tenant)
 
 
 @router.post("/calls/start", response_model=CallStartResponse)

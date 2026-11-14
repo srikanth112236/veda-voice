@@ -228,13 +228,89 @@ def load_tenants_registry(
     return registry
 
 
+def fetch_tenant_from_api(
+    dialed_number: str,
+    api_base_url: str | None = None,
+) -> TenantConfig | None:
+    """Fetch tenant configuration dynamically from FastAPI internal endpoint via HTTP."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+    encoded_number = urllib.parse.quote(dialed_number)
+    endpoint = f"{base_url}/api/v1/internal/tenants/by-number/{encoded_number}"
+
+    try:
+        req = urllib.request.Request(
+            endpoint,
+            headers={"User-Agent": "LiveKit-Agent-Worker/1.0", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                pricing_mode = data.get("pricing_policy", "no_quote")
+                if pricing_mode not in ("no_quote", "listed", "range"):
+                    pricing_mode = "no_quote"
+
+                tone = data.get("tone", "direct")
+                if tone not in ("direct", "warm", "formal"):
+                    tone = "direct"
+
+                emergency_cfg = EmergencyConfig(
+                    keywords=data.get("emergency_keywords", []),
+                    approved_safety_script=data.get("emergency_advice", ""),
+                    mode="priority_message",
+                )
+
+                price_items = data.get("pricing_details", {}).get("price_items", [])
+
+                raw_faqs = data.get("faq", [])
+                parsed_faqs: list[FAQItem] = []
+                for f in raw_faqs:
+                    if isinstance(f, dict) and "question" in f and "answer" in f:
+                        parsed_faqs.append(
+                            FAQItem(
+                                question=f["question"],
+                                answer=f["answer"],
+                                category=f.get("category", "general"),
+                                alternate_phrasings=f.get("alternate_phrasings", []),
+                            )
+                        )
+
+                return TenantConfig(
+                    tenant_id=data["tenant_id"],
+                    business=data["business_name"],
+                    numbers=[dialed_number],
+                    timezone=data.get("timezone", "America/New_York"),
+                    hours=data.get("hours", "Mon-Fri 8am-6pm"),
+                    greeting=data.get("greeting", f"Thanks for calling {data['business_name']}."),
+                    tone=tone,
+                    voice_id=data.get("voice_id", "Alex"),
+                    recording_disclosure=data.get("recording_disclosure", True),
+                    pricing_mode=pricing_mode,
+                    price_items=price_items,
+                    services=data.get("services", []),
+                    faq=parsed_faqs,
+                    emergency=emergency_cfg,
+                    agent_name=data.get("agent_name", "receptionist"),
+                    transfer_number=data.get("transfer_number", ""),
+                )
+    except Exception as e:
+        logger.debug("Dynamic API tenant lookup for %s failed: %s", dialed_number, e)
+        return None
+
+    return None
+
+
 def resolve_tenant(
     dialed_number: str,
     registry: dict[str, TenantConfig] | None = None,
 ) -> TenantConfig:
     """Resolve a tenant by dialed E.164 phone number.
 
-    If the number is unknown or unassigned, returns a safe default tenant that takes no data and logs it.
+    If the number is not in static files, attempts dynamic lookup via internal API.
+    If unknown or unassigned, returns a safe default tenant that takes no data and logs it.
     """
     if registry is None:
         registry = load_tenants_registry()
@@ -242,6 +318,19 @@ def resolve_tenant(
     norm_dialed = normalize_e164(dialed_number)
     if norm_dialed and norm_dialed in registry:
         return registry[norm_dialed]
+
+    # Dynamic lookup: Query backend API if dialed number is not in static files
+    if norm_dialed:
+        api_tenant = fetch_tenant_from_api(norm_dialed)
+        if api_tenant:
+            registry[norm_dialed] = api_tenant
+            registry[api_tenant.tenant_id] = api_tenant
+            logger.info(
+                "Dynamically resolved tenant '%s' for number '%s' via internal API",
+                api_tenant.business,
+                norm_dialed,
+            )
+            return api_tenant
 
     # Log unknown number and return safe default
     logger.warning(

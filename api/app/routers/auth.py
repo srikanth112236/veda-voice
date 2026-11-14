@@ -13,6 +13,7 @@ from api.app.db.session import get_db
 from api.app.models.subscription import Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
+from api.app.services.livekit_sync import sync_tenant_to_livekit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -205,8 +206,26 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         allow_overage=True,
     )
     db.add(sub)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as ie:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Registration conflict: email or phone number is already registered to another account.",
+        ) from ie
     db.refresh(user)
+
+    # 5. Automatically compile & synchronize LiveKit Agent runtime configuration
+    try:
+        sync_tenant_to_livekit(tenant.id, db)
+    except Exception as e:
+        # Do not fail registration if directory sync encounters non-critical IO issue
+        import logging
+
+        logging.getLogger("vedavoice.auth").warning(
+            "Failed to auto-sync tenant to LiveKit config: %s", e
+        )
 
     token = create_access_token({"sub": user.id, "role": user.role, "tenant_id": tenant.id})
 

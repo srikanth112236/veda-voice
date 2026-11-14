@@ -62,16 +62,60 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {/* Navigation Links */}
           <nav className="space-y-1">
             <Link
-              href="/admin/dashboard"
+              href="/admin/dashboard?tab=telemetry"
               className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                 pathname === "/admin/dashboard"
                   ? "bg-zinc-900 text-white shadow-sm"
                   : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
               }`}
             >
-              <LayoutDashboard className={`w-4 h-4 ${pathname === "/admin/dashboard" ? "text-white" : "text-zinc-500"}`} />
-              Platform Overview
+              <LayoutDashboard className="w-4 h-4 text-indigo-500" />
+              Platform Command Center
             </Link>
+
+            <div className="pt-3 pb-1">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold px-3">
+                Agency Operations
+              </span>
+            </div>
+
+            <Link
+              href="/admin/dashboard?tab=tenants"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
+            >
+              <Building2 className="w-4 h-4 text-blue-600" />
+              Client Tenants &amp; RLS
+            </Link>
+
+            <Link
+              href="/admin/dashboard?tab=billing"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
+            >
+              <CreditCard className="w-4 h-4 text-emerald-600" />
+              Minute Billing &amp; Rollovers
+            </Link>
+
+            <Link
+              href="/admin/dashboard?tab=inventory"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
+            >
+              <PhoneCall className="w-4 h-4 text-indigo-600" />
+              Inbound Phone Inventory
+            </Link>
+
+            <Link
+              href="/admin/dashboard?tab=coupons"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
+            >
+              <Tag className="w-4 h-4 text-amber-600" />
+              Coupons &amp; Bonus Credits
+            </Link>
+
+            <div className="pt-3 pb-1">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold px-3">
+                Expansion
+              </span>
+            </div>
 
             <Link
               href="/onboarding"
@@ -82,61 +126,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               }`}
             >
               <PlusCircle className="w-4 h-4 text-emerald-600" />
-              Onboard Client
-            </Link>
-
-            <div className="pt-3 pb-1">
-              <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold px-3">
-                Tenant Control
-              </span>
-            </div>
-
-            <Link
-              href="/portal/dashboard"
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                pathname === "/portal/dashboard"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-            >
-              <Building2 className="w-4 h-4 text-zinc-500" />
-              Tenant Dashboard
-            </Link>
-
-            <Link
-              href="/portal/calls"
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                pathname === "/portal/calls"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-            >
-              <PhoneCall className="w-4 h-4 text-emerald-600" />
-              Call Records
-            </Link>
-
-            <Link
-              href="/portal/billing"
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                pathname === "/portal/billing"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-            >
-              <CreditCard className="w-4 h-4 text-indigo-600" />
-              Billing &amp; Minutes
-            </Link>
-
-            <Link
-              href="/portal/forms"
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                pathname === "/portal/forms"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-            >
-              <Tag className="w-4 h-4 text-sky-600" />
-              Lead Forms
+              Onboard New Client
             </Link>
           </nav>
         </div>
