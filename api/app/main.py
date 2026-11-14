@@ -16,13 +16,17 @@ from api.app.core.security import hash_password
 from api.app.db.session import SessionLocal, engine
 from api.app.models.base import Base
 from api.app.models.call import Call
+from api.app.models.lead_form import Lead, LeadForm
+from api.app.models.subscription import Coupon, Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.routers.admin import router as admin_router
 from api.app.routers.auth import router as auth_router
+from api.app.routers.forms import router as forms_router
 from api.app.routers.internal import router as internal_router
 from api.app.routers.numbers import router as numbers_router
 from api.app.routers.portal import router as portal_router
+from api.app.routers.subscriptions import router as subscriptions_router
 
 
 def seed_initial_data() -> None:
@@ -114,6 +118,143 @@ def seed_initial_data() -> None:
             )
             db.add(owner)
             db.commit()
+
+        # Seed Default Apex Subscription if empty
+        apex_tenant = db.scalar(select(Tenant).where(Tenant.name == "Apex Plumbing & Heating"))
+        if apex_tenant:
+            existing_sub = db.scalar(
+                select(Subscription).where(Subscription.tenant_id == apex_tenant.id)
+            )
+            if not existing_sub:
+                db.add(
+                    Subscription(
+                        tenant_id=apex_tenant.id,
+                        tier="starter",
+                        status="active",
+                        monthly_included_minutes=1000,
+                        bonus_rollover_minutes=100.0,
+                        used_minutes_this_cycle=18.5,
+                        trial_days=14,
+                        trial_minutes_allocated=100,
+                        trial_minutes_used=24.0,
+                        overage_rate_usd=0.20,
+                        allow_overage=True,
+                        stripe_customer_id="cus_mock_apex_plumbing",
+                        stripe_subscription_id="sub_mock_starter_1000m",
+                    )
+                )
+
+            # Seed Default Lead Form if empty
+            existing_form = db.scalar(select(LeadForm).where(LeadForm.tenant_id == apex_tenant.id))
+            if not existing_form:
+                sample_form = LeadForm(
+                    tenant_id=apex_tenant.id,
+                    title="24/7 Emergency Dispatch & Service Intake",
+                    description="Submit your repair details for immediate sub-2s phone triage with our AI coordinator.",
+                    fields=[
+                        {
+                            "name": "caller_name",
+                            "label": "Full Name",
+                            "type": "text",
+                            "required": True,
+                            "placeholder": "e.g. Sarah Jenkins",
+                        },
+                        {
+                            "name": "caller_phone",
+                            "label": "Mobile Phone Number",
+                            "type": "tel",
+                            "required": True,
+                            "placeholder": "+1 (512) 555-0144",
+                        },
+                        {
+                            "name": "urgency",
+                            "label": "Urgency Level",
+                            "type": "select",
+                            "required": True,
+                            "options": [
+                                "emergency (active leak/flood)",
+                                "urgent (same day)",
+                                "routine (quote/inspection)",
+                            ],
+                        },
+                        {
+                            "name": "service_requested",
+                            "label": "Service Needed",
+                            "type": "select",
+                            "required": True,
+                            "options": [
+                                "Burst Pipe & Flooding",
+                                "Drain Cleaning & Backup",
+                                "Water Heater Repair",
+                                "Slab Leak Inspection",
+                                "Other Service",
+                            ],
+                        },
+                        {
+                            "name": "service_address",
+                            "label": "Service Property Address",
+                            "type": "text",
+                            "required": False,
+                            "placeholder": "123 Main St, Austin, TX",
+                        },
+                    ],
+                    submit_action="call_triage",
+                    is_active=True,
+                )
+                db.add(sample_form)
+                db.flush()
+
+                # Seed sample lead
+                db.add(
+                    Lead(
+                        tenant_id=apex_tenant.id,
+                        form_id=sample_form.id,
+                        caller_name="Sarah Jenkins",
+                        caller_phone="+15125550144",
+                        urgency="emergency",
+                        service_requested="Burst Pipe & Flooding",
+                        service_address="412 Congress Ave, Austin, TX",
+                        custom_data={"source": "Google Ads"},
+                        status="pending",
+                        outbound_call_triggered=True,
+                    )
+                )
+
+        # Seed Default Coupons if empty
+        coupon_count = db.scalar(select(func.count(Coupon.id)))
+        if not coupon_count:
+            db.add(
+                Coupon(
+                    code="LAUNCH50",
+                    discount_percent=50.0,
+                    bonus_minutes=200,
+                    max_redemptions=500,
+                    times_redeemed=4,
+                    is_active=True,
+                )
+            )
+            db.add(
+                Coupon(
+                    code="VEDA100",
+                    discount_percent=0.0,
+                    bonus_minutes=100,
+                    max_redemptions=1000,
+                    times_redeemed=12,
+                    is_active=True,
+                )
+            )
+            db.add(
+                Coupon(
+                    code="VIP20",
+                    discount_percent=20.0,
+                    bonus_minutes=50,
+                    max_redemptions=200,
+                    times_redeemed=2,
+                    is_active=True,
+                )
+            )
+
+        db.commit()
 
         # Seed Agency Pool Numbers if empty
         pool_count = db.scalar(
@@ -420,6 +561,8 @@ app.include_router(admin_router, prefix="/api/v1")
 app.include_router(numbers_router, prefix="/api/v1")
 app.include_router(portal_router, prefix="/api/v1")
 app.include_router(internal_router, prefix="/api/v1")
+app.include_router(subscriptions_router)
+app.include_router(forms_router)
 
 
 @app.get("/health", tags=["system"])

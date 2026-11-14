@@ -39,6 +39,9 @@ import {
   Network,
   X,
   Check,
+  CreditCard,
+  Tag,
+  Gift,
 } from "lucide-react";
 
 export default function AdminDashboardPage() {
@@ -46,6 +49,8 @@ export default function AdminDashboardPage() {
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [numbers, setNumbers] = useState<PhoneNumberRecord[]>([]);
   const [trunkTelemetry, setTrunkTelemetry] = useState<SipTrunkTelemetry | null>(null);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [maskPii, setMaskPii] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,6 +72,22 @@ export default function AdminDashboardPage() {
     target_tenant_id: "",
   });
 
+  // Coupons & Bonus Minutes state
+  const [showCouponModal, setShowCouponModal] = useState(false);
+  const [creatingCoupon, setCreatingCoupon] = useState(false);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [newCouponData, setNewCouponData] = useState({
+    code: "",
+    discount_percent: 20,
+    bonus_minutes: 100,
+    max_redemptions: 50,
+  });
+
+  const [showGrantModal, setShowGrantModal] = useState<string | null>(null); // tenant_id
+  const [grantingMinutes, setGrantingMinutes] = useState(false);
+  const [grantMinutesVal, setGrantMinutesVal] = useState(100);
+  const [grantReason, setGrantReason] = useState("Agency VIP Bonus");
+
   const loadData = () => {
     setRefreshing(true);
     Promise.all([
@@ -74,12 +95,16 @@ export default function AdminDashboardPage() {
       api.getAdminTenants(),
       api.getNumbers(),
       api.getSipTrunkTelemetry(),
+      api.getAdminSubscriptions().catch(() => []),
+      api.getAdminCoupons().catch(() => []),
     ])
-      .then(([statsRes, tenantsRes, numbersRes, trunkRes]) => {
+      .then(([statsRes, tenantsRes, numbersRes, trunkRes, subsRes, couponsRes]) => {
         setStats(statsRes);
         setTenants(tenantsRes);
         setNumbers(numbersRes);
         setTrunkTelemetry(trunkRes);
+        setSubscriptions(subsRes);
+        setCoupons(couponsRes);
       })
       .catch((err) => console.error("Failed to load admin data:", err))
       .finally(() => {
@@ -94,7 +119,6 @@ export default function AdminDashboardPage() {
     try {
       const res = await api.syncSipTrunkDispatchRules();
       setSyncSuccessMsg(res.message);
-      // Refresh telemetry and numbers
       const [nums, trunk] = await Promise.all([api.getNumbers(), api.getSipTrunkTelemetry()]);
       setNumbers(nums);
       setTrunkTelemetry(trunk);
@@ -147,6 +171,41 @@ export default function AdminDashboardPage() {
     }
   };
 
+  const handleCreateCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingCoupon(true);
+    setCouponError(null);
+    try {
+      await api.createAdminCoupon(newCouponData);
+      setShowCouponModal(false);
+      setNewCouponData({ code: "", discount_percent: 20, bonus_minutes: 100, max_redemptions: 50 });
+      const refreshedCoupons = await api.getAdminCoupons();
+      setCoupons(refreshedCoupons);
+    } catch (err: any) {
+      setCouponError(err.message || "Failed to create coupon code");
+    } finally {
+      setCreatingCoupon(false);
+    }
+  };
+
+  const handleGrantBonusMinutes = async (tenantId: string) => {
+    setGrantingMinutes(true);
+    try {
+      await api.grantAdminMinutes(tenantId, grantMinutesVal, grantReason);
+      setShowGrantModal(null);
+      const [refreshedSubs, refreshedTenants] = await Promise.all([
+        api.getAdminSubscriptions(),
+        api.getAdminTenants(),
+      ]);
+      setSubscriptions(refreshedSubs);
+      setTenants(refreshedTenants);
+    } catch (err: unknown) {
+      console.error("Failed to grant bonus minutes:", err);
+    } finally {
+      setGrantingMinutes(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, []);
@@ -165,7 +224,7 @@ export default function AdminDashboardPage() {
   if (loading) {
     return (
       <div className="p-8 text-xs font-mono text-zinc-500 flex items-center gap-2">
-        <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+        <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
         Loading platform command center &amp; carrier telemetry...
       </div>
     );
@@ -220,7 +279,7 @@ export default function AdminDashboardPage() {
             </span>
           </div>
           <p className="text-xs text-zinc-500 mt-1">
-            Global multi-tenant telephony oversight, concurrency saturation, carrier trunk health, and CoGS margin intelligence.
+            Global multi-tenant telephony oversight, concurrency saturation, carrier trunk health, minute billing &amp; CoGS intelligence.
           </p>
         </div>
 
@@ -298,76 +357,75 @@ export default function AdminDashboardPage() {
             <span>Emergency Escalations</span>
             <AlertTriangle className="w-4 h-4 text-red-600" />
           </div>
-          <div className="text-2xl font-bold font-mono text-red-400">
+          <div className="text-3xl font-extrabold font-mono text-red-600">
             {stats?.emergency_calls || 0}
           </div>
-          <div className="text-[11px] text-red-400/80 font-mono">0 false dispatch claims</div>
+          <div className="text-[11px] text-red-600/80 font-mono">0 false dispatch claims</div>
         </div>
 
-        <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/60 space-y-1">
-          <div className="flex items-center justify-between text-zinc-400 text-xs">
+        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>SIP Trunk Numbers</span>
-            <Radio className="w-4 h-4 text-emerald-400" />
+            <Radio className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-2xl font-bold font-mono text-zinc-100">
+          <div className="text-3xl font-extrabold font-mono text-zinc-900">
             {stats?.active_phone_numbers || 0}
           </div>
-          <div className="text-[11px] text-emerald-400 font-mono">STIR/SHAKEN A-Attested</div>
+          <div className="text-[11px] text-emerald-600 font-mono font-medium">STIR/SHAKEN A-Attested</div>
         </div>
 
-        <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/60 space-y-1">
-          <div className="flex items-center justify-between text-zinc-400 text-xs">
+        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Pipeline P50 Latency</span>
-            <Zap className="w-4 h-4 text-amber-400" />
+            <Zap className="w-4 h-4 text-amber-500" />
           </div>
-          <div className="text-2xl font-bold font-mono text-zinc-100">
+          <div className="text-3xl font-extrabold font-mono text-zinc-900">
             {stats?.avg_latency_p50_ms ? `${stats.avg_latency_p50_ms}ms` : "1,142ms"}
           </div>
-          <div className="text-[11px] text-amber-400 font-mono">EOU + TTFT + TTFB</div>
+          <div className="text-[11px] text-amber-600 font-mono font-medium">EOU + TTFT + TTFB</div>
         </div>
       </div>
 
       {/* SECTION 1: Global Concurrency & Capacity Saturation Gauges */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-800 gap-2">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
           <div className="flex items-center gap-2">
-            <Gauge className="w-4 h-4 text-indigo-400" />
-            <h2 className="text-sm font-bold text-zinc-100 font-mono uppercase tracking-wide">
+            <Gauge className="w-4 h-4 text-indigo-600" />
+            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
               Global Concurrency &amp; Capacity Saturation
             </h2>
             <InfoTrigger topic="admin_concurrency_saturation" />
           </div>
-          <div className="flex items-center gap-3 text-xs font-mono text-zinc-400">
-            <span>Rate-Limit Safety Threshold: <strong className="text-zinc-200">90%</strong></span>
-            <span className="text-zinc-700">|</span>
-            <span>Burst Headroom: <strong className="text-emerald-400">{maxInbound - activeInbound + (maxOutbound - activeOutbound)} channels</strong></span>
+          <div className="flex items-center gap-3 text-xs font-mono text-zinc-500">
+            <span>Rate-Limit Safety Threshold: <strong className="text-zinc-800">90%</strong></span>
+            <span className="text-zinc-300">|</span>
+            <span>Burst Headroom: <strong className="text-emerald-600 font-bold">{maxInbound - activeInbound + (maxOutbound - activeOutbound)} channels</strong></span>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* Inbound Concurrency Meter */}
-          <div className="p-4 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-3">
+          <div className="p-4 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                <PhoneCall className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
+                <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
                 Inbound Receptionist Channels
               </span>
-              <span className="text-xs font-mono font-bold text-emerald-400">
+              <span className="text-xs font-mono font-bold text-emerald-700">
                 {activeInbound} / {maxInbound}
               </span>
             </div>
 
-            {/* Progress Bar */}
-            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+            <div className="w-full h-2 rounded-full bg-zinc-200 overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 rounded-full ${
-                  inboundPct > 80 ? "bg-red-500" : inboundPct > 50 ? "bg-amber-400" : "bg-emerald-500"
+                  inboundPct > 80 ? "bg-red-500" : inboundPct > 50 ? "bg-amber-500" : "bg-emerald-500"
                 }`}
                 style={{ width: `${Math.min(inboundPct, 100)}%` }}
               />
             </div>
 
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
+            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
               <span>{inboundPct}% Saturation</span>
               <span className="text-zinc-500">{maxInbound - activeInbound} available</span>
             </div>
@@ -377,28 +435,27 @@ export default function AdminDashboardPage() {
           </div>
 
           {/* Outbound Concurrency Meter */}
-          <div className="p-4 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-3">
+          <div className="p-4 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                <Radio className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5 text-indigo-600" />
                 Outbound Automated Dialer
               </span>
-              <span className="text-xs font-mono font-bold text-indigo-400">
+              <span className="text-xs font-mono font-bold text-indigo-600">
                 {activeOutbound} / {maxOutbound}
               </span>
             </div>
 
-            {/* Progress Bar */}
-            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+            <div className="w-full h-2 rounded-full bg-zinc-200 overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 rounded-full ${
-                  outboundPct > 80 ? "bg-red-500" : outboundPct > 50 ? "bg-amber-400" : "bg-indigo-500"
+                  outboundPct > 80 ? "bg-red-500" : outboundPct > 50 ? "bg-amber-500" : "bg-indigo-600"
                 }`}
                 style={{ width: `${Math.min(outboundPct, 100)}%` }}
               />
             </div>
 
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
+            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
               <span>{outboundPct}% Saturation</span>
               <span className="text-zinc-500">{maxOutbound - activeOutbound} available</span>
             </div>
@@ -408,97 +465,96 @@ export default function AdminDashboardPage() {
           </div>
 
           {/* Carrier CPS Telemetry */}
-          <div className="p-4 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-3">
+          <div className="p-4 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-amber-600" />
                 Carrier CPS Throttle
               </span>
-              <span className="text-xs font-mono font-bold text-amber-400">
+              <span className="text-xs font-mono font-bold text-amber-600">
                 {carrier.cps_current} / {carrier.cps_limit} CPS
               </span>
             </div>
 
-            {/* Progress Bar */}
-            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+            <div className="w-full h-2 rounded-full bg-zinc-200 overflow-hidden">
               <div
-                className="h-full bg-amber-400 rounded-full transition-all duration-500"
+                className="h-full bg-amber-500 rounded-full transition-all duration-500"
                 style={{ width: `${(carrier.cps_current / carrier.cps_limit) * 100}%` }}
               />
             </div>
 
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
+            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
               <span>Calls Per Second</span>
-              <span className="text-emerald-400">Zero 503 drops</span>
+              <span className="text-emerald-600 font-semibold">Zero 503 drops</span>
             </div>
             <p className="text-[11px] text-zinc-500 leading-snug">
-              Carrier trunk call initiation rate kept strictly below Twilio/Telnyx 10 CPS blast limit.
+              Carrier trunk call initiation rate kept strictly below carrier 10 CPS blast limit.
             </p>
           </div>
         </div>
       </div>
 
       {/* SECTION 2: Carrier SIP Trunk Telemetry & Audio Quality (MOS) */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-800 gap-2">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
           <div className="flex items-center gap-2">
-            <Server className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-sm font-bold text-zinc-100 font-mono uppercase tracking-wide">
+            <Server className="w-4 h-4 text-emerald-600" />
+            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
               Carrier SIP Trunk Health &amp; Audio Telemetry
             </h2>
             <InfoTrigger topic="admin_carrier_sip_trunk" />
           </div>
-          <span className="text-xs font-mono text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
+          <span className="text-xs font-mono text-emerald-700 flex items-center gap-1 font-semibold">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
             Primary: Twilio | Hot Standby: Telnyx
           </span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500">Trunk Status</span>
-            <div className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Trunk Status</span>
+            <div className="text-sm font-bold text-emerald-600 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
               Connected
             </div>
             <span className="text-[10px] text-zinc-500">SIP INVITE 200 OK</span>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500">Carrier Latency</span>
-            <div className="text-sm font-bold text-zinc-200">
+          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Carrier Latency</span>
+            <div className="text-sm font-bold text-zinc-900">
               {carrier.latency_ms}ms
             </div>
             <span className="text-[10px] text-zinc-500">Jitter: {carrier.jitter_ms}ms</span>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500">Audio Score (MOS)</span>
-            <div className="text-sm font-bold text-emerald-400 flex items-center gap-1">
+          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Audio Score (MOS)</span>
+            <div className="text-sm font-bold text-emerald-600 flex items-center gap-1">
               {carrier.mos_score} / 5.0
             </div>
-            <span className="text-[10px] text-emerald-400/80">Toll-grade PSTN</span>
+            <span className="text-[10px] text-emerald-600/90 font-medium">Toll-grade PSTN</span>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500">Packet Loss</span>
-            <div className="text-sm font-bold text-zinc-200">
+          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Packet Loss</span>
+            <div className="text-sm font-bold text-zinc-900">
               {carrier.packet_loss_pct}%
             </div>
-            <span className="text-[10px] text-emerald-400">Zero audible gaps</span>
+            <span className="text-[10px] text-emerald-600 font-medium">Zero audible gaps</span>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500">Audio Codec</span>
-            <div className="text-xs font-bold text-zinc-200 truncate" title="Opus 48kHz WebRTC to G.711u PSTN">
+          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Audio Codec</span>
+            <div className="text-xs font-bold text-zinc-900 truncate" title="Opus 48kHz WebRTC to G.711u PSTN">
               Opus &harr; G.711u
             </div>
             <span className="text-[10px] text-zinc-500">48kHz Wideband</span>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/60 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500">STIR/SHAKEN</span>
-            <div className="text-sm font-bold text-emerald-400">
+          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">STIR/SHAKEN</span>
+            <div className="text-sm font-bold text-emerald-600">
               Level A
             </div>
             <span className="text-[10px] text-zinc-500">Full Attestation</span>
@@ -507,14 +563,14 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* SECTION 2B: Automated Phone Number Inventory & LiveKit SIP Trunk Binding */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-800 gap-3">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-3">
           <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-indigo-400" />
-            <h2 className="text-sm font-bold text-zinc-100 font-mono uppercase tracking-wide">
+            <Phone className="w-4 h-4 text-indigo-600" />
+            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
               Phone Number Inventory &amp; LiveKit SIP Trunk Binding
             </h2>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono font-semibold">
               {numbers.length} Total Lines
             </span>
           </div>
@@ -524,7 +580,7 @@ export default function AdminDashboardPage() {
               type="button"
               onClick={handleSyncTrunkDispatch}
               disabled={syncingTrunk}
-              className="px-3 py-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-mono flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-mono flex items-center gap-1.5 transition-colors"
               title="Synchronize all active tenant E.164 phone numbers to LiveKit Inbound SIP dispatch rules"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncingTrunk ? "animate-spin" : ""}`} />
@@ -534,7 +590,7 @@ export default function AdminDashboardPage() {
             <button
               type="button"
               onClick={() => setShowProvisionModal(true)}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Provision Carrier Line</span>
@@ -543,43 +599,43 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* SIP Trunk & Dispatch Rule Health Metadata Card */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-lg bg-zinc-950/80 border border-zinc-850 font-mono text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 font-mono text-xs">
           <div>
-            <span className="text-[10px] uppercase text-zinc-500">Inbound SIP Trunk ID</span>
-            <div className="text-xs font-bold text-zinc-200 mt-0.5 truncate" title={trunkTelemetry?.inbound_trunk_id || "ST_inbound_livekit_scale"}>
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Inbound SIP Trunk ID</span>
+            <div className="text-xs font-bold text-zinc-800 mt-0.5 truncate" title={trunkTelemetry?.inbound_trunk_id || "ST_inbound_livekit_scale"}>
               {trunkTelemetry?.inbound_trunk_id || "ST_inbound_livekit_scale"}
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase text-zinc-500">Outbound SIP Trunk ID</span>
-            <div className="text-xs font-bold text-zinc-200 mt-0.5 truncate" title={trunkTelemetry?.outbound_trunk_id || "ST_outbound_twilio_elastic"}>
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Outbound SIP Trunk ID</span>
+            <div className="text-xs font-bold text-zinc-800 mt-0.5 truncate" title={trunkTelemetry?.outbound_trunk_id || "ST_outbound_twilio_elastic"}>
               {trunkTelemetry?.outbound_trunk_id || "ST_outbound_twilio_elastic"}
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase text-zinc-500">Dispatch Rule &amp; Agent</span>
-            <div className="text-xs font-bold text-emerald-400 mt-0.5">
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Dispatch Rule &amp; Agent</span>
+            <div className="text-xs font-bold text-emerald-600 mt-0.5">
               all-tenants-inbound &rarr; receptionist
             </div>
           </div>
           <div>
-            <span className="text-[10px] uppercase text-zinc-500">Inventory Allocation</span>
-            <div className="text-xs font-bold text-zinc-200 mt-0.5">
-              <span className="text-emerald-400">{numbers.filter((n) => n.status === "active").length} Assigned</span> &bull;{" "}
-              <span className="text-indigo-400">{numbers.filter((n) => n.status === "pool").length} In Pool</span>
+            <span className="text-[10px] uppercase text-zinc-500 font-bold">Inventory Allocation</span>
+            <div className="text-xs font-bold text-zinc-800 mt-0.5">
+              <span className="text-emerald-600">{numbers.filter((n) => n.status === "active").length} Assigned</span> &bull;{" "}
+              <span className="text-indigo-600">{numbers.filter((n) => n.status === "pool").length} In Pool</span>
             </div>
           </div>
         </div>
 
         {syncSuccessMsg && (
-          <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs flex items-center gap-2 font-mono animate-in fade-in duration-200">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs flex items-center gap-2 font-mono">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
             <span>{syncSuccessMsg}</span>
           </div>
         )}
 
         {/* Filter Tabs */}
-        <div className="flex items-center gap-1 border-b border-zinc-800 pb-2">
+        <div className="flex items-center gap-1.5 border-b border-zinc-100 pb-2">
           {[
             { id: "all", label: `All Numbers (${numbers.length})` },
             { id: "active", label: `Active Tenant Lines (${numbers.filter((n) => n.status === "active").length})` },
@@ -589,10 +645,10 @@ export default function AdminDashboardPage() {
               key={tab.id}
               type="button"
               onClick={() => setNumberFilter(tab.id as "all" | "active" | "pool")}
-              className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors ${
                 numberFilter === tab.id
-                  ? "bg-indigo-600 text-white font-semibold"
-                  : "text-zinc-400 hover:text-zinc-200"
+                  ? "bg-zinc-900 text-white shadow-sm"
+                  : "text-zinc-600 hover:bg-zinc-100"
               }`}
             >
               {tab.label}
@@ -601,9 +657,9 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Phone Numbers Table */}
-        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 shadow-xl">
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
           <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-950/80 border-b border-zinc-800 font-mono text-[10px] uppercase text-zinc-500">
+            <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
               <tr>
                 <th className="p-3">Phone Number (E.164)</th>
                 <th className="p-3">Assigned Tenant / Pool</th>
@@ -614,15 +670,15 @@ export default function AdminDashboardPage() {
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/60">
+            <tbody className="divide-y divide-zinc-100">
               {numbers
                 .filter((n) => numberFilter === "all" || n.status === numberFilter)
                 .map((num) => {
                   const isPool = num.status === "pool";
                   return (
-                    <tr key={num.id} className="hover:bg-zinc-800/30 transition-colors">
+                    <tr key={num.id} className="hover:bg-zinc-50/80 transition-colors">
                       <td className="p-3">
-                        <div className="font-mono font-bold text-zinc-200">
+                        <div className="font-mono font-bold text-zinc-900">
                           {maskPhoneNumber(num.formatted || num.e164)}
                         </div>
                         <div className="text-[10px] text-zinc-500 font-sans">{num.label}</div>
@@ -630,40 +686,40 @@ export default function AdminDashboardPage() {
 
                       <td className="p-3">
                         {num.tenant_id ? (
-                          <div className="font-semibold text-zinc-200">
+                          <div className="font-semibold text-zinc-800">
                             {num.tenant_name || "Apex Plumbing & Heating"}
                           </div>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">
                             Agency Pre-Bought Pool
                           </span>
                         )}
                       </td>
 
-                      <td className="p-3 font-mono text-zinc-300">
-                        <span className="text-[11px] font-semibold text-zinc-200 capitalize">
+                      <td className="p-3 font-mono text-zinc-600">
+                        <span className="text-[11px] font-semibold text-zinc-800 capitalize">
                           {num.provider}
                         </span>
-                        <div className="text-[9px] text-zinc-500">STIR/SHAKEN A</div>
+                        <div className="text-[9px] text-zinc-400">STIR/SHAKEN A</div>
                       </td>
 
-                      <td className="p-3 text-zinc-400">
+                      <td className="p-3 text-zinc-600">
                         {num.locality ? `${num.locality}, ${num.region}` : num.region}
                       </td>
 
-                      <td className="p-3 font-mono text-[11px] text-zinc-400">
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                      <td className="p-3 font-mono text-[11px] text-zinc-500">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200">
                           {num.trunk_id || "ST_inbound_livekit_scale"}
                         </span>
                       </td>
 
                       <td className="p-3">
                         {isPool ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">
                             Available in Pool
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
                             Active Tenant Line
                           </span>
                         )}
@@ -677,7 +733,7 @@ export default function AdminDashboardPage() {
                               setShowAttachModal(num);
                               setTargetTenantId(tenants[0]?.id || "");
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-sans transition-colors shadow-sm"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-sans transition-colors shadow-sm"
                           >
                             <Link2 className="w-3 h-3" />
                             Attach to Tenant
@@ -686,7 +742,7 @@ export default function AdminDashboardPage() {
                           <button
                             type="button"
                             onClick={() => handleDetachNumber(num.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 hover:bg-red-500/20 hover:text-red-300 text-zinc-400 text-xs font-sans transition-colors"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 text-zinc-600 text-xs font-sans transition-colors"
                           >
                             <Unlink className="w-3 h-3" />
                             Detach to Pool
@@ -709,17 +765,17 @@ export default function AdminDashboardPage() {
 
         {/* Provision Carrier Number Modal */}
         {showProvisionModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 max-w-md w-full space-y-4 shadow-2xl">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-emerald-400" />
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+                <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-emerald-600" />
                   Provision Carrier Phone Number
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowProvisionModal(false)}
-                  className="p-1 rounded text-zinc-400 hover:text-zinc-200"
+                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -727,51 +783,60 @@ export default function AdminDashboardPage() {
 
               <form onSubmit={handleCreateProvisionedNumber} className="space-y-3 text-xs">
                 <div className="space-y-1">
-                  <label className="font-medium text-zinc-300">E.164 Phone Number *</label>
+                  <label className="font-medium text-zinc-700">E.164 Phone Number *</label>
                   <input
                     type="text"
                     required
                     value={newProvisionData.e164}
                     onChange={(e) => setNewProvisionData({ ...newProvisionData, e164: e.target.value })}
-                    className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 font-mono focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
                     placeholder="+15125550199"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="font-medium text-zinc-300">Carrier Provider</label>
+                    <label className="font-medium text-zinc-700">Carrier Provider</label>
                     <select
                       value={newProvisionData.provider}
                       onChange={(e) => setNewProvisionData({ ...newProvisionData, provider: e.target.value })}
-                      className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
+                      className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
                     >
                       <option value="Twilio Elastic SIP">Twilio Elastic SIP</option>
                       <option value="Telnyx SIP">Telnyx SIP</option>
-                      <option value="LiveKit Dedicated SIP">LiveKit Dedicated SIP</option>
                     </select>
                   </div>
-
                   <div className="space-y-1">
-                    <label className="font-medium text-zinc-300">Locality / Metro</label>
+                    <label className="font-medium text-zinc-700">Region / State</label>
                     <input
                       type="text"
-                      value={newProvisionData.locality}
-                      onChange={(e) => setNewProvisionData({ ...newProvisionData, locality: e.target.value })}
-                      className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
-                      placeholder="e.g. Austin Metro"
+                      value={newProvisionData.region}
+                      onChange={(e) => setNewProvisionData({ ...newProvisionData, region: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      placeholder="TX"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-medium text-zinc-300">Assign Directly to Tenant (Optional)</label>
+                  <label className="font-medium text-zinc-700">Metro / Locality</label>
+                  <input
+                    type="text"
+                    value={newProvisionData.locality}
+                    onChange={(e) => setNewProvisionData({ ...newProvisionData, locality: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Austin Metro"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-medium text-zinc-700">Assign To Tenant (Optional)</label>
                   <select
                     value={newProvisionData.target_tenant_id}
                     onChange={(e) => setNewProvisionData({ ...newProvisionData, target_tenant_id: e.target.value })}
-                    className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
                   >
-                    <option value="">Hold in Agency Pool (Unassigned)</option>
+                    <option value="">Leave in Agency Pool</option>
                     {tenants.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name}
@@ -780,20 +845,20 @@ export default function AdminDashboardPage() {
                   </select>
                 </div>
 
-                <div className="pt-2 flex items-center justify-end gap-2 border-t border-zinc-800">
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
                   <button
                     type="button"
                     onClick={() => setShowProvisionModal(false)}
-                    className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs"
+                    className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={provisioningNumber}
-                    className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5"
+                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs transition-colors shadow-sm"
                   >
-                    {provisioningNumber ? "Binding Trunk..." : "Provision & Bind Trunk"}
+                    {provisioningNumber ? "Provisioning..." : "Provision & Bind Trunk"}
                   </button>
                 </div>
               </form>
@@ -803,34 +868,34 @@ export default function AdminDashboardPage() {
 
         {/* Attach Number to Tenant Modal */}
         {showAttachModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                <h3 className="font-bold text-sm text-zinc-100 flex items-center gap-2">
-                  <Link2 className="w-4 h-4 text-indigo-400" />
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+                <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-indigo-600" />
                   Attach Pool Number
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowAttachModal(null)}
-                  className="p-1 rounded text-zinc-400 hover:text-zinc-200"
+                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="space-y-3 text-xs">
-                <div className="p-2.5 rounded bg-zinc-950 border border-zinc-850 font-mono">
-                  <span className="text-[10px] text-zinc-500 uppercase">Selected Number</span>
-                  <div className="font-bold text-zinc-200 mt-0.5">{showAttachModal.formatted || showAttachModal.e164}</div>
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-mono">
+                  <span className="text-[10px] text-zinc-500 uppercase font-bold">Selected Number</span>
+                  <div className="font-bold text-zinc-900 mt-0.5">{showAttachModal.formatted || showAttachModal.e164}</div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-medium text-zinc-300">Select Target Tenant Organization</label>
+                  <label className="font-medium text-zinc-700">Target Tenant Organization</label>
                   <select
                     value={targetTenantId}
                     onChange={(e) => setTargetTenantId(e.target.value)}
-                    className="w-full px-3 py-2 rounded bg-zinc-950 border border-zinc-800 text-zinc-200 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
                   >
                     {tenants.map((t) => (
                       <option key={t.id} value={t.id}>
@@ -840,18 +905,18 @@ export default function AdminDashboardPage() {
                   </select>
                 </div>
 
-                <div className="pt-2 flex items-center justify-end gap-2 border-t border-zinc-800">
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
                   <button
                     type="button"
                     onClick={() => setShowAttachModal(null)}
-                    className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs"
+                    className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={() => handleAttachNumber(showAttachModal.id)}
-                    className="px-4 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs"
+                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm"
                   >
                     Attach Number
                   </button>
@@ -863,105 +928,403 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* SECTION 3: Model Inference Cost & Profit Margin Intelligence */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-800 gap-2">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
           <div className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-sm font-bold text-zinc-100 font-mono uppercase tracking-wide">
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
               Model Inference CoGS &amp; SaaS Margin Intelligence
             </h2>
             <InfoTrigger topic="admin_inference_cogs" />
           </div>
-          <span className="text-xs font-mono text-zinc-400">
-            Per-Minute Unit Cost: <strong className="text-emerald-400 font-bold">${cost.total_cogs_per_min.toFixed(4)}/min</strong>
+          <span className="text-xs font-mono text-zinc-600">
+            Per-Minute Unit Cost: <strong className="text-emerald-700 font-bold">${cost.total_cogs_per_min.toFixed(4)}/min</strong>
           </span>
         </div>
 
         {/* CoGS Waterfall Breakdown */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
-          <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-950/60 space-y-1">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px]">
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
               <span>WebRTC SFU Media</span>
-              <Cpu className="w-3.5 h-3.5 text-zinc-500" />
+              <Cpu className="w-3.5 h-3.5 text-zinc-400" />
             </div>
-            <div className="text-sm font-bold text-zinc-200">${cost.cost_livekit_per_min.toFixed(4)}</div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_livekit_per_min.toFixed(4)}</div>
             <div className="text-[10px] text-zinc-500 font-sans">LiveKit Cloud routing</div>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-950/60 space-y-1">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px]">
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
               <span>Nova-2 STT</span>
-              <Activity className="w-3.5 h-3.5 text-zinc-500" />
+              <Activity className="w-3.5 h-3.5 text-zinc-400" />
             </div>
-            <div className="text-sm font-bold text-zinc-200">${cost.cost_deepgram_per_min.toFixed(4)}</div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_deepgram_per_min.toFixed(4)}</div>
             <div className="text-[10px] text-zinc-500 font-sans">Deepgram streaming</div>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-950/60 space-y-1">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px]">
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
               <span>Gemini 2.5 Flash</span>
-              <Zap className="w-3.5 h-3.5 text-zinc-500" />
+              <Zap className="w-3.5 h-3.5 text-zinc-400" />
             </div>
-            <div className="text-sm font-bold text-zinc-200">${cost.cost_gemini_per_min.toFixed(4)}</div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_gemini_per_min.toFixed(4)}</div>
             <div className="text-[10px] text-zinc-500 font-sans">~520 tokens / turn</div>
           </div>
 
-          <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-950/60 space-y-1">
-            <div className="flex items-center justify-between text-zinc-400 text-[11px]">
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
               <span>Neural TTS</span>
-              <Radio className="w-3.5 h-3.5 text-zinc-500" />
+              <Radio className="w-3.5 h-3.5 text-zinc-400" />
             </div>
-            <div className="text-sm font-bold text-zinc-200">${cost.cost_tts_per_min.toFixed(4)}</div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_tts_per_min.toFixed(4)}</div>
             <div className="text-[10px] text-zinc-500 font-sans">Inworld / Rime audio</div>
           </div>
 
-          <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 space-y-1">
-            <div className="flex items-center justify-between text-emerald-300 text-[11px]">
-              <span>Total CoGS / Min</span>
-              <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+          <div className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/70 space-y-1">
+            <div className="flex items-center justify-between text-emerald-800 text-[11px]">
+              <span className="font-semibold">Total CoGS / Min</span>
+              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
             </div>
-            <div className="text-base font-bold text-emerald-400">${cost.total_cogs_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-emerald-400/80 font-sans">All-in platform cost</div>
+            <div className="text-base font-extrabold text-emerald-700">${cost.total_cogs_per_min.toFixed(4)}</div>
+            <div className="text-[10px] text-emerald-700/80 font-sans">All-in platform cost</div>
           </div>
         </div>
 
         {/* Agency Financial Intelligence Summary */}
-        <div className="p-4 rounded-lg border border-zinc-800/80 bg-zinc-950/40 grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
+        <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/50 grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
           <div>
-            <div className="text-[11px] text-zinc-400 uppercase font-mono">Billed Call Minutes</div>
-            <div className="text-xl font-bold font-mono text-zinc-100">{cost.total_billable_minutes.toFixed(1)} mins</div>
+            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Billed Call Minutes</div>
+            <div className="text-xl font-extrabold font-mono text-zinc-900">{cost.total_billable_minutes.toFixed(1)} mins</div>
             <div className="text-[10px] text-zinc-500">Across {stats?.total_calls || 0} customer calls</div>
           </div>
 
           <div>
-            <div className="text-[11px] text-zinc-400 uppercase font-mono">Inference &amp; Carrier CoGS</div>
-            <div className="text-xl font-bold font-mono text-zinc-100">${cost.est_telephony_cost_usd.toFixed(2)}</div>
+            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Inference &amp; Carrier CoGS</div>
+            <div className="text-xl font-extrabold font-mono text-zinc-900">${cost.est_telephony_cost_usd.toFixed(2)}</div>
             <div className="text-[10px] text-zinc-500">Real-time compute cost</div>
           </div>
 
           <div>
-            <div className="text-[11px] text-zinc-400 uppercase font-mono">Tenant SaaS MRR</div>
-            <div className="text-xl font-bold font-mono text-emerald-400">${cost.est_monthly_revenue_usd.toFixed(2)}</div>
+            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Tenant SaaS MRR</div>
+            <div className="text-xl font-extrabold font-mono text-emerald-600">${cost.est_monthly_revenue_usd.toFixed(2)}</div>
             <div className="text-[10px] text-zinc-500">${cost.tenant_subscription_fee_usd}/mo &times; {stats?.total_tenants || 0} clients</div>
           </div>
 
-          <div className="p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10">
-            <div className="text-[11px] text-emerald-300 uppercase font-mono flex items-center gap-1 font-semibold">
-              <TrendingUp className="w-3.5 h-3.5" />
+          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50">
+            <div className="text-[11px] text-emerald-800 uppercase font-mono flex items-center gap-1 font-bold">
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
               Platform Gross Margin
             </div>
-            <div className="text-2xl font-bold font-mono text-emerald-400">{cost.gross_margin_pct.toFixed(1)}%</div>
-            <div className="text-[10px] text-emerald-300/80">Target margin: &gt;85%</div>
+            <div className="text-2xl font-extrabold font-mono text-emerald-700">{cost.gross_margin_pct.toFixed(1)}%</div>
+            <div className="text-[10px] text-emerald-700/90 font-medium">Target margin: &gt;85%</div>
           </div>
         </div>
       </div>
 
-      {/* SECTION 4: Client Tenants Table with PII Masking & Quota Throttles */}
+      {/* SECTION 4: Stripe Minute Subscriptions & Coupon Code Engine */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Tenant Minute Subscriptions Overview (2 cols) */}
+        <div className="lg:col-span-2 rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+            <div className="flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-indigo-600" />
+              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+                Tenant Minute Subscriptions &amp; Rollovers
+              </h2>
+            </div>
+            <span className="text-xs text-zinc-500 font-mono">
+              $0.20/min overage &bull; 10% monthly rollover
+            </span>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+                <tr>
+                  <th className="p-3">Organization</th>
+                  <th className="p-3">Current Plan</th>
+                  <th className="p-3">Included Minutes</th>
+                  <th className="p-3">Bonus / Rollover</th>
+                  <th className="p-3">Used Minutes</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {subscriptions.map((sub: any) => (
+                  <tr key={sub.tenant_id} className="hover:bg-zinc-50/80 transition-colors">
+                    <td className="p-3">
+                      <div className="font-semibold text-zinc-900">{sub.tenant_name}</div>
+                      <div className="text-[10px] text-zinc-500 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
+                    </td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
+                        {sub.tier}
+                      </span>
+                      {sub.status === "active" && (
+                        <span className="ml-1 text-[10px] text-emerald-600 font-medium">● Active</span>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono font-bold text-zinc-800">
+                      {sub.monthly_included_minutes.toLocaleString()} mins
+                    </td>
+                    <td className="p-3 font-mono">
+                      <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        +{sub.bonus_rollover_minutes.toFixed(1)} mins
+                      </span>
+                    </td>
+                    <td className="p-3 font-mono text-zinc-600">
+                      {sub.used_minutes_this_cycle.toFixed(1)} mins
+                    </td>
+                    <td className="p-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setShowGrantModal(sub.tenant_id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-medium transition-colors"
+                      >
+                        <Gift className="w-3 h-3 text-indigo-600" />
+                        Grant Bonus
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {subscriptions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-zinc-500 font-mono text-xs">
+                      No active tenant subscriptions.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Right: Coupon Code Engine (1 col) */}
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+            <div className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-emerald-600" />
+              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+                Admin Coupon Engine
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCouponModal(true)}
+              className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1 shadow-sm"
+            >
+              <Plus className="w-3 h-3" />
+              New Code
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
+            {coupons.map((c: any) => (
+              <div
+                key={c.code}
+                className="p-3 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between text-xs"
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-zinc-900 bg-white px-2 py-0.5 rounded border border-zinc-200">
+                      {c.code}
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-semibold font-mono">
+                      {c.discount_percent}% OFF
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-zinc-500">
+                    +{c.bonus_minutes} bonus minutes &bull; Redeemed: {c.times_redeemed}/{c.max_redemptions}
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+                  Active
+                </span>
+              </div>
+            ))}
+            {coupons.length === 0 && (
+              <div className="p-4 text-center text-zinc-400 font-mono text-xs">
+                No active coupon codes created yet.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Grant Bonus Minutes Modal */}
+      {showGrantModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
+                <Gift className="w-4 h-4 text-indigo-600" />
+                Grant Compliment Bonus Minutes
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowGrantModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-medium text-zinc-700">Bonus Minutes to Grant</label>
+                <input
+                  type="number"
+                  min="10"
+                  max="5000"
+                  step="10"
+                  value={grantMinutesVal}
+                  onChange={(e) => setGrantMinutesVal(Number(e.target.value))}
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-medium text-zinc-700">Reason / Description</label>
+                <input
+                  type="text"
+                  value={grantReason}
+                  onChange={(e) => setGrantReason(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
+                  placeholder="Promotional Onboarding Bonus"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setShowGrantModal(null)}
+                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={grantingMinutes}
+                  onClick={() => handleGrantBonusMinutes(showGrantModal)}
+                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm"
+                >
+                  {grantingMinutes ? "Granting..." : "Grant Minutes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Coupon Modal */}
+      {showCouponModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
+                <Tag className="w-4 h-4 text-emerald-600" />
+                Create Platform Coupon Code
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowCouponModal(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCoupon} className="space-y-3 text-xs">
+              {couponError && (
+                <div className="p-2.5 rounded-xl bg-red-50 text-red-700 border border-red-200 font-mono text-[11px]">
+                  {couponError}
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="font-medium text-zinc-700">Coupon Code *</label>
+                <input
+                  type="text"
+                  required
+                  value={newCouponData.code}
+                  onChange={(e) =>
+                    setNewCouponData({ ...newCouponData, code: e.target.value.toUpperCase() })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono uppercase font-bold focus:outline-none focus:border-zinc-900"
+                  placeholder="LAUNCH50"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="font-medium text-zinc-700">Discount %</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={newCouponData.discount_percent}
+                    onChange={(e) =>
+                      setNewCouponData({ ...newCouponData, discount_percent: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-medium text-zinc-700">Bonus Minutes</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000"
+                    value={newCouponData.bonus_minutes}
+                    onChange={(e) =>
+                      setNewCouponData({ ...newCouponData, bonus_minutes: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-medium text-zinc-700">Max Redemptions</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="1000"
+                  value={newCouponData.max_redemptions}
+                  onChange={(e) =>
+                    setNewCouponData({ ...newCouponData, max_redemptions: Number(e.target.value) })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setShowCouponModal(false)}
+                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingCoupon}
+                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm"
+                >
+                  {creatingCoupon ? "Creating..." : "Save Coupon"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 5: Client Tenants Table with PII Masking & Quota Throttles */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-zinc-400" />
-            <h2 className="text-sm font-bold text-zinc-200">
+            <Building2 className="w-4 h-4 text-zinc-500" />
+            <h2 className="text-sm font-bold text-zinc-900">
               Client Tenant Organizations ({tenants.length})
             </h2>
             <span className="text-xs text-zinc-500 font-mono">Row-Level Security Active</span>
@@ -973,17 +1336,17 @@ export default function AdminDashboardPage() {
             <button
               type="button"
               onClick={() => setMaskPii(!maskPii)}
-              className="px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-300 font-mono flex items-center gap-1.5 transition-colors"
+              className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-xs text-zinc-700 font-mono flex items-center gap-1.5 transition-colors shadow-sm"
               title="Toggle masked phone numbers for GDPR/CCPA privacy during demonstrations"
             >
               {maskPii ? (
                 <>
-                  <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                  <Eye className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Reveal Full E.164</span>
                 </>
               ) : (
                 <>
-                  <EyeOff className="w-3.5 h-3.5 text-zinc-400" />
+                  <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
                   <span>Mask Phone Numbers (PII)</span>
                 </>
               )}
@@ -991,9 +1354,9 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/60 shadow-xl">
+        <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
           <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-950/80 border-b border-zinc-800 font-mono text-[10px] uppercase text-zinc-500">
+            <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
               <tr>
                 <th className="p-3">Organization Name</th>
                 <th className="p-3">Timezone / Hours</th>
@@ -1005,75 +1368,75 @@ export default function AdminDashboardPage() {
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800/60 font-mono">
+            <tbody className="divide-y divide-zinc-100 font-mono">
               {tenants.map((t) => {
                 const usedMins = t.minutes_used ?? (t.call_count * 2.5);
                 const quota = t.monthly_minute_quota ?? 500;
                 const quotaPct = Math.min(Math.round((usedMins / quota) * 100), 100);
 
                 return (
-                  <tr key={t.id} className="hover:bg-zinc-800/40 transition-colors">
+                  <tr key={t.id} className="hover:bg-zinc-50/80 transition-colors">
                     <td className="p-3 font-sans">
-                      <div className="font-semibold text-zinc-200">{t.name}</div>
+                      <div className="font-semibold text-zinc-900">{t.name}</div>
                       <div className="text-[10px] font-mono text-zinc-500">ID: {t.id.slice(0, 8)}...</div>
                     </td>
 
-                    <td className="p-3 text-zinc-400 text-[11px] font-sans">
-                      <div className="text-zinc-300 font-mono">{t.timezone}</div>
+                    <td className="p-3 text-zinc-600 text-[11px] font-sans">
+                      <div className="text-zinc-800 font-mono">{t.timezone}</div>
                       <div className="text-zinc-500 truncate max-w-[140px]">{t.hours}</div>
                     </td>
 
-                    <td className="p-3 text-zinc-300 font-mono">
+                    <td className="p-3 text-zinc-800 font-mono">
                       {t.phone_numbers.length > 0 ? (
                         <div className="space-y-0.5">
                           {t.phone_numbers.map((num, i) => (
-                            <div key={i} className="flex items-center gap-1.5 text-zinc-200">
-                              <PhoneCall className="w-3 h-3 text-emerald-400 shrink-0" />
+                            <div key={i} className="flex items-center gap-1.5 text-zinc-900">
+                              <PhoneCall className="w-3 h-3 text-emerald-600 shrink-0" />
                               <span>{maskPhoneNumber(num)}</span>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-zinc-500 italic">Unassigned</span>
+                        <span className="text-zinc-400 italic">Unassigned</span>
                       )}
                     </td>
 
-                    <td className="p-3 text-zinc-300 font-mono">
+                    <td className="p-3 text-zinc-800 font-mono">
                       <div className="flex items-center gap-1 text-[11px]">
-                        <span className="text-emerald-400">{t.max_concurrent_inbound || 4} In</span>
-                        <span className="text-zinc-600">/</span>
-                        <span className="text-indigo-400">{t.max_concurrent_outbound || 2} Out</span>
+                        <span className="text-emerald-700 font-semibold">{t.max_concurrent_inbound || 4} In</span>
+                        <span className="text-zinc-300">/</span>
+                        <span className="text-indigo-700 font-semibold">{t.max_concurrent_outbound || 2} Out</span>
                       </div>
                       <div className="text-[10px] text-zinc-500">Dedicated limit</div>
                     </td>
 
                     <td className="p-3 font-mono">
                       <div className="flex items-center justify-between text-[11px] mb-1">
-                        <span className="text-zinc-300">{usedMins.toFixed(1)}m</span>
+                        <span className="text-zinc-800 font-bold">{usedMins.toFixed(1)}m</span>
                         <span className="text-zinc-500">/ {quota}m</span>
                       </div>
-                      <div className="w-24 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                      <div className="w-24 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
                         <div
                           className={`h-full rounded-full ${
-                            quotaPct > 80 ? "bg-red-400" : quotaPct > 50 ? "bg-amber-400" : "bg-indigo-500"
+                            quotaPct > 80 ? "bg-red-500" : quotaPct > 50 ? "bg-amber-500" : "bg-zinc-900"
                           }`}
                           style={{ width: `${quotaPct}%` }}
                         />
                       </div>
                     </td>
 
-                    <td className="p-3 text-zinc-200 font-bold">
+                    <td className="p-3 text-zinc-900 font-bold">
                       <div>{t.call_count} calls</div>
                       {t.emergency_count > 0 && (
-                        <div className="text-[10px] text-red-400 font-normal">
+                        <div className="text-[10px] text-red-600 font-normal">
                           {t.emergency_count} 🚨 emergency
                         </div>
                       )}
                     </td>
 
                     <td className="p-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 capitalize gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                         {t.status}
                       </span>
                     </td>
@@ -1081,7 +1444,7 @@ export default function AdminDashboardPage() {
                     <td className="p-3 text-right">
                       <Link
                         href="/portal/dashboard"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-sans transition-colors"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-sans transition-colors"
                       >
                         Open Portal
                         <ArrowUpRight className="w-3 h-3" />

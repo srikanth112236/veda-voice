@@ -60,6 +60,71 @@ export interface CallDetail {
   tags: string[];
 }
 
+export interface SubscriptionCurrent {
+  id: string;
+  tenant_id: string;
+  tier: "trial" | "starter" | "pro" | "enterprise";
+  status: "trialing" | "active" | "past_due" | "canceled";
+  monthly_included_minutes: number;
+  bonus_rollover_minutes: number;
+  used_minutes_this_cycle: number;
+  total_limit_minutes: number;
+  remaining_minutes: number;
+  overage_rate_usd: number;
+  allow_overage: boolean;
+  is_trial: boolean;
+  trial_days: number;
+  trial_ends_at: string | null;
+  trial_expired: boolean;
+  trial_minutes_allocated: number;
+  trial_minutes_used: number;
+  cycle_start_date: string;
+  cycle_end_date: string;
+  applied_coupon_code: string | null;
+  available_plans: Array<{
+    tier: string;
+    name: string;
+    minutes: number;
+    price_usd: number;
+    overage_usd: number;
+  }>;
+}
+
+export interface LeadFormField {
+  name: string;
+  label: string;
+  type: "text" | "tel" | "email" | "select" | "textarea";
+  required: boolean;
+  options?: string[];
+  placeholder?: string;
+}
+
+export interface LeadFormItem {
+  id: string;
+  tenant_id: string;
+  title: string;
+  description: string;
+  fields: LeadFormField[];
+  submit_action: "call_triage" | "log_only";
+  is_active: boolean;
+  total_leads_captured: number;
+  created_at: string;
+}
+
+export interface CapturedLead {
+  id: string;
+  form_id: string | null;
+  caller_name: string;
+  caller_phone: string;
+  urgency: string;
+  service_requested: string | null;
+  service_address: string | null;
+  custom_data: Record<string, any>;
+  status: "pending" | "contacted" | "dispatched" | "converted";
+  outbound_call_triggered: boolean;
+  created_at: string;
+}
+
 export interface TenantDashboardStats {
   total_calls: number;
   emergency_calls: number;
@@ -397,4 +462,75 @@ export const api = {
     request<SyncTrunkResult>("/api/v1/numbers/trunks/sync", {
       method: "POST",
     }),
+
+  // Minute-Based Stripe Subscriptions & Rollovers
+  getSubscriptionCurrent: () => request<SubscriptionCurrent>("/api/v1/subscriptions/current"),
+
+  upgradeSubscription: (tier: string, coupon_code?: string) =>
+    request<any>("/api/v1/subscriptions/upgrade", {
+      method: "POST",
+      body: JSON.stringify({ tier, coupon_code }),
+    }),
+
+  validateCoupon: (code: string) =>
+    request<{ valid: boolean; code: string; discount_percent: number; bonus_minutes: number }>(
+      `/api/v1/subscriptions/coupons/validate?code=${encodeURIComponent(code)}`,
+      { method: "POST" }
+    ),
+
+  cycleRenewSubscription: () =>
+    request<any>("/api/v1/subscriptions/cycle-renew", {
+      method: "POST",
+    }),
+
+  // Multi-Tenant Lead Form Builder & Leads Inbox
+  getLeadForms: () => request<LeadFormItem[]>("/api/v1/forms"),
+
+  createLeadForm: (data: {
+    title: string;
+    description: string;
+    fields: LeadFormField[];
+    submit_action?: string;
+  }) =>
+    request<LeadFormItem>("/api/v1/forms", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  deleteLeadForm: (formId: string) =>
+    request<{ success: boolean; message: string }>(`/api/v1/forms/${formId}`, {
+      method: "DELETE",
+    }),
+
+  getCapturedLeads: () => request<CapturedLead[]>("/api/v1/forms/leads/all"),
+
+  updateLeadStatus: (leadId: string, status: string) =>
+    request<{ success: boolean; lead_id: string; status: string }>(
+      `/api/v1/forms/leads/${leadId}/status`,
+      {
+        method: "POST",
+        body: JSON.stringify({ status }),
+      }
+    ),
+
+  // Platform Admin Subscriptions & Coupons
+  getAdminSubscriptions: () => request<any[]>("/api/v1/admin/subscriptions"),
+  getAdminCoupons: () => request<any[]>("/api/v1/admin/coupons"),
+  createAdminCoupon: (data: {
+    code: string;
+    discount_percent: number;
+    bonus_minutes: number;
+    max_uses?: number;
+  }) =>
+    request<any>("/api/v1/admin/coupons", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  grantAdminMinutes: (tenantId: string, minutes: number, reason = "Promotional Bonus") =>
+    request<any>(
+      `/api/v1/admin/subscriptions/${tenantId}/grant-minutes?minutes=${minutes}&reason=${encodeURIComponent(
+        reason
+      )}`,
+      { method: "POST" }
+    ),
 };

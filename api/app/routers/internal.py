@@ -12,6 +12,7 @@ from api.app.core.config import settings
 from api.app.core.security import create_access_token, decode_access_token
 from api.app.db.session import get_db
 from api.app.models.call import Call
+from api.app.models.subscription import Subscription, UsageRecord
 from api.app.models.tenant import PhoneNumber, Tenant
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -405,6 +406,24 @@ def save_call_record_from_agent(
     call.transcript = payload.transcript
     call.message = payload.message
     call.tags = [t for t in payload.tags if t != "in_progress"]
+
+    # Record minute usage in tenant subscription
+    if call.tenant_id:
+        sub = db.scalar(select(Subscription).where(Subscription.tenant_id == call.tenant_id))
+        if sub:
+            billable_minutes = round(max(0.1, payload.duration_s / 60.0), 2)
+            if sub.tier == "trial":
+                sub.trial_minutes_used += billable_minutes
+            else:
+                sub.used_minutes_this_cycle += billable_minutes
+
+            usage = UsageRecord(
+                tenant_id=call.tenant_id,
+                call_id=payload.call_id,
+                duration_seconds=int(payload.duration_s),
+                billable_minutes=billable_minutes,
+            )
+            db.add(usage)
 
     db.commit()
 
