@@ -27,12 +27,25 @@ class CreateTenantAdminRequest(BaseModel):
     timezone: str = "America/New_York"
     hours: str = "Monday to Friday, 8:00 AM to 6:00 PM EST"
     phone_number: str | None = None
+    voice_id: str = "Alex"
+    recording_disclosure: bool = True
     greeting: str | None = None
     tone: str = "direct"
     pricing_policy: str = "diagnostic_fee_only"
     services: list[str] = ["Plumbing", "Heating", "Drain Cleaning"]
     emergency_keywords: list[str] = ["burst pipe", "flooding", "gas smell", "sewage"]
     emergency_advice: str = "If safe, shut off your main water valve right away."
+
+
+class AvailableNumberItem(BaseModel):
+    e164: str
+    formatted: str
+    region: str
+    locality: str
+    provider: str
+    monthly_cost_usd: float
+    capabilities: list[str] = ["Voice", "SMS"]
+    source: str  # "carrier_api" | "agency_pool"
 
 
 class TenantSummaryResponse(BaseModel):
@@ -226,6 +239,8 @@ def create_tenant_admin(req: CreateTenantAdminRequest, db: Session = Depends(get
         agent_name="receptionist",
         greeting=greeting_text,
         tone=req.tone,
+        voice_id=req.voice_id or "Alex",
+        recording_disclosure=req.recording_disclosure,
         services=req.services,
         pricing_policy=req.pricing_policy,
         emergency_keywords=req.emergency_keywords,
@@ -269,4 +284,158 @@ def create_tenant_admin(req: CreateTenantAdminRequest, db: Session = Depends(get
         phone_numbers=attached_numbers,
         call_count=0,
         emergency_count=0,
+        max_concurrent_inbound=tenant.max_concurrent_calls,
+        max_concurrent_outbound=tenant.max_concurrent_outbound,
+        monthly_minute_quota=tenant.monthly_minute_quota,
+        minutes_used=0.0,
+        health_status="operational",
     )
+
+
+# Phone number search and pool inventory
+_CARRIER_INVENTORY: list[dict[str, Any]] = [
+    {
+        "e164": "+15125550199",
+        "formatted": "+1 (512) 555-0199",
+        "region": "TX",
+        "locality": "Austin",
+        "provider": "Twilio Elastic SIP",
+        "monthly_cost_usd": 1.15,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+    {
+        "e164": "+15127829410",
+        "formatted": "+1 (512) 782-9410",
+        "region": "TX",
+        "locality": "Austin / Round Rock",
+        "provider": "Twilio Elastic SIP",
+        "monthly_cost_usd": 1.15,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+    {
+        "e164": "+12128903320",
+        "formatted": "+1 (212) 890-3320",
+        "region": "NY",
+        "locality": "New York City",
+        "provider": "Twilio Elastic SIP",
+        "monthly_cost_usd": 1.15,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+    {
+        "e164": "+14153204491",
+        "formatted": "+1 (415) 320-4491",
+        "region": "CA",
+        "locality": "San Francisco",
+        "provider": "Telnyx SIP",
+        "monthly_cost_usd": 1.00,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+    {
+        "e164": "+13127629011",
+        "formatted": "+1 (312) 762-9011",
+        "region": "IL",
+        "locality": "Chicago",
+        "provider": "Telnyx SIP",
+        "monthly_cost_usd": 1.00,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+    {
+        "e164": "+13054401822",
+        "formatted": "+1 (305) 440-1822",
+        "region": "FL",
+        "locality": "Miami / South Beach",
+        "provider": "Twilio Elastic SIP",
+        "monthly_cost_usd": 1.15,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+    {
+        "e164": "+18005550199",
+        "formatted": "+1 (800) 555-0199",
+        "region": "US",
+        "locality": "Toll-Free Nationwide",
+        "provider": "Twilio Elastic SIP",
+        "monthly_cost_usd": 2.15,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+    {
+        "e164": "+18887412900",
+        "formatted": "+1 (888) 741-2900",
+        "region": "US",
+        "locality": "Toll-Free Nationwide",
+        "provider": "Telnyx SIP",
+        "monthly_cost_usd": 1.80,
+        "capabilities": ["Voice", "SMS"],
+        "source": "carrier_api",
+    },
+]
+
+_AGENCY_POOL_INVENTORY: list[dict[str, Any]] = [
+    {
+        "e164": "+18005550199",
+        "formatted": "+1 (800) 555-0199",
+        "region": "US",
+        "locality": "Toll-Free Nationwide",
+        "provider": "LiveKit Dedicated SIP",
+        "monthly_cost_usd": 0.00,
+        "capabilities": ["Voice", "SMS"],
+        "source": "agency_pool",
+    },
+    {
+        "e164": "+15129002244",
+        "formatted": "+1 (512) 900-2244",
+        "region": "TX",
+        "locality": "Austin Metro",
+        "provider": "LiveKit Dedicated SIP",
+        "monthly_cost_usd": 0.00,
+        "capabilities": ["Voice", "SMS"],
+        "source": "agency_pool",
+    },
+    {
+        "e164": "+14158003311",
+        "formatted": "+1 (415) 800-3311",
+        "region": "CA",
+        "locality": "San Francisco Bay",
+        "provider": "LiveKit Dedicated SIP",
+        "monthly_cost_usd": 0.00,
+        "capabilities": ["Voice", "SMS"],
+        "source": "agency_pool",
+    },
+]
+
+
+@router.get("/numbers/search", response_model=list[AvailableNumberItem])
+def search_available_numbers(
+    area_code: str = "",
+    mode: str = "carrier_search",  # "carrier_search" | "agency_pool"
+    db: Session = Depends(get_db),
+) -> Any:
+    """Search available phone numbers from carrier inventory or agency pre-purchased pool."""
+    assigned = {
+        p.e164 for p in db.scalars(select(PhoneNumber).where(PhoneNumber.status == "active")).all()
+    }
+
+    pool = _AGENCY_POOL_INVENTORY if mode == "agency_pool" else _CARRIER_INVENTORY
+    results = []
+    clean_area = area_code.strip().replace("(", "").replace(")", "").replace("-", "")
+
+    for item in pool:
+        if item["e164"] in assigned:
+            continue
+        if clean_area:
+            if (
+                clean_area in item["e164"]
+                or clean_area.lower() in item["locality"].lower()
+                or clean_area.lower() in item["region"].lower()
+            ):
+                results.append(AvailableNumberItem(**item))
+        else:
+            results.append(AvailableNumberItem(**item))
+
+    return results

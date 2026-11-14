@@ -278,3 +278,65 @@ def test_platform_admin_command_center_telemetry() -> None:
     assert first["max_concurrent_outbound"] >= 1
     assert first["monthly_minute_quota"] == 500
     assert first["health_status"] == "operational"
+
+
+def test_admin_number_search_and_voice_sync() -> None:
+    """Verify carrier number search, agency pool toggle, and LiveKit voice sync."""
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": settings.PLATFORM_ADMIN_EMAIL,
+            "password": settings.PLATFORM_ADMIN_PASSWORD,
+        },
+    )
+    assert login_resp.status_code == 200
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Search carrier numbers by area code (Option B)
+    search_resp = client.get(
+        "/api/v1/admin/numbers/search?area_code=512&mode=carrier_search", headers=headers
+    )
+    assert search_resp.status_code == 200
+    numbers = search_resp.json()
+    assert len(numbers) >= 1
+    assert any("512" in n["e164"] for n in numbers)
+    assert numbers[0]["source"] == "carrier_api"
+
+    # 2. Search agency pre-purchased pool (Option A)
+    pool_resp = client.get("/api/v1/admin/numbers/search?mode=agency_pool", headers=headers)
+    assert pool_resp.status_code == 200
+    pool_numbers = pool_resp.json()
+    assert len(pool_numbers) >= 1
+    assert pool_numbers[0]["source"] == "agency_pool"
+
+    # 3. Create tenant with custom voice and verify LiveKit voice sync
+    unique_suffix = uuid.uuid4().hex[:6]
+    test_e164 = f"+1512777{unique_suffix[:4]}"
+    create_resp = client.post(
+        "/api/v1/admin/tenants",
+        headers=headers,
+        json={
+            "name": f"Acoustic Dental {unique_suffix}",
+            "owner_name": "Dr. Sarah Adams",
+            "owner_email": f"sarah_{unique_suffix}@acousticdental.com",
+            "owner_password": "Password123!",
+            "timezone": "America/Chicago",
+            "hours": "Mon-Fri 8am-5pm",
+            "phone_number": test_e164,
+            "voice_id": "Ashley",
+            "recording_disclosure": True,
+            "tone": "warm",
+            "services": ["Teeth Cleaning", "Emergency Toothache"],
+        },
+    )
+    assert create_resp.status_code == 200
+
+    # 4. Verify LiveKit Dynamic Sync via /internal/tenants/by-number/
+    sync_resp = client.get(f"/api/v1/internal/tenants/by-number/{test_e164}")
+    assert sync_resp.status_code == 200
+    synced = sync_resp.json()
+    assert synced["voice_id"] == "Ashley"
+    assert synced["tts_model"] == "inworld/inworld-tts-1"
+    assert synced["tone"] == "warm"
+    assert synced["recording_disclosure"] is True

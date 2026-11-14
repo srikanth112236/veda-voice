@@ -116,6 +116,17 @@ export interface AgentProfile {
   out_of_area_policy?: "polite_decline" | "strict_decline" | "travel_surcharge";
 }
 
+export interface AvailableNumberItem {
+  e164: string;
+  formatted: string;
+  region: string;
+  locality: string;
+  provider: string;
+  monthly_cost_usd: number;
+  capabilities: string[];
+  source: "carrier_api" | "agency_pool";
+}
+
 export interface CarrierTrunkHealth {
   provider: string;
   status: string;
@@ -223,7 +234,10 @@ export const api = {
     email: string;
     password: string;
     timezone?: string;
+    hours?: string;
     niche?: string;
+    phone_number?: string;
+    voice_id?: string;
   }) =>
     request<AuthResponse>("/api/v1/auth/register", {
       method: "POST",
@@ -260,6 +274,14 @@ export const api = {
 
   getAdminTenants: () => request<TenantSummary[]>("/api/v1/admin/tenants"),
 
+  searchAvailableNumbers: (areaCode?: string, mode?: "carrier_search" | "agency_pool") => {
+    const q = new URLSearchParams();
+    if (areaCode) q.append("area_code", areaCode);
+    if (mode) q.append("mode", mode);
+    const queryStr = q.toString() ? `?${q.toString()}` : "";
+    return request<AvailableNumberItem[]>(`/api/v1/admin/numbers/search${queryStr}`);
+  },
+
   createAdminTenant: (data: {
     name: string;
     owner_name: string;
@@ -268,6 +290,8 @@ export const api = {
     timezone?: string;
     hours?: string;
     phone_number?: string;
+    voice_id?: string;
+    recording_disclosure?: boolean;
     greeting?: string;
     tone?: string;
     pricing_policy?: string;

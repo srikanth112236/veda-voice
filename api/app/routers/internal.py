@@ -25,6 +25,9 @@ class InternalTenantConfigResponse(BaseModel):
     agent_name: str
     greeting: str
     tone: str
+    voice_id: str = "Alex"
+    tts_model: str = "inworld/inworld-tts-1"
+    recording_disclosure: bool = True
     services: list[str]
     pricing_policy: str
     pricing_details: dict[str, Any]
@@ -85,6 +88,18 @@ def _build_tenant_config(tenant: Tenant, call_id: str = "") -> InternalTenantCon
         token_claims["call_id"] = call_id
     token = create_access_token(token_claims)
 
+    voice_id = getattr(profile, "voice_id", None) or "Alex"
+    if voice_id in ("Arcana", "Luna", "Orion", "Astra"):
+        tts_model = "rime/arcana"
+    elif voice_id in ("Asteria", "Luna-Aura", "Orpheus", "Arcas"):
+        tts_model = "deepgram/aura"
+    else:
+        tts_model = "inworld/inworld-tts-1"
+
+    rec_disclosure = getattr(profile, "recording_disclosure", True)
+    if rec_disclosure is None:
+        rec_disclosure = True
+
     return InternalTenantConfigResponse(
         tenant_id=tenant.id,
         business_name=tenant.name,
@@ -93,6 +108,9 @@ def _build_tenant_config(tenant: Tenant, call_id: str = "") -> InternalTenantCon
         agent_name=profile.agent_name if profile else "receptionist",
         greeting=profile.greeting if profile else f"Thanks for calling {tenant.name}.",
         tone=profile.tone if profile else "direct",
+        voice_id=voice_id,
+        tts_model=tts_model,
+        recording_disclosure=rec_disclosure,
         services=profile.services if profile else [],
         pricing_policy=profile.pricing_policy if profile else "diagnostic_fee_only",
         pricing_details=profile.pricing_details if profile else {},

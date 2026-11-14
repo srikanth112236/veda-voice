@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from api.app.core.deps import get_current_user
 from api.app.core.security import create_access_token, hash_password, verify_password
 from api.app.db.session import get_db
-from api.app.models.tenant import AgentProfile, Tenant
+from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -29,6 +29,8 @@ class RegisterTenantRequest(BaseModel):
     timezone: str = "America/New_York"
     hours: str = "Monday to Friday, 8:00 AM to 6:00 PM EST"
     niche: str = "plumbing"  # plumbing, dental, legal, general
+    phone_number: str | None = None
+    voice_id: str = "Alex"
 
 
 class UserResponse(BaseModel):
@@ -100,6 +102,7 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         agent_name="receptionist",
         greeting=f"Thanks for calling {req.business_name}. I'm an automated assistant, and this call may be recorded and transcribed for quality assurance. How can I help you today?",
         tone="direct" if req.niche == "plumbing" else "warm",
+        voice_id=req.voice_id or "Alex",
         pricing_policy="diagnostic_fee_only" if req.niche == "plumbing" else "fixed_menu",
         emergency_advice="If safe, locate and shut off your main water valve right away."
         if req.niche == "plumbing"
@@ -108,6 +111,16 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         emergency_keywords=["burst pipe", "flooding", "gas leak", "urgent"],
     )
     db.add(agent_profile)
+
+    # Attach phone number if provided
+    if req.phone_number:
+        phone = PhoneNumber(
+            tenant_id=tenant.id,
+            e164=req.phone_number,
+            provider="livekit",
+            status="active",
+        )
+        db.add(phone)
 
     # 3. Create Tenant Owner User
     user = User(

@@ -35,6 +35,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [maskPii, setMaskPii] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [provisioningMode, setProvisioningMode] = useState<"carrier_search" | "agency_pool">("carrier_search");
 
   const loadData = () => {
     setRefreshing(true);
@@ -128,6 +129,26 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          {/* Phone Number Provisioning Mode Toggle */}
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/90 text-xs font-mono">
+            <span className="text-[10px] text-zinc-500 uppercase">Number Model:</span>
+            <button
+              type="button"
+              onClick={() =>
+                setProvisioningMode(
+                  provisioningMode === "carrier_search" ? "agency_pool" : "carrier_search"
+                )
+              }
+              className="text-zinc-200 hover:text-emerald-400 font-semibold flex items-center gap-1.5 transition-colors"
+              title="Click to switch between Option B: Live Carrier Search and Option A: Agency Managed Pool"
+            >
+              <Radio className="w-3.5 h-3.5 text-emerald-400" />
+              <span>
+                {provisioningMode === "carrier_search" ? "Option B (Live Carrier API)" : "Option A (Agency Pool)"}
+              </span>
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={loadData}

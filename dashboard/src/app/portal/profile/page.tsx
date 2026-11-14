@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { api, AgentProfile, PhoneticEntry, FAQItem, PriceItem } from "@/lib/api";
+import { LIVEKIT_VOICE_CATALOG, LiveKitVoice } from "@/lib/voice-catalog";
 import {
   Settings2,
   Save,
@@ -68,6 +69,27 @@ export default function ReceptionistProfilePage() {
 
   // Module 5 Geofence state
   const [newCityInput, setNewCityInput] = useState("");
+
+  // Voice Catalog state
+  const [voiceProviderFilter, setVoiceProviderFilter] = useState<string>("all");
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+
+  const handlePlayVoicePreview = (voice: LiveKitVoice) => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      if (playingVoiceId === voice.id) {
+        setPlayingVoiceId(null);
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(voice.sampleAudioText);
+      utterance.rate = voice.provider === "Rime TTS" ? 1.05 : 0.95;
+      utterance.pitch = voice.gender === "Female" ? 1.15 : 0.9;
+      setPlayingVoiceId(voice.id);
+      utterance.onend = () => setPlayingVoiceId(null);
+      utterance.onerror = () => setPlayingVoiceId(null);
+      window.speechSynthesis.speak(utterance);
+    }
+  };
 
   useEffect(() => {
     api
@@ -515,41 +537,101 @@ export default function ReceptionistProfilePage() {
             </div>
           </div>
 
-          {/* Acoustic Voice Model Selection */}
-          <div className="space-y-2 pt-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-                <Volume2 className="w-3.5 h-3.5 text-zinc-400" />
-                Acoustic Voice Model &amp; Timbre
-              </label>
-              <span className="text-[10px] text-zinc-500 font-mono">LiveKit Inference TTS</span>
+          {/* Acoustic Voice Model Selection - Full 14-Voice LiveKit Catalog */}
+          <div className="space-y-3 pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5 text-zinc-400" />
+                  Acoustic Voice Model &amp; Timbre ({LIVEKIT_VOICE_CATALOG.length} Options)
+                </label>
+                <p className="text-[11px] text-zinc-400">
+                  Powered directly by LiveKit Scale Inference (Inworld, Rime, Deepgram Aura). Click speaker to preview.
+                </p>
+              </div>
+
+              {/* Provider Filter Tabs */}
+              <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800 text-[10px] font-mono">
+                {[
+                  { id: "all", label: "All Models" },
+                  { id: "Inworld TTS", label: "Inworld" },
+                  { id: "Rime TTS", label: "Rime" },
+                  { id: "Deepgram Aura", label: "Deepgram Aura" },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setVoiceProviderFilter(tab.id)}
+                    className={`px-2 py-0.5 rounded transition-colors ${
+                      voiceProviderFilter === tab.id
+                        ? "bg-indigo-600 text-white font-semibold"
+                        : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-              {[
-                { id: "Alex", label: "Alex", provider: "Inworld TTS", trait: "Neutral American (Crisp)" },
-                { id: "Ashley", label: "Ashley", provider: "Inworld TTS", trait: "Warm Female Receptionist" },
-                { id: "Edward", label: "Edward", provider: "Inworld TTS", trait: "Authoritative Commercial" },
-                { id: "Arcana", label: "Arcana", provider: "Rime TTS", trait: "Fast Expressive Dynamic" },
-              ].map((voice) => (
-                <button
-                  key={voice.id}
-                  type="button"
-                  onClick={() => setProfile({ ...profile, voice_id: voice.id })}
-                  className={`p-3 rounded-lg border text-left transition-colors space-y-1 ${
-                    (profile.voice_id || "Alex") === voice.id
-                      ? "border-indigo-500 bg-indigo-500/10 text-zinc-100"
-                      : "border-zinc-800 bg-zinc-950/60 text-zinc-400 hover:border-zinc-700"
-                  }`}
-                >
-                  <div className="flex items-center justify-between font-semibold text-xs text-zinc-200">
-                    <span>{voice.label}</span>
-                    <Volume2 className="w-3 h-3 text-zinc-500" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-[360px] overflow-y-auto pr-1">
+              {LIVEKIT_VOICE_CATALOG.filter(
+                (v) => voiceProviderFilter === "all" || v.provider === voiceProviderFilter
+              ).map((voice) => {
+                const isSelected = (profile.voice_id || "Alex") === voice.id;
+                const isPlaying = playingVoiceId === voice.id;
+
+                return (
+                  <div
+                    key={voice.id}
+                    onClick={() => setProfile({ ...profile, voice_id: voice.id })}
+                    className={`p-3 rounded-lg border text-left transition-all cursor-pointer space-y-1.5 relative group ${
+                      isSelected
+                        ? "border-indigo-500 bg-indigo-500/10 text-zinc-100 shadow-sm"
+                        : "border-zinc-800 bg-zinc-950/60 text-zinc-400 hover:border-zinc-700"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-semibold text-xs text-zinc-200">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-zinc-100">{voice.name}</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded-full border border-zinc-700 font-mono text-zinc-400">
+                          {voice.gender}
+                        </span>
+                      </div>
+
+                      {/* Interactive Audible Preview Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePlayVoicePreview(voice);
+                        }}
+                        className={`p-1 rounded-md transition-colors ${
+                          isPlaying
+                            ? "bg-indigo-600 text-white animate-pulse"
+                            : "bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300"
+                        }`}
+                        title="Click to hear speech preview"
+                      >
+                        <Volume2 className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-indigo-400">{voice.provider}</span>
+                      <span className="text-zinc-500">{voice.accent}</span>
+                    </div>
+
+                    <div className="text-[10px] text-zinc-300 font-medium leading-snug">
+                      {voice.trait}
+                    </div>
+
+                    <div className="text-[9px] text-zinc-500 line-clamp-2">
+                      {voice.description}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-zinc-500 font-mono">{voice.provider}</div>
-                  <div className="text-[10px] text-zinc-400">{voice.trait}</div>
-                </button>
-              ))}
+                );
+              })}
             </div>
           </div>
 
