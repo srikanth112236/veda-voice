@@ -483,6 +483,13 @@ export const api = {
       method: "POST",
     }),
 
+  getStripeCustomerPortalUrl: () =>
+    request<{ url: string; message: string }>("/api/v1/subscriptions/customer-portal", {
+      method: "POST",
+    }),
+
+  getTenantInvoices: () => request<any[]>("/api/v1/subscriptions/invoices"),
+
   // Multi-Tenant Lead Form Builder & Leads Inbox
   getLeadForms: () => request<LeadFormItem[]>("/api/v1/forms"),
 

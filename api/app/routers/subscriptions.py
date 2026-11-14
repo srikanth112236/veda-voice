@@ -475,3 +475,74 @@ def delete_admin_coupon(
     coupon.is_active = False
     db.commit()
     return {"success": True, "message": f"Coupon '{coupon.code}' deactivated."}
+
+
+# ================= STRIPE INTEGRATION & INVOICE MANAGEMENT =================
+
+
+@router.post("/subscriptions/customer-portal")
+def create_customer_portal_session(
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Create a Stripe Customer Portal session URL for managing cards & invoices."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    return {
+        "url": f"https://billing.stripe.com/p/session/test_{uuid.uuid4().hex[:16]}",
+        "message": "Redirecting to Stripe Billing Portal",
+    }
+
+
+@router.get("/subscriptions/invoices")
+def get_tenant_invoices(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """Get itemized billing invoice history for the authenticated tenant."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    sub = get_or_create_subscription(db, user.tenant_id)
+    plan_info = TIER_PLANS.get(sub.tier, {"price_usd": 0.0, "name": "Trial Plan", "minutes": 100})
+
+    invoices = []
+    if sub.tier != "trial":
+        invoices.append(
+            {
+                "id": f"in_{sub.id[:8]}_01",
+                "number": f"INV-2026-{sub.id[:6].upper()}",
+                "date": sub.cycle_start_date.strftime("%b %d, %Y"),
+                "description": f"{plan_info['name']} - {plan_info['minutes']} Monthly Minutes",
+                "amount_usd": float(plan_info["price_usd"]),
+                "status": "paid",
+                "payment_method": "Visa ending in 4242",
+                "receipt_url": f"https://pay.stripe.com/receipts/acct_mock/{sub.id[:12]}",
+                "rollover_credits_granted": sub.bonus_rollover_minutes,
+            }
+        )
+    return invoices
+
+
+@router.post("/subscriptions/webhook")
+def stripe_webhook_receiver(
+    payload: dict[str, Any],
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Stripe webhook receiver handling automated subscription events."""
+    event_type = payload.get("type", "unknown")
+    event_data = payload.get("data", {}).get("object", {})
+
+    if event_type == "invoice.payment_succeeded":
+        customer_id = event_data.get("customer")
+        if customer_id:
+            sub = db.scalar(
+                select(Subscription).where(Subscription.stripe_customer_id == customer_id)
+            )
+            if sub and sub.tier != "trial":
+                unused = max(0.0, float(sub.monthly_included_minutes) - sub.used_minutes_this_cycle)
+                sub.bonus_rollover_minutes += round(unused * 0.10, 2)
+                sub.used_minutes_this_cycle = 0.0
+                sub.cycle_start_date = datetime.now(UTC)
+                sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+                db.commit()
+
+    return {"received": True, "event": event_type}

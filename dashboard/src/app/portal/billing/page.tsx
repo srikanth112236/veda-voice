@@ -17,10 +17,16 @@ import {
   Check,
   Flame,
   Layers,
+  X,
+  Lock,
+  ExternalLink,
+  Receipt,
+  Download,
 } from "lucide-react";
 
 export default function BillingPage() {
   const [sub, setSub] = useState<SubscriptionCurrent | null>(null);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState<string>("starter");
   const [couponCode, setCouponCode] = useState("");
@@ -36,14 +42,28 @@ export default function BillingPage() {
   const [upgradeSuccess, setUpgradeSuccess] = useState<string | null>(null);
   const [renewing, setRenewing] = useState(false);
 
+  // Stripe Checkout Modal state
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [cardData, setCardData] = useState({
+    number: "4242 •••• •••• 4242",
+    expiry: "12/28",
+    cvc: "888",
+    zip: "78701",
+    name: "Apex Plumbing & Heating",
+  });
+  const [openingPortal, setOpeningPortal] = useState(false);
+
   const loadSubscription = () => {
     setLoading(true);
-    api
-      .getSubscriptionCurrent()
-      .then((res) => {
-        setSub(res);
-        if (res.tier !== "trial") {
-          setSelectedTier(res.tier);
+    Promise.all([
+      api.getSubscriptionCurrent(),
+      api.getTenantInvoices().catch(() => []),
+    ])
+      .then(([subRes, invRes]) => {
+        setSub(subRes);
+        setInvoices(invRes);
+        if (subRes.tier !== "trial") {
+          setSelectedTier(subRes.tier);
         }
       })
       .catch((err) => console.error("Failed to load subscription:", err))
@@ -78,6 +98,7 @@ export default function BillingPage() {
         validatedCoupon?.code || undefined
       );
       setUpgradeSuccess(res.message);
+      setShowCheckoutModal(false);
       loadSubscription();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Failed to activate subscription.");
@@ -99,6 +120,18 @@ export default function BillingPage() {
     }
   };
 
+  const handleOpenCustomerPortal = async () => {
+    setOpeningPortal(true);
+    try {
+      const res = await api.getStripeCustomerPortalUrl();
+      alert(`Stripe Customer Portal Session Created:\n${res.url}\n(In production, redirects to Stripe Hosted Portal)`);
+    } catch (err: unknown) {
+      alert("Failed to load customer portal");
+    } finally {
+      setOpeningPortal(false);
+    }
+  };
+
   if (loading || !sub) {
     return (
       <div className="p-8 text-xs font-mono text-zinc-500 bg-white rounded-2xl border border-zinc-200 text-center">
@@ -110,6 +143,11 @@ export default function BillingPage() {
   const used = sub.is_trial ? sub.trial_minutes_used : sub.used_minutes_this_cycle;
   const total = sub.is_trial ? sub.trial_minutes_allocated : sub.monthly_included_minutes + sub.bonus_rollover_minutes;
   const pct = Math.min(100, Math.round((used / (total || 1)) * 100));
+
+  const planPrices: Record<string, number> = { starter: 299, pro: 399, enterprise: 499 };
+  const basePrice = planPrices[selectedTier] || 299;
+  const discountAmt = validatedCoupon ? Math.round(basePrice * (validatedCoupon.discount_percent / 100)) : 0;
+  const finalPrice = Math.max(0, basePrice - discountAmt);
 
   return (
     <div className="space-y-6">
@@ -129,19 +167,33 @@ export default function BillingPage() {
           </p>
         </div>
 
-        {/* Cycle Renewal Simulation Action */}
-        {!sub.is_trial && (
-          <button
-            type="button"
-            onClick={handleSimulateCycleRenewal}
-            disabled={renewing}
-            className="px-4 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
-            title="Simulate 30-day monthly billing reset with 10% complimentary rollover"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${renewing ? "animate-spin text-indigo-600" : ""}`} />
-            Simulate 10% Monthly Rollover
-          </button>
-        )}
+        {/* Cycle Renewal Simulation & Portal Action */}
+        <div className="flex items-center gap-2.5">
+          {!sub.is_trial && (
+            <>
+              <button
+                type="button"
+                onClick={handleSimulateCycleRenewal}
+                disabled={renewing}
+                className="px-3.5 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
+                title="Simulate 30-day monthly billing reset with 10% complimentary rollover"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${renewing ? "animate-spin text-indigo-600" : ""}`} />
+                Simulate 10% Rollover
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenCustomerPortal}
+                disabled={openingPortal}
+                className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Stripe Portal
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {upgradeSuccess && (
@@ -169,7 +221,7 @@ export default function BillingPage() {
             </div>
             <div className="text-xs text-zinc-500">
               {sub.is_trial
-                ? `100 complimentary trial minutes included &bull; 100% of unused trial credits roll into your first subscription!`
+                ? `100 complimentary trial minutes included • 100% of unused trial credits roll into your first subscription!`
                 : `${sub.monthly_included_minutes.toLocaleString()} included monthly minutes + ${sub.bonus_rollover_minutes.toLocaleString()} rollover bonus minutes.`}
             </div>
           </div>
@@ -404,27 +456,221 @@ export default function BillingPage() {
         )}
 
         {/* Upgrade Action Button */}
-        <div className="pt-4 border-t border-zinc-100 flex items-center justify-between">
+        <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5">
             <span className="text-xs font-bold text-zinc-900">
-              Ready to activate {selectedTier.toUpperCase()}?
+              Ready to activate {selectedTier.toUpperCase()} Plan?
             </span>
             <div className="text-[11px] text-zinc-500">
-              Immediate Stripe card authorization with instant minute crediting.
+              ${finalPrice}/mo {discountAmt > 0 && `(Saved $${discountAmt} with coupon)`} • Immediate Stripe card authorization.
             </div>
           </div>
 
           <button
             type="button"
-            disabled={upgrading}
-            onClick={handleUpgrade}
-            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all disabled:opacity-50"
+            onClick={() => setShowCheckoutModal(true)}
+            className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
           >
             <CreditCard className="w-4 h-4" />
-            {upgrading ? "Processing Stripe Card..." : `Activate ${selectedTier.toUpperCase()} Subscription`}
+            Proceed to Stripe Checkout (${finalPrice}/mo)
           </button>
         </div>
       </div>
+
+      {/* INVOICES & PAYMENT HISTORY */}
+      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+          <div className="flex items-center gap-2">
+            <Receipt className="w-4 h-4 text-zinc-700" />
+            <h3 className="text-sm font-bold text-zinc-900">
+              Invoice History &amp; Payment Receipts
+            </h3>
+          </div>
+          <span className="text-xs text-zinc-500 font-mono">
+            {invoices.length} Paid Statements
+          </span>
+        </div>
+
+        {invoices.length === 0 ? (
+          <div className="p-6 text-center text-xs text-zinc-500 font-mono">
+            No paid invoices generated yet. Your account is currently on trial or pending first renewal.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-zinc-200">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+                <tr>
+                  <th className="p-3">Invoice Number</th>
+                  <th className="p-3">Date</th>
+                  <th className="p-3">Description</th>
+                  <th className="p-3">Amount</th>
+                  <th className="p-3">Payment Method</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Receipt</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 font-mono">
+                {invoices.map((inv: any) => (
+                  <tr key={inv.id} className="hover:bg-zinc-50/80 transition-colors">
+                    <td className="p-3 font-bold text-zinc-900">{inv.number}</td>
+                    <td className="p-3 text-zinc-600">{inv.date}</td>
+                    <td className="p-3 font-sans text-zinc-800">{inv.description}</td>
+                    <td className="p-3 font-bold text-zinc-900">${inv.amount_usd.toFixed(2)}</td>
+                    <td className="p-3 text-zinc-600">{inv.payment_method}</td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize">
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => alert(`Stripe Receipt for ${inv.number}\nPaid: $${inv.amount_usd.toFixed(2)}\nStatus: Settled via Stripe Payment Intent`)}
+                        className="inline-flex items-center gap-1 text-zinc-600 hover:text-zinc-900 font-sans font-medium text-xs underline"
+                      >
+                        <Download className="w-3 h-3" />
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* STRIPE CHECKOUT MODAL */}
+      {showCheckoutModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-zinc-900 flex items-center justify-center text-white font-bold text-xs">
+                  S
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-zinc-900">Stripe Secure Checkout</h3>
+                  <div className="text-[10px] text-zinc-500 font-mono">256-Bit Encrypted Payment</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCheckoutModal(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Order Summary */}
+            <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2 text-xs font-mono">
+              <div className="flex justify-between text-zinc-600">
+                <span>Selected Plan:</span>
+                <span className="font-bold text-zinc-900 uppercase">{selectedTier} (1,200 min/mo)</span>
+              </div>
+              <div className="flex justify-between text-zinc-600">
+                <span>Base Subscription:</span>
+                <span>${basePrice}.00</span>
+              </div>
+              {discountAmt > 0 && (
+                <div className="flex justify-between text-emerald-600 font-bold">
+                  <span>Coupon Discount ({validatedCoupon?.discount_percent}%):</span>
+                  <span>-${discountAmt}.00</span>
+                </div>
+              )}
+              <div className="pt-2 border-t border-zinc-200 flex justify-between text-sm font-bold text-zinc-900">
+                <span>Due Today:</span>
+                <span className="text-emerald-700">${finalPrice}.00 USD</span>
+              </div>
+            </div>
+
+            {/* Rollover Notification */}
+            <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900 flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+              <span>
+                <strong>100% Free Trial Credits Rolled Over:</strong> Any unused minutes from your free trial will be immediately credited as bonus minutes!
+              </span>
+            </div>
+
+            {/* Mock Stripe Card Elements */}
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-semibold text-zinc-700">Cardholder Name</label>
+                <input
+                  type="text"
+                  value={cardData.name}
+                  onChange={(e) => setCardData({ ...cardData, name: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-zinc-700">Card Number</label>
+                <div className="relative">
+                  <CreditCard className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={cardData.number}
+                    onChange={(e) => setCardData({ ...cardData, number: e.target.value })}
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <label className="font-semibold text-zinc-700">Expires</label>
+                  <input
+                    type="text"
+                    value={cardData.expiry}
+                    onChange={(e) => setCardData({ ...cardData, expiry: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-center font-mono focus:outline-none focus:border-zinc-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-zinc-700">CVC</label>
+                  <input
+                    type="text"
+                    value={cardData.cvc}
+                    onChange={(e) => setCardData({ ...cardData, cvc: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-center font-mono focus:outline-none focus:border-zinc-900"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-zinc-700">ZIP</label>
+                  <input
+                    type="text"
+                    value={cardData.zip}
+                    onChange={(e) => setCardData({ ...cardData, zip: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-center font-mono focus:outline-none focus:border-zinc-900"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCheckoutModal(false)}
+                className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={upgrading}
+                onClick={handleUpgrade}
+                className="px-5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                {upgrading ? "Authorizing Card..." : `Pay $${finalPrice}.00 USD`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
