@@ -427,3 +427,55 @@ def test_self_serve_onboarding_wizard_full_flow() -> None:
     dup_phone_resp = client.post("/api/v1/auth/register", json=different_email_payload)
     assert dup_phone_resp.status_code == 409
     assert "already assigned" in dup_phone_resp.json()["detail"].lower()
+
+
+def test_self_serve_onboarding_claims_pool_number() -> None:
+    """Verify that selecting a pre-seeded or agency pool number claims it for the new tenant."""
+    unique_suffix = uuid.uuid4().hex[:6]
+    pool_e164 = f"+1512999{unique_suffix[:4]}"
+
+    # 1. Create a pool number first
+    from api.app.db.session import SessionLocal
+    from api.app.models.tenant import PhoneNumber
+
+    db = SessionLocal()
+    try:
+        pool_num = PhoneNumber(
+            e164=pool_e164,
+            provider="livekit",
+            status="pool",
+            label="Agency Pool Test",
+        )
+        db.add(pool_num)
+        db.commit()
+    finally:
+        db.close()
+
+    # 2. Register new tenant with this pool number
+    client_email = f"pool_claim_{unique_suffix}@contractor.com"
+    reg_resp = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": f"Srikanth Plumbing {unique_suffix}",
+            "owner_name": "Srikanth Rao",
+            "email": client_email,
+            "password": "Password123!",
+            "phone_number": pool_e164,
+            "voice_id": "Edward",
+            "agent_name": "Edward",
+        },
+    )
+    assert reg_resp.status_code == 200, reg_resp.text
+    token = reg_resp.json()["access_token"]
+
+    # 3. Verify number is now active under this tenant
+    headers = {"Authorization": f"Bearer {token}"}
+    dash_resp = client.get("/api/v1/portal/dashboard", headers=headers)
+    assert dash_resp.status_code == 200
+    assert pool_e164 in dash_resp.json()["phone_numbers"]
+
+    # 4. Verify subscription was auto-created
+    sub_resp = client.get("/api/v1/subscriptions/current", headers=headers)
+    assert sub_resp.status_code == 200
+    assert sub_resp.json()["tier"] == "trial"
+    assert sub_resp.json()["status"] == "trialing"

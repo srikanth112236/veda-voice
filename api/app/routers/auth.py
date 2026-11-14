@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from api.app.core.deps import get_current_user
 from api.app.core.security import create_access_token, hash_password, verify_password
 from api.app.db.session import get_db
+from api.app.models.subscription import Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 
@@ -148,25 +149,35 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
 
     # Attach phone number if provided
     if req.phone_number:
-        # Check if number is already in use by active tenant
+        # Check if number is already in database (from seed pool or existing inventory)
         existing_phone = db.scalar(
             select(PhoneNumber).where(
                 PhoneNumber.e164 == req.phone_number,
-                PhoneNumber.status == "active",
             )
         )
         if existing_phone:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Phone number {req.phone_number} is already assigned to an active tenant",
+            if (
+                existing_phone.status == "active"
+                and existing_phone.tenant_id
+                and existing_phone.tenant_id != tenant.id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Phone number {req.phone_number} is already assigned to an active tenant",
+                )
+            # Reassign / claim pool number for this new tenant
+            existing_phone.tenant_id = tenant.id
+            existing_phone.status = "active"
+            existing_phone.label = f"{tenant.name} Main Line"
+        else:
+            phone = PhoneNumber(
+                tenant_id=tenant.id,
+                e164=req.phone_number,
+                provider="livekit",
+                status="active",
+                label=f"{tenant.name} Main Line",
             )
-        phone = PhoneNumber(
-            tenant_id=tenant.id,
-            e164=req.phone_number,
-            provider="livekit",
-            status="active",
-        )
-        db.add(phone)
+            db.add(phone)
 
     # 3. Create Tenant Owner User
     user = User(
@@ -178,6 +189,22 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         is_active=True,
     )
     db.add(user)
+
+    # 4. Initialize 14-Day Free Trial Subscription (100 Minutes)
+    sub = Subscription(
+        tenant_id=tenant.id,
+        tier="trial",
+        status="trialing",
+        monthly_included_minutes=1000,
+        bonus_rollover_minutes=0.0,
+        used_minutes_this_cycle=0.0,
+        trial_days=14,
+        trial_minutes_allocated=100,
+        trial_minutes_used=0.0,
+        overage_rate_usd=0.20,
+        allow_overage=True,
+    )
+    db.add(sub)
     db.commit()
     db.refresh(user)
 
