@@ -7,6 +7,8 @@ export interface LiveKitVoice {
   accent: string;
   trait: string;
   description: string;
+  pitch: number; // 0.65 to 1.35
+  rate: number;  // 0.85 to 1.25
   sampleAudioText: string;
   recommendedNiches: string[];
 }
@@ -22,7 +24,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Natural, Calm, Direct",
     description: "Neutral conversational pace. Excellent for rapid triage, emergency dispatch, and field trades.",
-    sampleAudioText: "Thanks for calling. I can dispatch an emergency technician or take a message for our service team.",
+    pitch: 0.95,
+    rate: 1.0,
+    sampleAudioText: "Hi, I am Alex on Inworld TTS. Thanks for calling. I can dispatch an emergency technician or take a message for our service team.",
     recommendedNiches: ["Plumbing", "HVAC", "Electrical", "Towing"],
   },
   {
@@ -34,7 +38,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Confident, Commercial, Resonant",
     description: "Polished trade voice. Builds immediate trust with residential and commercial property owners.",
-    sampleAudioText: "Hello, thank you for reaching out. Let me take down your job details and get a specialist out to you.",
+    pitch: 0.82,
+    rate: 0.92,
+    sampleAudioText: "Hello, this is Edward with Inworld audio. Thank you for reaching out. Let me take down your job details and get a specialist out to you.",
     recommendedNiches: ["Roofing", "Commercial Contracting", "Construction"],
   },
   {
@@ -46,7 +52,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Warm, Patient, Empathetic",
     description: "Gentle conversational cadence with active listening intonation. Ideal for clinical and care practices.",
-    sampleAudioText: "Hi there, thank you for calling. How can I help schedule your consultation today?",
+    pitch: 1.15,
+    rate: 0.96,
+    sampleAudioText: "Hi there, I am Ashley from Inworld. Thank you for calling. How can I help schedule your consultation today?",
     recommendedNiches: ["Dental", "Dermatology", "Med-Spa", "Veterinary"],
   },
   {
@@ -57,8 +65,10 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     gender: "Male",
     accent: "US English",
     trait: "Mature, Deep, Reassuring",
-    description: "Deep, experienced timbre that calms stressed callers during unexpected home damage.",
-    sampleAudioText: "Good day. If you are experiencing active flooding or damage, I will guide you through immediate safety steps.",
+    description: "Deep, experienced baritone timbre that calms stressed callers during unexpected home damage.",
+    pitch: 0.70,
+    rate: 0.88,
+    sampleAudioText: "Good day, I am Dennis. If you are experiencing active flooding or structural damage, I will guide you through immediate safety steps.",
     recommendedNiches: ["Water Damage", "Fire Restoration", "Septic"],
   },
   {
@@ -70,7 +80,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Articulate, Executive, Professional",
     description: "Corporate front-desk authority with crisp diction. Perfect for professional services.",
-    sampleAudioText: "Thank you for contacting our office. May I inquire about the nature of your inquiry today?",
+    pitch: 1.05,
+    rate: 0.98,
+    sampleAudioText: "Thank you for contacting our office. My name is Kimberly. May I inquire about the nature of your legal or advisory inquiry today?",
     recommendedNiches: ["Legal", "Accounting", "Wealth Management"],
   },
   {
@@ -82,7 +94,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Energetic, Friendly, Approachable",
     description: "High-rapport, cheerful customer service voice that makes callers feel valued right away.",
-    sampleAudioText: "Hi! Thanks for checking in with us today. When were you hoping to get on the schedule?",
+    pitch: 1.25,
+    rate: 1.05,
+    sampleAudioText: "Hi! I am Samantha. Thanks so much for checking in with us today! When were you hoping to get on the schedule?",
     recommendedNiches: ["Chiropractic", "Pet Grooming", "Home Cleaning"],
   },
 
@@ -96,7 +110,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Fast, Expressive, Crisp",
     description: "Sub-second conversational velocity with expressive pitch modulation for urgent calls.",
-    sampleAudioText: "Apex emergency line. I have your number on screen—what is your active service address?",
+    pitch: 1.20,
+    rate: 1.18,
+    sampleAudioText: "This is Arcana on Rime TTS. Apex emergency line. I have your number on screen—what is your active service address?",
     recommendedNiches: ["Urgent Care", "Towing", "Courier Dispatch"],
   },
   {
@@ -108,7 +124,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Gentle, Smooth, Consultative",
     description: "Paced, consultative delivery for businesses conducting multi-step phone estimates.",
-    sampleAudioText: "Thank you for calling. I can answer questions about our estimate process or set an appointment.",
+    pitch: 1.10,
+    rate: 0.95,
+    sampleAudioText: "Welcome, this is Luna with Rime. Thank you for calling. I can answer questions about our estimate process or set an appointment.",
     recommendedNiches: ["Solar", "Architecture", "Home Remodeling"],
   },
   {
@@ -120,7 +138,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Steady, Technical, Precise",
     description: "Technical, articulate acoustic delivery that commands confidence in diagnostics.",
-    sampleAudioText: "Welcome. Our technicians inspect the system first and provide upfront written pricing before any repair.",
+    pitch: 0.90,
+    rate: 1.0,
+    sampleAudioText: "Hello, I am Orion on Rime. Our technicians inspect the system first and provide upfront written pricing before any repair.",
     recommendedNiches: ["Auto Mechanics", "IT Services", "Smart Home"],
   },
   {
@@ -132,7 +152,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Bright, Clear, Modern",
     description: "Modern, dynamic conversational presence with articulate phoneme rendering.",
-    sampleAudioText: "Hello! Our leasing team is currently assisting clients, but I can check property availability right now.",
+    pitch: 1.30,
+    rate: 1.10,
+    sampleAudioText: "Hello! This is Astra on Rime. Our leasing team is currently assisting clients, but I can check property availability right now.",
     recommendedNiches: ["Real Estate", "Property Management"],
   },
 
@@ -146,7 +168,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Ultra-Fast (<150ms TTFB), Conversational",
     description: "Engineered for lightning-fast turn-taking with near-zero barge-in latency.",
-    sampleAudioText: "Thanks for calling! How can I assist you with your repair today?",
+    pitch: 1.22,
+    rate: 1.15,
+    sampleAudioText: "Hi, this is Asteria powered by Deepgram Aura. How can I assist you with your repair today?",
     recommendedNiches: ["Appliance Repair", "24/7 Answering Service"],
   },
   {
@@ -158,7 +182,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Balanced, Warm, Responsive",
     description: "Combines warm medical-grade empathy with instantaneous audio packet streaming.",
-    sampleAudioText: "Good morning. I would be glad to check available appointment openings for you.",
+    pitch: 1.12,
+    rate: 0.98,
+    sampleAudioText: "Good morning, I am Luna on Deepgram Aura. I would be glad to check available appointment openings for you.",
     recommendedNiches: ["Dental", "Physical Therapy", "Optometry"],
   },
   {
@@ -170,7 +196,9 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     accent: "US English",
     trait: "Grounded, Warm, Reliable",
     description: "Relaxed baritone cadence that puts callers at ease during routine service inquiries.",
-    sampleAudioText: "Hello, thanks for calling our team. Are you looking for seasonal maintenance or an estimate?",
+    pitch: 0.85,
+    rate: 0.92,
+    sampleAudioText: "Hello, this is Orpheus on Deepgram Aura. Thanks for calling our team. Are you looking for seasonal maintenance or an estimate?",
     recommendedNiches: ["Landscaping", "Pest Control", "Painting"],
   },
   {
@@ -181,8 +209,10 @@ export const LIVEKIT_VOICE_CATALOG: LiveKitVoice[] = [
     gender: "Male",
     accent: "US English",
     trait: "Confident, Crisp, Direct",
-    description: "Clear and authoritative. Minimizes hesitation on loud or noisy phone connections.",
-    sampleAudioText: "Locksmith dispatch line. Are you locked out right now or scheduling service?",
+    description: "Clear and authoritative baritone. Minimizes hesitation on loud or noisy phone connections.",
+    pitch: 0.78,
+    rate: 1.02,
+    sampleAudioText: "Locksmith dispatch line, I am Arcas on Deepgram Aura. Are you locked out right now or scheduling routine service?",
     recommendedNiches: ["Locksmith", "Garage Door Repair", "Security Systems"],
   },
 ];

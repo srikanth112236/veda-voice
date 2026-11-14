@@ -330,7 +330,7 @@ export const api = {
     if (areaCode) q.append("area_code", areaCode);
     if (mode) q.append("mode", mode);
     const queryStr = q.toString() ? `?${q.toString()}` : "";
-    return request<AvailableNumberItem[]>(`/api/v1/admin/numbers/search${queryStr}`);
+    return request<AvailableNumberItem[]>(`/api/v1/numbers/search${queryStr}`);
   },
 
   createAdminTenant: (data: {

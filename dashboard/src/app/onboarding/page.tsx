@@ -16,7 +16,6 @@ import {
   ArrowLeft,
   Search,
   Sparkles,
-  Layers,
   Radio,
   Clock,
   PhoneForwarded,
@@ -26,10 +25,11 @@ import {
   X,
   Phone,
   PhoneOff,
-  AlertTriangle,
   Flame,
   Droplets,
   Zap,
+  CheckCircle2,
+  BadgeCheck,
 } from "lucide-react";
 
 interface FAQEntry {
@@ -53,52 +53,52 @@ export default function OnboardingPage() {
   const [voiceProviderFilter, setVoiceProviderFilter] = useState<string>("all");
   const [voiceGenderFilter, setVoiceGenderFilter] = useState<string>("all");
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // Step 4: Tag & FAQ input state
   const [newServiceTag, setNewServiceTag] = useState("");
   const [newKeywordTag, setNewKeywordTag] = useState("");
 
-  // Step 5: Test simulator state
-  const [simState, setSimState] = useState<"idle" | "calling" | "connected">("idle");
+  // Step 5: Test simulator interactive state
+  const [simState, setSimState] = useState<"idle" | "calling" | "connected" | "ended">("idle");
   const [simDuration, setSimDuration] = useState(0);
-  const [simAgentSpeech, setSimAgentSpeech] = useState<string>("");
   const [simActiveQuestion, setSimActiveQuestion] = useState<string | null>(null);
+  const [simAgentSpeech, setSimAgentSpeech] = useState<string>("");
 
-  // Form state across all 5 steps
+  // Master Onboarding Form State
   const [formData, setFormData] = useState({
-    // Step 1: Identity & Niche
     business_name: "Apex Plumbing & Heating",
     owner_name: "Bob Henderson",
-    email: "owner@apexplumbing.local",
-    password: "Password123!",
+    email: "",
+    password: "",
     timezone: "America/New_York",
     hours: "Monday to Friday, 8:00 AM to 6:00 PM EST",
     niche: "plumbing",
-
-    // Step 2: Phone
-    phone_number: "+1 (512) 555-0199",
-    byon_carrier: "verizon",
-
-    // Step 3: Voice & Persona
-    agent_name: "Alex",
+    phone_number: "+15125550199",
     tts_voice: "Alex",
+    agent_name: "Alex",
     tone: "direct",
-    greeting:
-      "Thanks for calling Apex Plumbing & Heating. I'm an automated assistant, and this call may be recorded and transcribed for quality assurance. How can I help you today?",
     recording_disclosure: true,
-
-    // Step 4: Knowledge Base & Guardrails
     pricing_policy: "diagnostic_fee_only",
     diagnostic_fee: "$89.00",
-    emergency_advice:
-      "If safe to do so, please locate and shut off your main water valve right away to prevent further flooding while I write down your address.",
     services: [
-      "Emergency pipe bursts",
-      "Drain cleaning & snaking",
-      "Water heater repair & replacement",
-      "Slab leak detection",
+      "Emergency pipe bursts & leak isolation",
+      "Drain clearing & camera line inspection",
+      "Water heater repair & tankless install",
+      "Sewer backup & hydro-jetting",
     ],
-    emergency_keywords: ["burst pipe", "flooding", "gas leak", "water heater leak", "urgent"],
+    emergency_advice:
+      "If safe to do so, please locate and shut off your main water shutoff valve immediately to minimize water damage while I note your address.",
+    emergency_keywords: [
+      "burst pipe",
+      "flooding",
+      "gas leak",
+      "gas smell",
+      "sewage backup",
+      "water heater leak",
+    ],
+    greeting:
+      "Thanks for calling Apex Plumbing & Heating. I'm an automated assistant, and this call may be recorded and transcribed for quality assurance. How can I help you today?",
     faq: [
       {
         question: "Do you offer emergency after-hours dispatch?",
@@ -110,6 +110,20 @@ export default function OnboardingPage() {
       },
     ] as FAQEntry[],
   });
+
+  // Browser Speech Synthesis voices cache
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const loadVoices = () => {
+        const v = window.speechSynthesis.getVoices();
+        if (v && v.length > 0) {
+          setBrowserVoices(v);
+        }
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
 
   // Auto-detect timezone on mount
   useEffect(() => {
@@ -158,8 +172,18 @@ export default function OnboardingPage() {
       const utterance = new SpeechSynthesisUtterance(text);
       const chosenVoice = LIVEKIT_VOICE_CATALOG.find((v) => v.id === (voiceId || formData.tts_voice));
       if (chosenVoice) {
-        utterance.rate = chosenVoice.provider === "Rime TTS" ? 1.05 : 0.95;
-        utterance.pitch = chosenVoice.gender === "Female" ? 1.15 : 0.9;
+        utterance.rate = chosenVoice.rate;
+        utterance.pitch = chosenVoice.pitch;
+        if (browserVoices.length > 0) {
+          const isFemale = chosenVoice.gender === "Female";
+          const match = browserVoices.find((bv) => {
+            const n = bv.name.toLowerCase();
+            return isFemale
+              ? n.includes("female") || n.includes("zira") || n.includes("samantha") || n.includes("karen") || n.includes("victoria")
+              : n.includes("male") || n.includes("david") || n.includes("mark") || n.includes("george") || n.includes("guy");
+          });
+          if (match) utterance.voice = match;
+        }
       }
       window.speechSynthesis.speak(utterance);
     }
@@ -174,8 +198,20 @@ export default function OnboardingPage() {
       }
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(voice.sampleAudioText);
-      utterance.rate = voice.provider === "Rime TTS" ? 1.05 : 0.95;
-      utterance.pitch = voice.gender === "Female" ? 1.15 : 0.9;
+      utterance.rate = voice.rate;
+      utterance.pitch = voice.pitch;
+
+      if (browserVoices.length > 0) {
+        const isFemale = voice.gender === "Female";
+        const match = browserVoices.find((bv) => {
+          const n = bv.name.toLowerCase();
+          return isFemale
+            ? n.includes("female") || n.includes("zira") || n.includes("samantha") || n.includes("karen") || n.includes("victoria")
+            : n.includes("male") || n.includes("david") || n.includes("mark") || n.includes("george") || n.includes("guy");
+        });
+        if (match) utterance.voice = match;
+      }
+
       setPlayingVoiceId(voice.id);
       utterance.onend = () => setPlayingVoiceId(null);
       utterance.onerror = () => setPlayingVoiceId(null);
@@ -252,31 +288,27 @@ export default function OnboardingPage() {
       setFormData((prev) => ({
         ...prev,
         niche: "hvac",
-        business_name: "ComfortAir HVAC & Cooling",
+        business_name: "ComfortZone HVAC & Air",
         tone: "direct",
-        agent_name: "Edward",
-        tts_voice: "Edward",
+        agent_name: "Dennis",
+        tts_voice: "Dennis",
         pricing_policy: "diagnostic_fee_only",
         diagnostic_fee: "$99.00",
         emergency_advice:
-          "If you detect gas odor, burning smells, or carbon monoxide alarms, please evacuate everyone outside immediately and call 911.",
+          "If you smell gas or suspect a carbon monoxide leak, please evacuate your building immediately and call the utility emergency line.",
         services: [
-          "AC emergency diagnostics",
-          "Furnace heat restoration",
-          "Heat pump tune-up",
-          "Duct cleaning & air quality",
+          "No heat / No AC emergency service",
+          "Seasonal HVAC tune-ups & filter swaps",
+          "Heat pump & compressor replacement",
+          "Duct cleaning & air quality testing",
         ],
-        emergency_keywords: ["no heat in winter", "gas odor", "smoke from furnace", "frozen coil", "leaking freon"],
+        emergency_keywords: ["no heat in freezing", "gas smell", "carbon monoxide", "ac leaking water"],
         greeting:
-          "Thanks for calling ComfortAir HVAC. I'm an automated assistant, and this call may be recorded for quality assurance. How can we restore your comfort today?",
+          "Thanks for calling ComfortZone HVAC & Air. I'm an automated assistant on a recorded line. How can we help keep your climate comfortable?",
         faq: [
           {
-            question: "How quickly can a technician arrive for no-heat emergencies?",
-            answer: "We dispatch prioritized emergency technicians within 2 hours during freezing temperatures.",
-          },
-          {
-            question: "Do you service all furnace brands?",
-            answer: "Yes, our certified techs service Carrier, Trane, Lennox, Goodman, Rheem, and all major brands.",
+            question: "How quickly can a technician arrive for no heat?",
+            answer: "During extreme weather conditions, we prioritize no-heat calls with dispatch typically within 2 to 4 hours.",
           },
         ],
       }));
@@ -284,31 +316,27 @@ export default function OnboardingPage() {
       setFormData((prev) => ({
         ...prev,
         niche: "legal",
-        business_name: "Veda Legal & Advisory",
+        business_name: "Vanguard Law Partners",
         tone: "formal",
         agent_name: "Kimberly",
         tts_voice: "Kimberly",
         pricing_policy: "no_quote",
-        diagnostic_fee: "Consultation on file",
+        diagnostic_fee: "Consultation Required",
         emergency_advice:
-          "For urgent law enforcement custody or court filing deadlines, our managing partner will review your intake details immediately upon message completion.",
+          "If this is an immediate legal emergency regarding an active arrest or court deadline, please contact our emergency hotline immediately.",
         services: [
-          "Business incorporation & M&A",
-          "Commercial contract review",
-          "Civil dispute resolution",
-          "Estate planning & trusts",
+          "Business entity formation",
+          "Contract drafting & review",
+          "Commercial litigation consultation",
+          "Real estate closing advisory",
         ],
-        emergency_keywords: ["custody", "warrant", "injunction", "court deadline", "urgent subpoena"],
+        emergency_keywords: ["active arrest", "served with subpoena", "court hearing tomorrow", "restraining order"],
         greeting:
-          "Thank you for contacting Veda Legal and Advisory. I am an automated intake assistant. Please note this call may be recorded for record accuracy and does not constitute attorney-client representation until formal engagement.",
+          "Thank you for contacting Vanguard Law Partners. This line is recorded for intake accuracy. May I ask what legal matter you are inquiring about?",
         faq: [
           {
-            question: "Is this intake confidential?",
-            answer: "All initial inquiry information is handled with strict attorney-client privilege precautions.",
-          },
-          {
-            question: "What is your consultation fee?",
-            answer: "Our attorneys determine representation scope and fee arrangements after reviewing your initial intake.",
+            question: "Do you offer free phone consultations?",
+            answer: "We offer an initial 15-minute phone intake assessment before scheduling a comprehensive attorney consultation.",
           },
         ],
       }));
@@ -316,100 +344,86 @@ export default function OnboardingPage() {
       setFormData((prev) => ({
         ...prev,
         niche: "electrical",
-        business_name: "VoltPro Electrical Contractors",
+        business_name: "VoltPro Electric",
         tone: "direct",
-        agent_name: "Dennis",
-        tts_voice: "Dennis",
+        agent_name: "Orion",
+        tts_voice: "Orion",
         pricing_policy: "diagnostic_fee_only",
         diagnostic_fee: "$95.00",
         emergency_advice:
-          "If you observe sparking, burning electrical odors, or active smoke, immediately trip your main breaker if safe to do so, and evacuate.",
+          "If you see active electrical sparks or smoke coming from an outlet, turn off the corresponding breaker or main power immediately and do not touch the area.",
         services: [
-          "Main panel upgrade (200A)",
-          "EV charger installation",
-          "Emergency circuit diagnostics",
-          "Generator transfer switch",
+          "Emergency breaker panel repair",
+          "EV charger home installation",
+          "Lighting & outlet rewiring",
+          "Generator transfer switches",
         ],
-        emergency_keywords: ["sparks from outlet", "burning wire odor", "power outage main breaker", "smoke"],
+        emergency_keywords: ["sparking breaker", "electrical fire", "power outage whole house", "smoking outlet"],
         greeting:
-          "Thanks for calling VoltPro Electrical. I'm an automated assistant, and this call may be recorded for quality assurance. How can our master electricians help today?",
+          "Thanks for calling VoltPro Electric. I am an automated receptionist on a recorded line. What electrical issue can we resolve for you today?",
         faq: [
           {
             question: "Are your electricians licensed and insured?",
-            answer: "All VoltPro technicians are fully licensed state master electricians with \$2M liability coverage.",
+            answer: "Yes, 100% of our field electricians carry state master or journeyman licenses and full liability coverage.",
           },
         ],
       }));
     }
   };
 
-  const handleNext = () => {
-    setError("");
-    if (currentStep === 1) {
-      if (!formData.business_name.trim() || !formData.email.trim() || !formData.password.trim()) {
-        setError("Please complete all required business identity fields.");
-        return;
-      }
-      if (!formData.email.includes("@") || !formData.email.includes(".")) {
-        setError("Please enter a valid business email address.");
-        return;
-      }
-      if (formData.password.length < 8) {
-        setError("Password must be at least 8 characters long.");
-        return;
-      }
-    }
-    if (currentStep === 2 && phoneMode !== "byon" && !formData.phone_number) {
-      setError("Please select an available phone number or choose carrier forwarding.");
-      return;
-    }
-    setCurrentStep((prev) => Math.min(prev + 1, 5));
-  };
-
-  const handleBack = () => {
-    setError("");
-    setCurrentStep((prev) => Math.max(prev - 1, 1));
-  };
-
-  const handleAddServiceTag = () => {
-    if (!newServiceTag.trim()) return;
-    if (!formData.services.includes(newServiceTag.trim())) {
+  const handleAddService = () => {
+    if (newServiceTag.trim() && !formData.services.includes(newServiceTag.trim())) {
       setFormData((prev) => ({
         ...prev,
         services: [...prev.services, newServiceTag.trim()],
       }));
+      setNewServiceTag("");
     }
-    setNewServiceTag("");
   };
 
-  const handleRemoveServiceTag = (tag: string) => {
+  const handleRemoveService = (service: string) => {
     setFormData((prev) => ({
       ...prev,
-      services: prev.services.filter((s) => s !== tag),
+      services: prev.services.filter((s) => s !== service),
     }));
   };
 
-  const handleAddKeywordTag = () => {
-    if (!newKeywordTag.trim()) return;
-    if (!formData.emergency_keywords.includes(newKeywordTag.trim().toLowerCase())) {
+  const handleAddKeyword = () => {
+    if (newKeywordTag.trim() && !formData.emergency_keywords.includes(newKeywordTag.trim().toLowerCase())) {
       setFormData((prev) => ({
         ...prev,
         emergency_keywords: [...prev.emergency_keywords, newKeywordTag.trim().toLowerCase()],
       }));
+      setNewKeywordTag("");
     }
-    setNewKeywordTag("");
   };
 
-  const handleToggleHazardPreset = (keyword: string) => {
-    const kw = keyword.toLowerCase();
+  const handleRemoveKeyword = (keyword: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      emergency_keywords: prev.emergency_keywords.filter((k) => k !== keyword),
+    }));
+  };
+
+  const handleAddFaq = () => {
+    setFormData((prev) => ({
+      ...prev,
+      faq: [...prev.faq, { question: "New Question?", answer: "Answer details here..." }],
+    }));
+  };
+
+  const handleRemoveFaq = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      faq: prev.faq.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleFaqChange = (index: number, field: "question" | "answer", val: string) => {
     setFormData((prev) => {
-      const exists = prev.emergency_keywords.includes(kw);
-      return {
-        ...prev,
-        emergency_keywords: exists
-          ? prev.emergency_keywords.filter((k) => k !== kw)
-          : [...prev.emergency_keywords, kw],
-      };
+      const copy = [...prev.faq];
+      copy[index] = { ...copy[index], [field]: val };
+      return { ...prev, faq: copy };
     });
   };
 
@@ -462,7 +476,6 @@ export default function OnboardingPage() {
     setSubmitting(true);
     setError("");
     try {
-      // 1. Register tenant account through public self-service endpoint
       const registerRes = await api.registerTenant({
         business_name: formData.business_name,
         owner_name: formData.owner_name,
@@ -485,12 +498,10 @@ export default function OnboardingPage() {
         faq: formData.faq,
       });
 
-      // 2. Persist returned JWT token in client storage
       if (typeof window !== "undefined") {
         localStorage.setItem("vedavoice_token", registerRes.access_token);
       }
 
-      // 3. Seamlessly redirect to the client's live business owner portal
       router.push("/portal/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to activate business line. Please verify details.");
@@ -499,24 +510,24 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 sm:p-8 flex flex-col justify-between max-w-5xl mx-auto">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 p-4 sm:p-8 flex flex-col justify-between max-w-5xl mx-auto">
       {/* Top Header & Breadcrumbs */}
       <div className="space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between pb-4 border-b border-zinc-200">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-500/20">
+            <div className="w-9 h-9 rounded-xl bg-zinc-900 flex items-center justify-center font-bold text-white shadow-sm">
               V
             </div>
             <div>
-              <div className="font-bold text-sm text-zinc-100 tracking-tight">VedaVoice Client Onboarding</div>
-              <div className="text-[11px] text-zinc-400">Automated Multi-Tenant Voice Receptionist Setup</div>
+              <div className="font-bold text-sm text-zinc-900 tracking-tight">VedaVoice Client Onboarding</div>
+              <div className="text-[11px] text-zinc-500">Autonomous Multi-Tenant Voice Receptionist Setup</div>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="text-xs font-mono text-zinc-400 hidden sm:block">
+            <div className="text-xs font-mono text-zinc-500 hidden sm:block">
               Step {currentStep} of 5 &bull;{" "}
-              <span className="text-zinc-200 font-semibold">
+              <span className="text-zinc-900 font-semibold">
                 {currentStep === 1 && "Business Profile & Niche"}
                 {currentStep === 2 && "Phone Provisioning"}
                 {currentStep === 3 && "LiveKit Acoustic Voice"}
@@ -526,7 +537,7 @@ export default function OnboardingPage() {
             </div>
             <Link
               href="/login"
-              className="text-xs text-zinc-400 hover:text-zinc-200 font-mono transition-colors flex items-center gap-1.5"
+              className="text-xs text-zinc-600 hover:text-zinc-900 font-medium transition-colors flex items-center gap-1.5"
             >
               Existing account? Sign In
             </Link>
@@ -539,44 +550,44 @@ export default function OnboardingPage() {
             {[1, 2, 3, 4, 5].map((step) => (
               <div
                 key={step}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  currentStep >= step ? "bg-indigo-500 shadow-sm shadow-indigo-500/50" : "bg-zinc-800"
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  currentStep >= step ? "bg-zinc-900" : "bg-zinc-200"
                 }`}
               />
             ))}
           </div>
-          <div className="flex justify-between text-[10px] text-zinc-500 font-mono px-0.5">
-            <span className={currentStep >= 1 ? "text-indigo-400 font-medium" : ""}>1. Business Profile</span>
-            <span className={currentStep >= 2 ? "text-indigo-400 font-medium" : ""}>2. Dedicated Number</span>
-            <span className={currentStep >= 3 ? "text-indigo-400 font-medium" : ""}>3. LiveKit Voice</span>
-            <span className={currentStep >= 4 ? "text-indigo-400 font-medium" : ""}>4. Guardrails &amp; FAQs</span>
-            <span className={currentStep >= 5 ? "text-indigo-400 font-medium" : ""}>5. Verify &amp; Go-Live</span>
+          <div className="flex justify-between text-[11px] text-zinc-500 font-medium px-0.5">
+            <span className={currentStep >= 1 ? "text-zinc-900 font-semibold" : ""}>1. Business Profile</span>
+            <span className={currentStep >= 2 ? "text-zinc-900 font-semibold" : ""}>2. Dedicated Number</span>
+            <span className={currentStep >= 3 ? "text-zinc-900 font-semibold" : ""}>3. LiveKit Voice</span>
+            <span className={currentStep >= 4 ? "text-zinc-900 font-semibold" : ""}>4. Guardrails &amp; FAQs</span>
+            <span className={currentStep >= 5 ? "text-zinc-900 font-semibold" : ""}>5. Verify &amp; Go-Live</span>
           </div>
         </div>
 
         {error && (
-          <div className="p-3.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 text-xs flex items-center gap-2.5 animate-in fade-in duration-200">
-            <ShieldAlert className="w-4 h-4 shrink-0" />
+          <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs flex items-center gap-2.5 animate-in fade-in duration-200">
+            <ShieldAlert className="w-4 h-4 shrink-0 text-red-600" />
             <span className="font-medium">{error}</span>
           </div>
         )}
 
         {/* ================= STEP 1: BUSINESS PROFILE & NICHE ARCHETYPE ================= */}
         {currentStep === 1 && (
-          <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="space-y-6 bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm animate-in fade-in duration-150">
             <div>
-              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-indigo-400" />
+              <h2 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-zinc-900" />
                 Step 1: Business Identity &amp; Industry Niche Archetype
               </h2>
-              <p className="text-xs text-zinc-400 mt-1">
+              <p className="text-xs text-zinc-500 mt-1">
                 Select your industry archetype to pre-load battle-tested emergency safety scripts, pricing policies, and customer greetings.
               </p>
             </div>
 
             {/* Industry Preset Cards */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider font-mono">
+              <label className="text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
                 Industry Pre-Grounded Template
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
@@ -591,17 +602,19 @@ export default function OnboardingPage() {
                     key={niche.id}
                     type="button"
                     onClick={() => applyNichePreset(niche.id)}
-                    className={`p-3 rounded-lg border text-left transition-all relative ${
+                    className={`p-3 rounded-xl border text-left transition-all relative ${
                       formData.niche === niche.id
-                        ? "border-indigo-500 bg-indigo-500/10 text-zinc-100 shadow-sm ring-1 ring-indigo-500"
-                        : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700"
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
                     }`}
                   >
                     {formData.niche === niche.id && (
-                      <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-400" />
+                      <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-emerald-400" />
                     )}
-                    <div className="text-xs font-bold text-zinc-200">{niche.label}</div>
-                    <div className="text-[10px] text-zinc-400 mt-1 leading-snug">{niche.desc}</div>
+                    <div className="text-xs font-bold">{niche.label}</div>
+                    <div className={`text-[10px] mt-1 leading-snug ${formData.niche === niche.id ? "text-zinc-300" : "text-zinc-500"}`}>
+                      {niche.desc}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -610,73 +623,68 @@ export default function OnboardingPage() {
             {/* Core Form Credentials */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Registered Business Name *</label>
+                <label className="text-xs font-semibold text-zinc-700">Registered Business Name *</label>
                 <input
                   type="text"
                   value={formData.business_name}
                   onChange={(e) => setFormData({ ...formData, business_name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
                   placeholder="e.g. Apex Plumbing & Heating"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Business Owner Full Name *</label>
+                <label className="text-xs font-semibold text-zinc-700">Business Owner Full Name *</label>
                 <input
                   type="text"
                   value={formData.owner_name}
                   onChange={(e) => setFormData({ ...formData, owner_name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900"
                   placeholder="e.g. Bob Henderson"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Owner Login Email *</label>
+                <label className="text-xs font-semibold text-zinc-700">Owner Login Email *</label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-mono"
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 font-mono"
                   placeholder="owner@yourcompany.com"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Account Password *</label>
+                <label className="text-xs font-semibold text-zinc-700">Account Password *</label>
                 <input
                   type="password"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
-                  placeholder="Minimum 8 characters"
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 font-mono"
+                  placeholder="Min. 8 characters"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Operating Timezone</label>
-                <select
+                <label className="text-xs font-semibold text-zinc-700">Business Timezone</label>
+                <input
+                  type="text"
                   value={formData.timezone}
                   onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-mono"
-                >
-                  <option value="America/New_York">Eastern Time (America/New_York)</option>
-                  <option value="America/Chicago">Central Time (America/Chicago)</option>
-                  <option value="America/Denver">Mountain Time (America/Denver)</option>
-                  <option value="America/Los_Angeles">Pacific Time (America/Los_Angeles)</option>
-                  <option value="America/Phoenix">Arizona (America/Phoenix)</option>
-                  <option value="Europe/London">London (Europe/London)</option>
-                </select>
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
+                  placeholder="America/New_York"
+                />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Standard Working Hours</label>
+                <label className="text-xs font-semibold text-zinc-700">Standard Operating Schedule</label>
                 <input
                   type="text"
                   value={formData.hours}
                   onChange={(e) => setFormData({ ...formData, hours: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
-                  placeholder="e.g. Monday to Friday, 8:00 AM to 6:00 PM EST"
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                  placeholder="Monday to Friday, 8:00 AM to 6:00 PM EST"
                 />
               </div>
             </div>
@@ -685,13 +693,13 @@ export default function OnboardingPage() {
 
         {/* ================= STEP 2: PHONE NUMBER ALLOCATION ================= */}
         {currentStep === 2 && (
-          <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="space-y-6 bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm animate-in fade-in duration-150">
             <div>
-              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-                <PhoneCall className="w-5 h-5 text-emerald-400" />
+              <h2 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <PhoneCall className="w-5 h-5 text-emerald-600" />
                 Step 2: Dedicated Phone Number Allocation &amp; Routing
               </h2>
-              <p className="text-xs text-zinc-400 mt-1">
+              <p className="text-xs text-zinc-500 mt-1">
                 Choose between instant carrier API provisioning (Option B), agency pre-purchased pools (Option A), or keep your existing number with call-forwarding (Option C).
               </p>
             </div>
@@ -701,17 +709,19 @@ export default function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => setPhoneMode("carrier_search")}
-                className={`p-3.5 rounded-lg border text-left transition-all ${
+                className={`p-4 rounded-xl border text-left transition-all ${
                   phoneMode === "carrier_search"
-                    ? "border-emerald-500 bg-emerald-500/10 text-zinc-100 ring-1 ring-emerald-500 shadow-sm"
-                    : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700"
+                    ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-xs text-zinc-200">
+                <div className="flex items-center justify-between font-bold text-xs">
                   <span>Option B: Direct Carrier Search</span>
-                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-mono">Live API</span>
+                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${phoneMode === "carrier_search" ? "bg-emerald-500 text-zinc-900" : "bg-emerald-100 text-emerald-800"}`}>
+                    Live Carrier
+                  </span>
                 </div>
-                <div className="text-[10px] text-zinc-400 mt-1">
+                <div className={`text-[10px] mt-1 ${phoneMode === "carrier_search" ? "text-zinc-300" : "text-zinc-500"}`}>
                   Search &amp; provision numbers on the fly via Twilio/Telnyx Elastic SIP trunks.
                 </div>
               </button>
@@ -719,36 +729,40 @@ export default function OnboardingPage() {
               <button
                 type="button"
                 onClick={() => setPhoneMode("agency_pool")}
-                className={`p-3.5 rounded-lg border text-left transition-all ${
+                className={`p-4 rounded-xl border text-left transition-all ${
                   phoneMode === "agency_pool"
-                    ? "border-indigo-500 bg-indigo-500/10 text-zinc-100 ring-1 ring-indigo-500 shadow-sm"
-                    : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700"
+                    ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-xs text-zinc-200">
+                <div className="flex items-center justify-between font-bold text-xs">
                   <span>Option A: Agency Pool</span>
-                  <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-mono">Pre-Bought</span>
+                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${phoneMode === "agency_pool" ? "bg-indigo-400 text-zinc-900" : "bg-indigo-100 text-indigo-800"}`}>
+                    Pre-Purchased
+                  </span>
                 </div>
-                <div className="text-[10px] text-zinc-400 mt-1">
-                  Select from pre-purchased agency pool numbers with zero incremental monthly fee.
+                <div className={`text-[10px] mt-1 ${phoneMode === "agency_pool" ? "text-zinc-300" : "text-zinc-500"}`}>
+                  Select from pre-purchased agency pool numbers with zero incremental monthly carrier fee.
                 </div>
               </button>
 
               <button
                 type="button"
                 onClick={() => setPhoneMode("byon")}
-                className={`p-3.5 rounded-lg border text-left transition-all ${
+                className={`p-4 rounded-xl border text-left transition-all ${
                   phoneMode === "byon"
-                    ? "border-amber-500 bg-amber-500/10 text-zinc-100 ring-1 ring-amber-500 shadow-sm"
-                    : "border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:border-zinc-700"
+                    ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
                 }`}
               >
-                <div className="flex items-center justify-between font-bold text-xs text-zinc-200">
+                <div className="flex items-center justify-between font-bold text-xs">
                   <span>Option C: Carrier Forwarding</span>
-                  <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-mono">BYON</span>
+                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${phoneMode === "byon" ? "bg-amber-400 text-zinc-900" : "bg-amber-100 text-amber-800"}`}>
+                    BYON
+                  </span>
                 </div>
-                <div className="text-[10px] text-zinc-400 mt-1">
-                  Keep your existing published phone line. Forward missed calls via *71.
+                <div className={`text-[10px] mt-1 ${phoneMode === "byon" ? "text-zinc-300" : "text-zinc-500"}`}>
+                  Keep your existing published phone line. Forward missed calls via conditional forward (*71).
                 </div>
               </button>
             </div>
@@ -758,57 +772,68 @@ export default function OnboardingPage() {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
-                    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-2.5" />
+                    <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
                     <input
                       type="text"
                       value={areaCodeQuery}
                       onChange={(e) => setAreaCodeQuery(e.target.value)}
-                      placeholder="Filter by area code or city (e.g. 512, Austin, 212, 800)..."
-                      className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      placeholder="Filter by area code, city or state (e.g. 512, Austin, 212, 415)..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
                     />
                   </div>
-                  <span className="text-[11px] font-mono text-zinc-500 whitespace-nowrap">
+                  <span className="text-xs font-mono text-zinc-500 whitespace-nowrap bg-zinc-100 px-3 py-2 rounded-xl">
                     {availableNumbers.length} available
                   </span>
                 </div>
 
                 {loadingNumbers ? (
-                  <div className="p-8 text-center text-xs font-mono text-zinc-500">
-                    Querying carrier SIP trunk inventory...
+                  <div className="p-8 text-center text-xs font-mono text-zinc-500 bg-zinc-50 rounded-xl border border-zinc-200">
+                    Querying carrier SIP trunk inventory in real-time...
                   </div>
                 ) : availableNumbers.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-zinc-500 border border-zinc-800/80 rounded-lg">
+                  <div className="p-8 text-center text-xs text-zinc-500 border border-zinc-200 rounded-xl bg-zinc-50">
                     No numbers found matching &quot;{areaCodeQuery}&quot;. Clear search to view all options.
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[300px] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
                     {availableNumbers.map((num) => {
                       const isSelected = formData.phone_number === num.e164;
                       return (
                         <div
                           key={num.e164}
                           onClick={() => setFormData({ ...formData, phone_number: num.e164 })}
-                          className={`p-3 rounded-lg border text-left cursor-pointer transition-all space-y-1 ${
+                          className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all space-y-1 relative ${
                             isSelected
-                              ? "border-emerald-500 bg-emerald-500/10 text-zinc-100 ring-1 ring-emerald-500 shadow-sm"
-                              : "border-zinc-800 bg-zinc-950/60 text-zinc-400 hover:border-zinc-700"
+                              ? "border-zinc-900 bg-zinc-900 text-white shadow-md ring-1 ring-zinc-900"
+                              : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
                           }`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-mono font-bold text-xs text-zinc-200">{num.formatted}</span>
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 font-mono text-emerald-400">
+                            <span className="font-mono font-bold text-xs">{num.formatted}</span>
+                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono font-semibold ${
+                              isSelected ? "bg-emerald-400 text-zinc-900" : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            }`}>
                               STIR/SHAKEN A
                             </span>
                           </div>
-                          <div className="flex items-center justify-between text-[10px] text-zinc-400 font-sans">
-                            <span>
+                          <div className="flex items-center justify-between text-[11px]">
+                            <span className={isSelected ? "text-zinc-300" : "text-zinc-600"}>
                               {num.locality}, {num.region}
                             </span>
-                            <span className="font-mono text-zinc-500">
-                              {num.monthly_cost_usd === 0 ? "Included" : `$${num.monthly_cost_usd.toFixed(2)}/mo`}
+                            <span className={`font-mono font-medium ${isSelected ? "text-zinc-200" : "text-zinc-900"}`}>
+                              {num.monthly_cost_usd === 0 ? "Free in Plan" : `$${num.monthly_cost_usd.toFixed(2)}/mo`}
                             </span>
                           </div>
-                          <div className="text-[9px] font-mono text-zinc-500">{num.provider}</div>
+                          <div className="flex items-center justify-between pt-1">
+                            <span className={`text-[10px] font-mono ${isSelected ? "text-zinc-400" : "text-zinc-400"}`}>
+                              Provider: {num.provider}
+                            </span>
+                            {isSelected && (
+                              <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 font-mono">
+                                <Check className="w-3 h-3 stroke-[3]" /> Active Selection
+                              </span>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -819,26 +844,26 @@ export default function OnboardingPage() {
 
             {/* Option C: BYON Instructions */}
             {phoneMode === "byon" && (
-              <div className="p-4 rounded-lg border border-amber-500/20 bg-amber-500/5 space-y-3 text-xs">
-                <div className="font-semibold text-amber-300 flex items-center gap-1.5 font-mono text-[11px] uppercase">
-                  <PhoneForwarded className="w-3.5 h-3.5" />
+              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 space-y-3 text-xs text-amber-900">
+                <div className="font-semibold text-amber-900 flex items-center gap-1.5 font-mono text-[11px] uppercase">
+                  <PhoneForwarded className="w-4 h-4 text-amber-700" />
                   Carrier Conditional Call Forwarding (*71) Setup
                 </div>
-                <p className="text-zinc-300 text-xs leading-relaxed">
+                <p className="text-amber-800 text-xs leading-relaxed">
                   Your business phone line stays exactly as published on Google and Yelp. When you don&apos;t answer after 2-3 rings, your mobile carrier automatically forwards the customer to your dedicated LiveKit receptionist line:
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
-                  <div className="p-2.5 rounded bg-zinc-900 border border-zinc-800">
-                    <strong className="text-zinc-200">Verizon:</strong> Dial *71 + Target
+                  <div className="p-2.5 rounded-lg bg-white border border-amber-200">
+                    <strong className="text-zinc-900">Verizon:</strong> Dial *71 + Target
                   </div>
-                  <div className="p-2.5 rounded bg-zinc-900 border border-zinc-800">
-                    <strong className="text-zinc-200">AT&amp;T:</strong> Dial *71 + Target
+                  <div className="p-2.5 rounded-lg bg-white border border-amber-200">
+                    <strong className="text-zinc-900">AT&amp;T:</strong> Dial *71 + Target
                   </div>
-                  <div className="p-2.5 rounded bg-zinc-900 border border-zinc-800">
-                    <strong className="text-zinc-200">T-Mobile:</strong> Dial **004* + Target #
+                  <div className="p-2.5 rounded-lg bg-white border border-amber-200">
+                    <strong className="text-zinc-900">T-Mobile:</strong> Dial **004* + Target #
                   </div>
-                  <div className="p-2.5 rounded bg-zinc-900 border border-zinc-800">
-                    <strong className="text-zinc-200">Spectrum:</strong> Dial *92 + Target
+                  <div className="p-2.5 rounded-lg bg-white border border-amber-200">
+                    <strong className="text-zinc-900">Spectrum:</strong> Dial *92 + Target
                   </div>
                 </div>
               </div>
@@ -848,22 +873,22 @@ export default function OnboardingPage() {
 
         {/* ================= STEP 3: LIVEKIT VOICE & TIMBRE ================= */}
         {currentStep === 3 && (
-          <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="space-y-6 bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm animate-in fade-in duration-150">
             <div>
-              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-                <Volume2 className="w-5 h-5 text-indigo-400" />
+              <h2 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <Volume2 className="w-5 h-5 text-indigo-600" />
                 Step 3: LiveKit Acoustic Voice &amp; Tone Persona
               </h2>
-              <p className="text-xs text-zinc-400 mt-1">
-                Choose from {LIVEKIT_VOICE_CATALOG.length} models across Inworld, Rime, and Deepgram Aura. Audition live previews with the speaker button.
+              <p className="text-xs text-zinc-500 mt-1">
+                Choose from {LIVEKIT_VOICE_CATALOG.length} models across Inworld, Rime, and Deepgram Aura. Audition distinct live acoustic previews with the speaker button.
               </p>
             </div>
 
             {/* Provider and Gender Filter Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
-              <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800 text-[10px] font-mono">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 pb-3">
+              <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl text-[11px] font-medium">
                 {[
-                  { id: "all", label: "All Providers" },
+                  { id: "all", label: "All Models" },
                   { id: "Inworld TTS", label: "Inworld" },
                   { id: "Rime TTS", label: "Rime" },
                   { id: "Deepgram Aura", label: "Deepgram Aura" },
@@ -872,10 +897,10 @@ export default function OnboardingPage() {
                     key={tab.id}
                     type="button"
                     onClick={() => setVoiceProviderFilter(tab.id)}
-                    className={`px-2.5 py-1 rounded transition-colors ${
+                    className={`px-3 py-1 rounded-lg transition-all ${
                       voiceProviderFilter === tab.id
-                        ? "bg-indigo-600 text-white font-semibold"
-                        : "text-zinc-400 hover:text-zinc-200"
+                        ? "bg-zinc-900 text-white font-semibold shadow-sm"
+                        : "text-zinc-600 hover:text-zinc-900"
                     }`}
                   >
                     {tab.label}
@@ -883,16 +908,16 @@ export default function OnboardingPage() {
                 ))}
               </div>
 
-              <div className="flex items-center gap-1 text-[10px] font-mono">
+              <div className="flex items-center gap-1 text-[11px]">
                 {["all", "Male", "Female"].map((gender) => (
                   <button
                     key={gender}
                     type="button"
                     onClick={() => setVoiceGenderFilter(gender)}
-                    className={`px-2 py-0.5 rounded border ${
+                    className={`px-3 py-1 rounded-lg border font-medium transition-all ${
                       voiceGenderFilter === gender
-                        ? "border-indigo-500 bg-indigo-500/10 text-indigo-300 font-bold"
-                        : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white"
                     }`}
                   >
                     {gender}
@@ -902,7 +927,7 @@ export default function OnboardingPage() {
             </div>
 
             {/* Voice Cards Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[320px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[340px] overflow-y-auto pr-1">
               {LIVEKIT_VOICE_CATALOG.filter(
                 (v) =>
                   (voiceProviderFilter === "all" || v.provider === voiceProviderFilter) &&
@@ -915,16 +940,18 @@ export default function OnboardingPage() {
                   <div
                     key={voice.id}
                     onClick={() => setFormData({ ...formData, tts_voice: voice.id, agent_name: voice.name })}
-                    className={`p-3 rounded-lg border text-left cursor-pointer transition-all space-y-1.5 relative group ${
+                    className={`p-4 rounded-xl border text-left cursor-pointer transition-all space-y-2 relative group ${
                       isSelected
-                        ? "border-indigo-500 bg-indigo-500/10 text-zinc-100 ring-1 ring-indigo-500 shadow-sm"
-                        : "border-zinc-800 bg-zinc-950/60 text-zinc-400 hover:border-zinc-700"
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-md ring-2 ring-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-800 hover:border-zinc-400 hover:shadow-sm"
                     }`}
                   >
-                    <div className="flex items-center justify-between font-semibold text-xs text-zinc-200">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-zinc-100">{voice.name}</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded-full border border-zinc-700 font-mono text-zinc-400">
+                    <div className="flex items-center justify-between font-semibold text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold text-sm ${isSelected ? "text-white" : "text-zinc-900"}`}>{voice.name}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium ${
+                          isSelected ? "bg-zinc-800 text-zinc-200" : "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                        }`}>
                           {voice.gender}
                         </span>
                       </div>
@@ -935,411 +962,354 @@ export default function OnboardingPage() {
                           e.stopPropagation();
                           handlePlayVoicePreview(voice);
                         }}
-                        className={`p-1 rounded-md transition-colors ${
+                        className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${
                           isPlaying
-                            ? "bg-indigo-600 text-white animate-pulse"
-                            : "bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300"
+                            ? "bg-emerald-500 text-zinc-950 font-bold"
+                            : isSelected
+                            ? "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                            : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
                         }`}
-                        title="Click to hear speech preview"
+                        title="Click to audition live voice"
                       >
-                        <Volume2 className="w-3.5 h-3.5" />
+                        {isPlaying ? (
+                          <div className="flex items-center gap-0.5 h-3 px-1">
+                            <span className="w-0.5 h-3 bg-zinc-950 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                            <span className="w-0.5 h-2 bg-zinc-950 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                            <span className="w-0.5 h-3 bg-zinc-950 rounded-full animate-bounce" />
+                          </div>
+                        ) : (
+                          <Volume2 className="w-4 h-4" />
+                        )}
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] font-mono">
-                      <span className="text-indigo-400">{voice.provider}</span>
-                      <span className="text-zinc-500">{voice.accent}</span>
+                    <div className="flex items-center justify-between text-[11px] font-mono">
+                      <span className={isSelected ? "text-emerald-400 font-semibold" : "text-indigo-600 font-medium"}>
+                        {voice.provider}
+                      </span>
+                      <span className={isSelected ? "text-zinc-400" : "text-zinc-500"}>{voice.accent}</span>
                     </div>
 
-                    <div className="text-[10px] text-zinc-300 font-medium leading-snug">{voice.trait}</div>
+                    <div className={`text-xs font-medium leading-snug ${isSelected ? "text-zinc-200" : "text-zinc-800"}`}>
+                      {voice.trait}
+                    </div>
 
-                    <div className="text-[9px] text-zinc-500 line-clamp-2">{voice.description}</div>
+                    <div className={`text-[11px] line-clamp-2 leading-relaxed ${isSelected ? "text-zinc-400" : "text-zinc-500"}`}>
+                      {voice.description}
+                    </div>
+
+                    {isSelected && (
+                      <div className="pt-1 flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400 font-mono">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Selected Voice Model
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
             {/* Conversational Tone */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider font-mono">
+            <div className="space-y-1.5 pt-2">
+              <label className="text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
                 Conversational Cadence &amp; Tone
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   { id: "direct", title: "Direct & Agile", desc: "<15 words/turn, rapid triage for field emergency trades" },
                   { id: "warm", title: "Warm & Consultative", desc: "~20 words/turn, empathetic active listening for clinics" },
-                  { id: "formal", title: "Formal & Executive", desc: "Corporate front-desk authority for legal and finance" },
+                  { id: "formal", title: "Formal & Professional", desc: "Corporate front-desk authority for legal and accounting" },
                 ].map((t) => (
                   <button
                     key={t.id}
                     type="button"
                     onClick={() => setFormData({ ...formData, tone: t.id })}
-                    className={`p-3 rounded-lg border text-left transition-all ${
+                    className={`p-3.5 rounded-xl border text-left transition-all ${
                       formData.tone === t.id
-                        ? "border-indigo-500 bg-indigo-500/10 text-zinc-100 ring-1 ring-indigo-500"
-                        : "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:border-zinc-700"
+                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400"
                     }`}
                   >
-                    <div className="text-xs font-bold text-zinc-200">{t.title}</div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">{t.desc}</div>
+                    <div className="text-xs font-bold">{t.title}</div>
+                    <div className={`text-[10px] mt-1 ${formData.tone === t.id ? "text-zinc-300" : "text-zinc-500"}`}>{t.desc}</div>
                   </button>
                 ))}
               </div>
             </div>
-
-            {/* Editable Custom Greeting */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-zinc-300">Custom Spoken Receptionist Greeting</label>
-                <button
-                  type="button"
-                  onClick={() => speakText(formData.greeting)}
-                  className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono"
-                >
-                  <Volume2 className="w-3 h-3" /> Test Listen
-                </button>
-              </div>
-              <textarea
-                rows={2}
-                value={formData.greeting}
-                onChange={(e) => setFormData({ ...formData, greeting: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-sans leading-relaxed"
-              />
-            </div>
-
-            {/* Two-Party Recording Disclosure */}
-            <div className="flex items-center justify-between p-3.5 rounded-lg border border-zinc-800 bg-zinc-900/40">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-zinc-200">Two-Party Recording Disclosure</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 text-amber-400 font-mono">
-                    CA, FL, PA, WA Compliant
-                  </span>
-                </div>
-                <p className="text-[11px] text-zinc-400">
-                  Speaks: &ldquo;This call may be recorded and transcribed for quality assurance.&rdquo;
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                checked={formData.recording_disclosure}
-                onChange={(e) => setFormData({ ...formData, recording_disclosure: e.target.checked })}
-                className="w-4 h-4 accent-indigo-600 rounded"
-              />
-            </div>
           </div>
         )}
 
-        {/* ================= STEP 4: KNOWLEDGE BASE & GUARDRAILS ================= */}
+        {/* ================= STEP 4: KNOWLEDGE & GUARDRAILS ================= */}
         {currentStep === 4 && (
-          <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="space-y-6 bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm animate-in fade-in duration-150">
             <div>
-              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                Step 4: Knowledge Base &amp; Zero-Hallucination Guardrails
+              <h2 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                Step 4: Knowledge, Emergency Guardrails &amp; Anti-Hallucination
               </h2>
-              <p className="text-xs text-zinc-400 mt-1">
-                Strictly bound what figures and policies the AI receptionist is authorized to recite.
+              <p className="text-xs text-zinc-500 mt-1">
+                Configure approved services, pricing containment gates, and safety advice triggered on emergency hazard keywords.
               </p>
             </div>
 
-            {/* Services Tag Input */}
+            {/* Approved Service Offerings */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-zinc-300">Catalog Services Offered</label>
-              <div className="flex flex-wrap gap-1.5 p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 min-h-[44px]">
-                {formData.services.map((service) => (
+              <label className="text-xs font-semibold text-zinc-700">Approved Service Offerings</label>
+              <div className="flex flex-wrap gap-2">
+                {formData.services.map((svc) => (
                   <span
-                    key={service}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-zinc-800 text-zinc-200 text-xs border border-zinc-750"
+                    key={svc}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-100 border border-zinc-200 text-zinc-800 text-xs font-medium"
                   >
-                    {service}
+                    {svc}
                     <button
                       type="button"
-                      onClick={() => handleRemoveServiceTag(service)}
-                      className="text-zinc-500 hover:text-zinc-300"
+                      onClick={() => handleRemoveService(svc)}
+                      className="text-zinc-400 hover:text-zinc-900"
                     >
                       <X className="w-3 h-3" />
                     </button>
                   </span>
                 ))}
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    value={newServiceTag}
-                    onChange={(e) => setNewServiceTag(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddServiceTag();
-                      }
-                    }}
-                    placeholder="+ Add service (press enter)..."
-                    className="bg-transparent text-xs text-zinc-300 focus:outline-none px-1 py-0.5 font-sans"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddServiceTag}
-                    className="p-1 rounded hover:bg-zinc-800 text-zinc-400"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <input
+                  type="text"
+                  value={newServiceTag}
+                  onChange={(e) => setNewServiceTag(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddService())}
+                  placeholder="Add custom service offering (e.g. Tankless water heaters)..."
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddService}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800"
+                >
+                  Add
+                </button>
               </div>
             </div>
 
-            {/* Pricing Policy Controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Pricing Gate Policy */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Pricing Policy Archetype</label>
+                <label className="text-xs font-semibold text-zinc-700">Phone Pricing Disclosure Gate</label>
                 <select
                   value={formData.pricing_policy}
                   onChange={(e) => setFormData({ ...formData, pricing_policy: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500"
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
                 >
                   <option value="diagnostic_fee_only">Diagnostic Fee Only (Quote on-site)</option>
-                  <option value="fixed_menu">Fixed Catalog Menu (Exact dollar figures)</option>
-                  <option value="no_quote">Strict Zero Quoting (No numbers spoken)</option>
+                  <option value="no_quote">Strict No Blind Quotes (Consultation required)</option>
+                  <option value="fixed_menu">Fixed Menu Rates</option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">Standard Diagnostic / Dispatch Fee</label>
+                <label className="text-xs font-semibold text-zinc-700">Standard Diagnostic / Intake Fee</label>
                 <input
                   type="text"
                   value={formData.diagnostic_fee}
                   onChange={(e) => setFormData({ ...formData, diagnostic_fee: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-mono"
-                  placeholder="e.g. $89.00"
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
+                  placeholder="$89.00"
                 />
               </div>
             </div>
 
-            {/* Emergency Hazards & Mitigation Script */}
-            <div className="space-y-3 p-4 rounded-xl border border-red-500/20 bg-red-500/5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-red-300 flex items-center gap-1.5 font-mono">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                  Urgent Hazard Detection Keywords
-                </span>
-                <span className="text-[10px] text-zinc-400">Triggers emergency escalation immediately</span>
-              </div>
-
-              {/* Quick Preset Hazard Chips */}
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { kw: "burst pipe", icon: Droplets },
-                  { kw: "gas leak", icon: Flame },
-                  { kw: "flooding", icon: Droplets },
-                  { kw: "smoke from furnace", icon: Flame },
-                  { kw: "sparks from outlet", icon: Zap },
-                  { kw: "severe toothache", icon: AlertTriangle },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const isChecked = formData.emergency_keywords.includes(item.kw);
-                  return (
-                    <button
-                      key={item.kw}
-                      type="button"
-                      onClick={() => handleToggleHazardPreset(item.kw)}
-                      className={`px-2.5 py-1 rounded text-[11px] font-mono flex items-center gap-1 transition-all ${
-                        isChecked
-                          ? "bg-red-500/20 text-red-300 border border-red-500/40"
-                          : "bg-zinc-900 text-zinc-400 border border-zinc-800 hover:border-zinc-700"
-                      }`}
-                    >
-                      <Icon className="w-3 h-3" />
-                      {item.kw}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="space-y-1.5 pt-1">
-                <label className="text-xs font-medium text-zinc-300">Tenant-Approved Emergency Advice Script</label>
-                <textarea
-                  rows={2}
-                  value={formData.emergency_advice}
-                  onChange={(e) => setFormData({ ...formData, emergency_advice: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-sans leading-relaxed"
-                  placeholder="Spoken immediately when hazard keywords are detected..."
-                />
-              </div>
+            {/* Emergency Advice */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-zinc-700">Emergency Caller Immediate Safety Script</label>
+              <textarea
+                rows={2}
+                value={formData.emergency_advice}
+                onChange={(e) => setFormData({ ...formData, emergency_advice: e.target.value })}
+                className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 leading-relaxed"
+              />
             </div>
 
-            {/* Quick FAQ List */}
+            {/* Emergency Keyword Triggers */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider font-mono">
-                Receptionist Knowledge Base (FAQs)
-              </label>
-              <div className="space-y-2">
-                {formData.faq.map((faqItem, idx) => (
-                  <div key={idx} className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/40 space-y-1">
-                    <div className="font-semibold text-xs text-zinc-200 flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5 text-indigo-400" />
-                      {faqItem.question}
-                    </div>
-                    <div className="text-[11px] text-zinc-400 pl-5">{faqItem.answer}</div>
-                  </div>
+              <label className="text-xs font-semibold text-zinc-700">Hazard Trigger Keywords (Priority Bypass)</label>
+              <div className="flex flex-wrap gap-2">
+                {formData.emergency_keywords.map((kw) => (
+                  <span
+                    key={kw}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-700 text-xs font-mono font-medium"
+                  >
+                    {kw}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveKeyword(kw)}
+                      className="text-red-400 hover:text-red-700"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
                 ))}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <input
+                  type="text"
+                  value={newKeywordTag}
+                  onChange={(e) => setNewKeywordTag(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddKeyword())}
+                  placeholder="Add emergency trigger phrase (e.g. electrical smoke)..."
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddKeyword}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800"
+                >
+                  Add
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* ================= STEP 5: TEST SIMULATOR & LAUNCH ================= */}
+        {/* ================= STEP 5: AUDIBLE SIMULATOR & LAUNCH ================= */}
         {currentStep === 5 && (
-          <div className="space-y-6 animate-in fade-in duration-150">
+          <div className="space-y-6 bg-white p-6 rounded-2xl border border-zinc-200 shadow-sm animate-in fade-in duration-150">
             <div>
-              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-                <Rocket className="w-5 h-5 text-indigo-400" />
-                Step 5: Acoustic Verification &amp; Live Deployment
+              <h2 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <Rocket className="w-5 h-5 text-indigo-600" />
+                Step 5: Audible Test Simulator &amp; Production Activation
               </h2>
-              <p className="text-xs text-zinc-400 mt-1">
-                Conduct an interactive test call with your new LiveKit voice agent, verify routing, and activate your line.
+              <p className="text-xs text-zinc-500 mt-1">
+                Audition your LiveKit voice agent in a sandbox call simulator. Verify greeting cadence and pricing rules before activating your live line.
               </p>
             </div>
 
-            {/* Interactive Phone Simulation Widget */}
-            <div className="p-5 rounded-xl border border-zinc-800 bg-zinc-900/60 space-y-4 shadow-xl">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                    <Phone className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-sm text-zinc-100 flex items-center gap-2">
-                      <span>{formData.business_name} Receptionist</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-indigo-400">
-                        {formData.tts_voice} (LiveKit)
-                      </span>
-                    </div>
-                    <div className="text-xs font-mono text-zinc-400">
-                      Line: <span className="text-emerald-400 font-semibold">{formData.phone_number}</span> &bull;{" "}
-                      {simState === "connected" ? `In-call (${simDuration}s)` : "Idle / Standby"}
-                    </div>
-                  </div>
+            {/* Virtual Phone Simulator Console */}
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-3 h-3 rounded-full ${
+                    simState === "connected" ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"
+                  }`} />
+                  <span className="font-mono text-xs font-bold text-zinc-900">
+                    LiveKit Virtual Line: {formData.phone_number}
+                  </span>
                 </div>
+                <div className="font-mono text-xs text-zinc-600">
+                  {simState === "connected" ? `${Math.floor(simDuration / 60)}:${(simDuration % 60).toString().padStart(2, "0")}` : "00:00"}
+                </div>
+              </div>
 
-                {simState === "idle" ? (
+              {simState === "idle" && (
+                <div className="py-8 text-center space-y-3">
+                  <div className="text-xs text-zinc-600">
+                    Click &quot;Start Test Call&quot; to audition your configured voice model ({formData.tts_voice}) with the business greeting.
+                  </div>
                   <button
                     type="button"
                     onClick={startSimulation}
-                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-emerald-600/20"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-500 shadow-sm inline-flex items-center gap-2"
                   >
-                    <Phone className="w-3.5 h-3.5" />
-                    Simulate Inbound Call
+                    <Phone className="w-4 h-4" /> Start Audible Test Call
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={stopSimulation}
-                    className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold flex items-center gap-2 transition-all"
-                  >
-                    <PhoneOff className="w-3.5 h-3.5" />
-                    Hang Up
-                  </button>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Active Call Audio Mockup */}
-              {simState === "connected" && (
-                <div className="space-y-3 animate-in fade-in duration-200">
-                  {/* Waveform Animation */}
-                  <div className="p-4 rounded-lg bg-zinc-950 border border-zinc-800 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
-                      <span className="flex items-center gap-1.5 text-emerald-400">
-                        <Radio className="w-3 h-3 animate-pulse" /> Live WebRTC Audio Stream
-                      </span>
-                      <span>Opus 24kbps &bull; 0 packet loss</span>
-                    </div>
-
-                    <div className="flex items-center justify-center gap-1 h-8">
-                      {[40, 70, 30, 90, 60, 20, 80, 50, 95, 45, 65, 85, 30, 75].map((h, i) => (
-                        <div
-                          key={i}
-                          className="w-1 bg-emerald-500/80 rounded-full animate-pulse"
-                          style={{
-                            height: `${h}%`,
-                            animationDelay: `${(i % 5) * 120}ms`,
-                          }}
-                        />
-                      ))}
-                    </div>
-
-                    {simAgentSpeech && (
-                      <div className="p-3 rounded bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 italic leading-relaxed">
-                        &ldquo;{simAgentSpeech}&rdquo;
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Caller Question Simulator Chips */}
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
-                      Simulate Realistic Caller Inquiries:
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => simulateCustomerQuestion("pricing")}
-                        className="p-2.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:border-zinc-700 text-left text-xs text-zinc-300 transition-colors"
-                      >
-                        <div className="font-semibold text-zinc-200">1. Pricing Inquiry</div>
-                        <div className="text-[10px] text-zinc-500">&quot;How much do you charge?&quot;</div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => simulateCustomerQuestion("emergency")}
-                        className="p-2.5 rounded-lg border border-red-500/30 bg-red-500/5 hover:border-red-500/50 text-left text-xs text-red-300 transition-colors"
-                      >
-                        <div className="font-semibold text-red-200">2. Emergency Hazard</div>
-                        <div className="text-[10px] text-red-400">&quot;Pipe burst, flooding fast!&quot;</div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => simulateCustomerQuestion("hours")}
-                        className="p-2.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:border-zinc-700 text-left text-xs text-zinc-300 transition-colors"
-                      >
-                        <div className="font-semibold text-zinc-200">3. Business Hours</div>
-                        <div className="text-[10px] text-zinc-500">&quot;Are you open right now?&quot;</div>
-                      </button>
-                    </div>
+              {simState === "calling" && (
+                <div className="py-8 text-center space-y-2">
+                  <div className="text-xs font-mono text-zinc-600 animate-pulse">
+                    Connecting to LiveKit Agent Worker via SIP trunk...
                   </div>
                 </div>
               )}
 
-              {/* Pre-flight Checklist */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-zinc-800 text-[11px] font-mono">
-                <div className="flex items-center gap-1.5 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> RLS Isolation Armed
+              {simState === "connected" && (
+                <div className="space-y-4">
+                  {/* Live Speech Bubble */}
+                  <div className="p-4 rounded-xl bg-white border border-zinc-200 space-y-1.5 shadow-sm">
+                    <div className="text-[10px] font-mono text-indigo-600 font-bold uppercase tracking-wider flex items-center justify-between">
+                      <span>Agent ({formData.agent_name} &bull; {formData.tts_voice})</span>
+                      <span className="text-emerald-600 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                        Speaking live
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-800 leading-relaxed italic">&quot;{simAgentSpeech}&quot;</p>
+                  </div>
+
+                  {/* Caller Question Simulator Chips */}
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block">
+                      Simulate Inbound Caller Inquiries:
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => simulateCustomerQuestion("pricing")}
+                        className="p-2.5 rounded-xl border border-zinc-300 bg-white hover:border-zinc-900 text-left text-xs text-zinc-800 transition-all font-medium"
+                      >
+                        Ask Pricing / Rates
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => simulateCustomerQuestion("emergency")}
+                        className="p-2.5 rounded-xl border border-red-200 bg-red-50 hover:border-red-400 text-left text-xs text-red-700 transition-all font-medium"
+                      >
+                        Simulate Flood / Gas Hazard
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => simulateCustomerQuestion("hours")}
+                        className="p-2.5 rounded-xl border border-zinc-300 bg-white hover:border-zinc-900 text-left text-xs text-zinc-800 transition-all font-medium"
+                      >
+                        Ask Operating Schedule
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 text-right">
+                    <button
+                      type="button"
+                      onClick={stopSimulation}
+                      className="px-4 py-1.5 rounded-xl bg-red-600 text-white text-xs font-semibold hover:bg-red-500 inline-flex items-center gap-1.5"
+                    >
+                      <PhoneOff className="w-3.5 h-3.5" /> End Test Call
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Carrier Attestation A
-                </div>
-                <div className="flex items-center gap-1.5 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> Pricing Gate Active
-                </div>
-                <div className="flex items-center gap-1.5 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> LiveKit Scale Ready
-                </div>
+              )}
+            </div>
+
+            {/* Launch Summary Card */}
+            <div className="p-4 rounded-xl bg-zinc-100 border border-zinc-200 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase block font-mono">Company</span>
+                <span className="font-bold text-zinc-900">{formData.business_name}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase block font-mono">Dedicated Number</span>
+                <span className="font-mono font-bold text-zinc-900">{formData.phone_number}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase block font-mono">Voice Model</span>
+                <span className="font-bold text-indigo-700">{formData.tts_voice} ({formData.tone})</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase block font-mono">14-Day Trial</span>
+                <span className="font-bold text-emerald-700">100 Free Minutes</span>
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Navigation Buttons Footer */}
-      <div className="flex items-center justify-between pt-6 border-t border-zinc-800 mt-8">
+      {/* Navigation Action Buttons Footer */}
+      <div className="pt-6 border-t border-zinc-200 flex items-center justify-between mt-6">
         {currentStep > 1 ? (
           <button
             type="button"
-            onClick={handleBack}
-            className="px-4 py-2 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-300 font-semibold flex items-center gap-1.5 transition-colors"
+            onClick={() => setCurrentStep((s) => s - 1)}
+            className="px-4 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-100 text-xs font-semibold text-zinc-700 flex items-center gap-2 transition-colors"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Previous
+            <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
         ) : (
           <div />
@@ -1348,21 +1318,20 @@ export default function OnboardingPage() {
         {currentStep < 5 ? (
           <button
             type="button"
-            onClick={handleNext}
-            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm shadow-indigo-600/20"
+            onClick={() => setCurrentStep((s) => s + 1)}
+            className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
           >
-            Next Step
-            <ArrowRight className="w-3.5 h-3.5" />
+            Next Step <ArrowRight className="w-3.5 h-3.5" />
           </button>
         ) : (
           <button
             type="button"
-            onClick={handleLaunch}
             disabled={submitting}
-            className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+            onClick={handleLaunch}
+            className="px-8 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-emerald-500/20 transition-all disabled:opacity-50"
           >
             <Rocket className="w-4 h-4" />
-            {submitting ? "Deploying Voice Agent..." : "Launch Live Receptionist Line"}
+            {submitting ? "Activating Business Line..." : "Activate Business Receptionist"}
           </button>
         )}
       </div>
