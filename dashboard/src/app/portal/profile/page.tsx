@@ -51,6 +51,9 @@ export default function ReceptionistProfilePage() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
+  // Tabbed Navigation state (5 command tabs)
+  const [activeTab, setActiveTab] = useState<"persona" | "faq" | "pricing" | "emergency" | "schedule">("persona");
+
   // Module 2 FAQ Filter & Search state
   const [activeFaqCategory, setActiveFaqCategory] = useState("all");
   const [faqSearchQuery, setFaqSearchQuery] = useState("");
@@ -443,8 +446,83 @@ export default function ReceptionistProfilePage() {
         </div>
       )}
 
+      {/* 5-Tab Command Suite */}
+      <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveTab("persona")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "persona"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <Mic className="w-3.5 h-3.5 text-indigo-600" />
+          <span>Voice & Persona</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("faq")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "faq"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+          <span>FAQs & Knowledge</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
+            {profile.faq?.length || 0}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("pricing")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "pricing"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+          <span>Pricing Guardrails</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("emergency")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "emergency"
+              ? "bg-white text-red-700 shadow-sm border border-red-200"
+              : "text-zinc-600 hover:text-red-700 hover:bg-zinc-200/60"
+          }`}
+        >
+          <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+          <span>Emergency Scripts</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-red-100 text-red-700">
+            {profile.emergency_keywords?.length || 0}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("schedule")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "schedule"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5 text-sky-600" />
+          <span>Schedule & Geofence</span>
+        </button>
+      </div>
+
       <form onSubmit={handleSave} className="space-y-8">
         {/* MODULE 1: BRAND PERSONA & ACOUSTIC TUNING */}
+        {activeTab === "persona" && (
         <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
           <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
             <div className="flex items-center gap-2">
@@ -751,8 +829,10 @@ export default function ReceptionistProfilePage() {
             )}
           </div>
         </div>
+        )}
 
         {/* MODULE 2: GROUNDED FAQ KNOWLEDGE BASE */}
+        {activeTab === "faq" && (
         <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-100 pb-3 gap-2">
             <div>
@@ -987,8 +1067,10 @@ export default function ReceptionistProfilePage() {
             </div>
           )}
         </div>
+        )}
 
         {/* MODULE 3: PRICING POLICIES & QUOTE GUARDRAILS */}
+        {activeTab === "pricing" && (
         <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-100 pb-3 gap-2">
             <div>
@@ -1259,8 +1341,10 @@ export default function ReceptionistProfilePage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* MODULE 4: EMERGENCY PROTOCOLS & SAFETY SCRIPTS */}
+        {activeTab === "emergency" && (
         <div className="p-6 rounded-2xl border border-red-200 bg-red-50/30 space-y-5 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-red-200 pb-3 gap-2">
             <div>
@@ -1451,8 +1535,10 @@ export default function ReceptionistProfilePage() {
             </div>
           </div>
         </div>
+        )}
 
         {/* MODULE 5: OPERATING HOURS & GEOFENCE BOUNDARIES */}
+        {activeTab === "schedule" && (
         <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-100 pb-3 gap-2">
             <div>
@@ -1705,13 +1791,55 @@ export default function ReceptionistProfilePage() {
             </div>
           </div>
         </div>
+        )}
 
-        {/* Bottom Save Bar */}
-        <div className="flex items-center justify-end pt-4 border-t border-zinc-200">
+        {/* Bottom Tab Navigation & Save Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-zinc-200">
+          <div className="flex items-center gap-2">
+            {activeTab !== "persona" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const tabs: ("persona" | "faq" | "pricing" | "emergency" | "schedule")[] = [
+                    "persona",
+                    "faq",
+                    "pricing",
+                    "emergency",
+                    "schedule",
+                  ];
+                  const idx = tabs.indexOf(activeTab);
+                  if (idx > 0) setActiveTab(tabs[idx - 1]);
+                }}
+                className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-semibold"
+              >
+                &larr; Previous Tab
+              </button>
+            )}
+            {activeTab !== "schedule" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const tabs: ("persona" | "faq" | "pricing" | "emergency" | "schedule")[] = [
+                    "persona",
+                    "faq",
+                    "pricing",
+                    "emergency",
+                    "schedule",
+                  ];
+                  const idx = tabs.indexOf(activeTab);
+                  if (idx < tabs.length - 1) setActiveTab(tabs[idx + 1]);
+                }}
+                className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-semibold"
+              >
+                Next Tab &rarr;
+              </button>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-sm disabled:opacity-50"
+            className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
           >
             {saving ? (
               "Saving..."

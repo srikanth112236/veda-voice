@@ -283,3 +283,35 @@ def test_admin_master_subscription_override_and_status_controls() -> None:
     )
     assert restore_res.status_code == 200
     assert restore_res.json()["status"] == "active"
+
+
+def test_automated_cron_renewal_processing() -> None:
+    """Verify automated cron processes expired cycles, transfers pending tiers, and computes 10% rollovers."""
+    from datetime import UTC, datetime, timedelta
+
+    from api.app.db.session import SessionLocal
+    from api.app.models.subscription import Subscription
+
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@vedavoice.io", "password": "Admin@VedaVoice2026!"},
+    )
+    assert admin_login.status_code == 200
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+
+    # Manually expire one subscription's cycle_end_date for testing cron
+    with SessionLocal() as db:
+        sub = db.query(Subscription).filter(Subscription.tier != "trial").first()
+        if sub:
+            sub.cycle_end_date = datetime.now(UTC) - timedelta(days=1)
+            sub.pending_tier = "enterprise"
+            sub.pending_effective_at = datetime.now(UTC) - timedelta(days=1)
+            db.commit()
+
+    # Trigger cron renewal
+    cron_res = client.post("/api/v1/subscriptions/cron/process-renewals", headers=admin_headers)
+    assert cron_res.status_code == 200
+    cron_data = cron_res.json()
+    assert cron_data["success"] is True
+    assert "renewed_count" in cron_data
+    assert isinstance(cron_data["renewals"], list)

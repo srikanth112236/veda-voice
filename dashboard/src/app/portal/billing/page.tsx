@@ -40,10 +40,11 @@ export default function BillingPage() {
   const [couponError, setCouponError] = useState("");
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeSuccess, setUpgradeSuccess] = useState<string | null>(null);
-  const [renewing, setRenewing] = useState(false);
 
-  // Stripe Checkout Modal state
+  // Stripe Checkout Test Mode state
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [testCardType, setTestCardType] = useState<"success" | "decline">("success");
+  const [authStep, setAuthStep] = useState<string>("");
   const [cardData, setCardData] = useState({
     number: "4242 •••• •••• 4242",
     expiry: "12/28",
@@ -52,6 +53,27 @@ export default function BillingPage() {
     name: "Apex Plumbing & Heating",
   });
   const [openingPortal, setOpeningPortal] = useState(false);
+
+  const selectTestCardPreset = (type: "success" | "decline") => {
+    setTestCardType(type);
+    if (type === "success") {
+      setCardData({
+        number: "4242 •••• •••• 4242",
+        expiry: "12/28",
+        cvc: "888",
+        zip: "78701",
+        name: "Apex Plumbing & Heating",
+      });
+    } else {
+      setCardData({
+        number: "4000 •••• •••• 0002",
+        expiry: "12/28",
+        cvc: "002",
+        zip: "90210",
+        name: "Apex Plumbing & Heating",
+      });
+    }
+  };
 
   const loadSubscription = () => {
     setLoading(true);
@@ -90,34 +112,36 @@ export default function BillingPage() {
   };
 
   const handleUpgrade = async () => {
+    if (testCardType === "decline") {
+      setAuthStep("Decline simulated by Stripe Test Mode: Your card has insufficient funds.");
+      return;
+    }
+
     setUpgrading(true);
     setUpgradeSuccess(null);
-    try {
-      const res = await api.upgradeSubscription(
-        selectedTier,
-        validatedCoupon?.code || undefined
-      );
-      setUpgradeSuccess(res.message);
-      setShowCheckoutModal(false);
-      loadSubscription();
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to activate subscription.");
-    } finally {
-      setUpgrading(false);
-    }
-  };
+    setAuthStep("Contacting Stripe Test Gateway...");
 
-  const handleSimulateCycleRenewal = async () => {
-    setRenewing(true);
-    try {
-      const res = await api.cycleRenewSubscription();
-      alert(res.message);
-      loadSubscription();
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Renewal failed.");
-    } finally {
-      setRenewing(false);
-    }
+    setTimeout(async () => {
+      setAuthStep("Simulating 3D Secure authorization...");
+      try {
+        const res = await api.upgradeSubscription(
+          selectedTier,
+          validatedCoupon?.code || undefined
+        );
+        setAuthStep("Payment Intent Authorized!");
+        setTimeout(() => {
+          setUpgradeSuccess(res.message);
+          setShowCheckoutModal(false);
+          setAuthStep("");
+          setUpgrading(false);
+          loadSubscription();
+        }, 700);
+      } catch (err: unknown) {
+        setAuthStep("");
+        setUpgrading(false);
+        alert(err instanceof Error ? err.message : "Failed to activate subscription.");
+      }
+    }, 800);
   };
 
   const handleOpenCustomerPortal = async () => {
@@ -167,31 +191,23 @@ export default function BillingPage() {
           </p>
         </div>
 
-        {/* Cycle Renewal Simulation & Portal Action */}
+        {/* Automated Renewal & Customer Portal Action */}
         <div className="flex items-center gap-2.5">
-          {!sub.is_trial && (
-            <>
-              <button
-                type="button"
-                onClick={handleSimulateCycleRenewal}
-                disabled={renewing}
-                className="px-3.5 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-800 text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
-                title="Simulate 30-day monthly billing reset with 10% complimentary rollover"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${renewing ? "animate-spin text-indigo-600" : ""}`} />
-                Simulate 10% Rollover
-              </button>
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-100 border border-zinc-200 text-[11px] text-zinc-700 font-mono">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Auto-Renews: {new Date(sub.cycle_end_date).toLocaleDateString()}</span>
+          </div>
 
-              <button
-                type="button"
-                onClick={handleOpenCustomerPortal}
-                disabled={openingPortal}
-                className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Stripe Portal
-              </button>
-            </>
+          {!sub.is_trial && (
+            <button
+              type="button"
+              onClick={handleOpenCustomerPortal}
+              disabled={openingPortal}
+              className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Stripe Customer Portal
+            </button>
           )}
         </div>
       </div>
@@ -587,31 +603,78 @@ export default function BillingPage() {
         )}
       </div>
 
-      {/* STRIPE CHECKOUT MODAL */}
+      {/* STRIPE CHECKOUT TEST MODE MODAL */}
       {showCheckoutModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-5 shadow-2xl">
+            {/* Stripe Test Mode Banner Header */}
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-zinc-900 flex items-center justify-center text-white font-bold text-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-[#635BFF] flex items-center justify-center text-white font-bold text-sm shadow-sm">
                   S
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm text-zinc-900">Stripe Secure Checkout</h3>
-                  <div className="text-[10px] text-zinc-500 font-mono">256-Bit Encrypted Payment</div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-zinc-900">Stripe Checkout</h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                      TEST MODE
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-zinc-500">LiveKit Minute Subscription Gateway</div>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowCheckoutModal(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+                onClick={() => {
+                  setShowCheckoutModal(false);
+                  setAuthStep("");
+                }}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
+            {/* Test Card Quick Selectors */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-zinc-700 block">Stripe Test Card Presets:</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => selectTestCardPreset("success")}
+                  className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-center justify-between ${
+                    testCardType === "success"
+                      ? "border-emerald-500 bg-emerald-50/60 text-emerald-950 font-semibold"
+                      : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                  }`}
+                >
+                  <div>
+                    <div className="font-mono text-[11px]">4242 •••• 4242</div>
+                    <div className="text-[10px] text-emerald-700">Instant Success</div>
+                  </div>
+                  {testCardType === "success" && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => selectTestCardPreset("decline")}
+                  className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-center justify-between ${
+                    testCardType === "decline"
+                      ? "border-red-500 bg-red-50/60 text-red-950 font-semibold"
+                      : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                  }`}
+                >
+                  <div>
+                    <div className="font-mono text-[11px]">4000 •••• 0002</div>
+                    <div className="text-[10px] text-red-600">Simulate Decline</div>
+                  </div>
+                  {testCardType === "decline" && <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
+                </button>
+              </div>
+            </div>
+
             {/* Order Summary */}
-            <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2 text-xs font-mono">
+            <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-2 text-xs font-mono">
               <div className="flex justify-between text-zinc-600">
                 <span>Selected Plan:</span>
                 <span className="font-bold text-zinc-900 uppercase">{selectedTier} (1,200 min/mo)</span>
@@ -632,7 +695,7 @@ export default function BillingPage() {
               </div>
             </div>
 
-            {/* Rollover Notification */}
+            {/* Rollover Guarantee Banner */}
             <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900 flex items-start gap-2">
               <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
               <span>
@@ -640,7 +703,7 @@ export default function BillingPage() {
               </span>
             </div>
 
-            {/* Mock Stripe Card Elements */}
+            {/* Interactive Stripe Card Form */}
             <div className="space-y-3 text-xs">
               <div className="space-y-1">
                 <label className="font-semibold text-zinc-700">Cardholder Name</label>
@@ -653,7 +716,10 @@ export default function BillingPage() {
               </div>
 
               <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">Card Number</label>
+                <label className="font-semibold text-zinc-700 flex items-center justify-between">
+                  <span>Card Number</span>
+                  <span className="text-[10px] font-mono text-zinc-400">TEST MODE ENCRYPTED</span>
+                </label>
                 <div className="relative">
                   <CreditCard className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
                   <input
@@ -696,12 +762,31 @@ export default function BillingPage() {
               </div>
             </div>
 
+            {/* Auth Step Feedback */}
+            {authStep && (
+              <div className={`p-3 rounded-xl text-xs font-mono font-medium flex items-center gap-2 ${
+                authStep.includes("Decline")
+                  ? "bg-red-50 text-red-800 border border-red-200"
+                  : authStep.includes("Authorized")
+                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                  : "bg-indigo-50 text-indigo-800 border border-indigo-200"
+              }`}>
+                {upgrading && <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />}
+                {authStep.includes("Decline") && <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-red-600" />}
+                {authStep.includes("Authorized") && <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />}
+                <span>{authStep}</span>
+              </div>
+            )}
+
             {/* Actions */}
-            <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-2">
+            <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-2.5">
               <button
                 type="button"
-                onClick={() => setShowCheckoutModal(false)}
-                className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+                onClick={() => {
+                  setShowCheckoutModal(false);
+                  setAuthStep("");
+                }}
+                className="px-4 py-2.5 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
               >
                 Cancel
               </button>
@@ -709,10 +794,10 @@ export default function BillingPage() {
                 type="button"
                 disabled={upgrading}
                 onClick={handleUpgrade}
-                className="px-5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+                className="px-6 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5349e4] text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-[#635BFF]/20 transition-all disabled:opacity-50"
               >
                 <Lock className="w-3.5 h-3.5" />
-                {upgrading ? "Authorizing Card..." : `Pay $${finalPrice}.00 USD`}
+                {upgrading ? "Processing..." : `Pay $${finalPrice}.00 USD (Test Mode)`}
               </button>
             </div>
           </div>

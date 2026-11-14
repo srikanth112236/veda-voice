@@ -54,6 +54,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [maskPii, setMaskPii] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"telemetry" | "tenants" | "billing" | "inventory" | "coupons">("telemetry");
   const [provisioningMode, setProvisioningMode] = useState<"carrier_search" | "agency_pool">("carrier_search");
 
   // Phone number inventory filter & actions state
@@ -429,7 +430,89 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* 5-Tab Admin Command Suite */}
+      <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveTab("telemetry")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "telemetry"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <Gauge className="w-3.5 h-3.5 text-indigo-600" />
+          <span>System Telemetry</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("tenants")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "tenants"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <Building2 className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Organizations</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
+            {tenants.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("billing")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "billing"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <CreditCard className="w-3.5 h-3.5 text-amber-600" />
+          <span>Subscriptions &amp; Billing</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
+            {subscriptions.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("inventory")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "inventory"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <Phone className="w-3.5 h-3.5 text-sky-600" />
+          <span>Carrier &amp; SIP Trunks</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
+            {numbers.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("coupons")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "coupons"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <Tag className="w-3.5 h-3.5 text-violet-600" />
+          <span>Platform Coupons</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
+            {coupons.length}
+          </span>
+        </button>
+      </div>
+
       {/* SECTION 1: Global Concurrency & Capacity Saturation Gauges */}
+      {activeTab === "telemetry" && (
+      <div className="space-y-6">
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
           <div className="flex items-center gap-2">
@@ -605,7 +688,104 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* SECTION 3: Model Inference Cost & Profit Margin Intelligence */}
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+              Model Inference CoGS &amp; SaaS Margin Intelligence
+            </h2>
+            <InfoTrigger topic="admin_inference_cogs" />
+          </div>
+          <span className="text-xs font-mono text-zinc-600">
+            Per-Minute Unit Cost: <strong className="text-emerald-700 font-bold">${cost.total_cogs_per_min.toFixed(4)}/min</strong>
+          </span>
+        </div>
+
+        {/* CoGS Waterfall Breakdown */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
+              <span>WebRTC SFU Media</span>
+              <Cpu className="w-3.5 h-3.5 text-zinc-400" />
+            </div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_livekit_per_min.toFixed(4)}</div>
+            <div className="text-[10px] text-zinc-500 font-sans">LiveKit Cloud routing</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
+              <span>Nova-2 STT</span>
+              <Activity className="w-3.5 h-3.5 text-zinc-400" />
+            </div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_deepgram_per_min.toFixed(4)}</div>
+            <div className="text-[10px] text-zinc-500 font-sans">Deepgram streaming</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
+              <span>Gemini 2.5 Flash</span>
+              <Zap className="w-3.5 h-3.5 text-zinc-400" />
+            </div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_gemini_per_min.toFixed(4)}</div>
+            <div className="text-[10px] text-zinc-500 font-sans">~520 tokens / turn</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
+            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
+              <span>Neural TTS</span>
+              <Radio className="w-3.5 h-3.5 text-zinc-400" />
+            </div>
+            <div className="text-sm font-bold text-zinc-900">${cost.cost_tts_per_min.toFixed(4)}</div>
+            <div className="text-[10px] text-zinc-500 font-sans">Inworld / Rime audio</div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/70 space-y-1">
+            <div className="flex items-center justify-between text-emerald-800 text-[11px]">
+              <span className="font-semibold">Total CoGS / Min</span>
+              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+            </div>
+            <div className="text-base font-extrabold text-emerald-700">${cost.total_cogs_per_min.toFixed(4)}</div>
+            <div className="text-[10px] text-emerald-700/80 font-sans">All-in platform cost</div>
+          </div>
+        </div>
+
+        {/* Agency Financial Intelligence Summary */}
+        <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/50 grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
+          <div>
+            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Billed Call Minutes</div>
+            <div className="text-xl font-extrabold font-mono text-zinc-900">{cost.total_billable_minutes.toFixed(1)} mins</div>
+            <div className="text-[10px] text-zinc-500">Across {stats?.total_calls || 0} customer calls</div>
+          </div>
+
+          <div>
+            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Inference &amp; Carrier CoGS</div>
+            <div className="text-xl font-extrabold font-mono text-zinc-900">${cost.est_telephony_cost_usd.toFixed(2)}</div>
+            <div className="text-[10px] text-zinc-500">Real-time compute cost</div>
+          </div>
+
+          <div>
+            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Tenant SaaS MRR</div>
+            <div className="text-xl font-extrabold font-mono text-emerald-600">${cost.est_monthly_revenue_usd.toFixed(2)}</div>
+            <div className="text-[10px] text-zinc-500">${cost.tenant_subscription_fee_usd}/mo &times; {stats?.total_tenants || 0} clients</div>
+          </div>
+
+          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50">
+            <div className="text-[11px] text-emerald-800 uppercase font-mono flex items-center gap-1 font-bold">
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+              Platform Gross Margin
+            </div>
+            <div className="text-2xl font-extrabold font-mono text-emerald-700">{cost.gross_margin_pct.toFixed(1)}%</div>
+            <div className="text-[10px] text-emerald-700/90 font-medium">Target margin: &gt;85%</div>
+          </div>
+        </div>
+      </div>
+      </div>
+      )}
+
       {/* SECTION 2B: Automated Phone Number Inventory & LiveKit SIP Trunk Binding */}
+      {activeTab === "inventory" && (
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-3">
           <div className="flex items-center gap-2">
@@ -969,253 +1149,164 @@ export default function AdminDashboardPage() {
           </div>
         )}
       </div>
+      )}
 
-      {/* SECTION 3: Model Inference Cost & Profit Margin Intelligence */}
+      {/* SECTION 4A: Tenant Minute Subscriptions Overview (Full Width) */}
+      {activeTab === "billing" && (
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
           <div className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-emerald-600" />
+            <CreditCard className="w-4 h-4 text-indigo-600" />
             <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Model Inference CoGS &amp; SaaS Margin Intelligence
+              Tenant Minute Subscriptions &amp; Rollovers
             </h2>
-            <InfoTrigger topic="admin_inference_cogs" />
           </div>
-          <span className="text-xs font-mono text-zinc-600">
-            Per-Minute Unit Cost: <strong className="text-emerald-700 font-bold">${cost.total_cogs_per_min.toFixed(4)}/min</strong>
+          <span className="text-xs text-zinc-500 font-mono">
+            $0.20/min overage &bull; 10% monthly complimentary rollover
           </span>
         </div>
 
-        {/* CoGS Waterfall Breakdown */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>WebRTC SFU Media</span>
-              <Cpu className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_livekit_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">LiveKit Cloud routing</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>Nova-2 STT</span>
-              <Activity className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_deepgram_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">Deepgram streaming</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>Gemini 2.5 Flash</span>
-              <Zap className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_gemini_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">~520 tokens / turn</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>Neural TTS</span>
-              <Radio className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_tts_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">Inworld / Rime audio</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/70 space-y-1">
-            <div className="flex items-center justify-between text-emerald-800 text-[11px]">
-              <span className="font-semibold">Total CoGS / Min</span>
-              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-            </div>
-            <div className="text-base font-extrabold text-emerald-700">${cost.total_cogs_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-emerald-700/80 font-sans">All-in platform cost</div>
-          </div>
-        </div>
-
-        {/* Agency Financial Intelligence Summary */}
-        <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/50 grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
-          <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Billed Call Minutes</div>
-            <div className="text-xl font-extrabold font-mono text-zinc-900">{cost.total_billable_minutes.toFixed(1)} mins</div>
-            <div className="text-[10px] text-zinc-500">Across {stats?.total_calls || 0} customer calls</div>
-          </div>
-
-          <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Inference &amp; Carrier CoGS</div>
-            <div className="text-xl font-extrabold font-mono text-zinc-900">${cost.est_telephony_cost_usd.toFixed(2)}</div>
-            <div className="text-[10px] text-zinc-500">Real-time compute cost</div>
-          </div>
-
-          <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Tenant SaaS MRR</div>
-            <div className="text-xl font-extrabold font-mono text-emerald-600">${cost.est_monthly_revenue_usd.toFixed(2)}</div>
-            <div className="text-[10px] text-zinc-500">${cost.tenant_subscription_fee_usd}/mo &times; {stats?.total_tenants || 0} clients</div>
-          </div>
-
-          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50">
-            <div className="text-[11px] text-emerald-800 uppercase font-mono flex items-center gap-1 font-bold">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-              Platform Gross Margin
-            </div>
-            <div className="text-2xl font-extrabold font-mono text-emerald-700">{cost.gross_margin_pct.toFixed(1)}%</div>
-            <div className="text-[10px] text-emerald-700/90 font-medium">Target margin: &gt;85%</div>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 4: Stripe Minute Subscriptions & Coupon Code Engine */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Tenant Minute Subscriptions Overview (2 cols) */}
-        <div className="lg:col-span-2 rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-            <div className="flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-indigo-600" />
-              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-                Tenant Minute Subscriptions &amp; Rollovers
-              </h2>
-            </div>
-            <span className="text-xs text-zinc-500 font-mono">
-              $0.20/min overage &bull; 10% monthly rollover
-            </span>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-                <tr>
-                  <th className="p-3">Organization</th>
-                  <th className="p-3">Current Plan</th>
-                  <th className="p-3">Included Minutes</th>
-                  <th className="p-3">Bonus / Rollover</th>
-                  <th className="p-3">Used Minutes</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {subscriptions.map((sub: any) => (
-                  <tr key={sub.tenant_id} className="hover:bg-zinc-50/80 transition-colors">
-                    <td className="p-3">
-                      <div className="font-semibold text-zinc-900">{sub.tenant_name}</div>
-                      <div className="text-[10px] text-zinc-500 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
-                    </td>
-                    <td className="p-3">
-                      <div className="flex items-center gap-1">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
-                          {sub.tier}
-                        </span>
-                        {sub.status === "active" && (
-                          <span className="text-[10px] text-emerald-600 font-medium">● Active</span>
-                        )}
-                        {sub.status === "suspended" && (
-                          <span className="text-[10px] text-red-600 font-medium">● Suspended</span>
-                        )}
-                      </div>
-                      {sub.pending_tier && (
-                        <div className="text-[10px] text-amber-700 font-mono mt-1 font-semibold flex items-center gap-1">
-                          <span>⏳ Queued:</span>
-                          <span className="uppercase">{sub.pending_tier}</span>
-                        </div>
-                      )}
-                      {sub.is_cycle_locked && (
-                        <div className="text-[9px] text-zinc-400 font-mono">
-                          Auto-renews: {sub.cycle_end_date ? new Date(sub.cycle_end_date).toLocaleDateString() : "30d"}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3 font-mono font-bold text-zinc-800">
-                      {sub.monthly_included_minutes.toLocaleString()} mins
-                    </td>
-                    <td className="p-3 font-mono">
-                      <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                        +{sub.bonus_rollover_minutes.toFixed(1)} mins
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+              <tr>
+                <th className="p-3">Organization</th>
+                <th className="p-3">Current Plan</th>
+                <th className="p-3">Included Minutes</th>
+                <th className="p-3">Bonus / Rollover</th>
+                <th className="p-3">Used Minutes</th>
+                <th className="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {subscriptions.map((sub: any) => (
+                <tr key={sub.tenant_id} className="hover:bg-zinc-50/80 transition-colors">
+                  <td className="p-3">
+                    <div className="font-semibold text-zinc-900">{sub.tenant_name}</div>
+                    <div className="text-[10px] text-zinc-500 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-1">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
+                        {sub.tier}
                       </span>
-                    </td>
-                    <td className="p-3 font-mono text-zinc-600">
-                      {sub.used_minutes_this_cycle.toFixed(1)} mins
-                    </td>
-                    <td className="p-3 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => openManageSubModal(sub)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold mr-1.5 shadow-sm transition-all"
-                      >
-                        Manage Plan
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowGrantModal(sub.tenant_id)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-medium transition-colors"
-                      >
-                        <Gift className="w-3 h-3 text-indigo-600" />
-                        Grant Bonus
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {subscriptions.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="p-6 text-center text-zinc-500 font-mono text-xs">
-                      No active tenant subscriptions.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Right: Coupon Code Engine (1 col) */}
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-          <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-            <div className="flex items-center gap-2">
-              <Tag className="w-4 h-4 text-emerald-600" />
-              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-                Admin Coupon Engine
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowCouponModal(true)}
-              className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1 shadow-sm"
-            >
-              <Plus className="w-3 h-3" />
-              New Code
-            </button>
-          </div>
-
-          <div className="space-y-2.5">
-            {coupons.map((c: any) => (
-              <div
-                key={c.code}
-                className="p-3 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between text-xs"
-              >
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-zinc-900 bg-white px-2 py-0.5 rounded border border-zinc-200">
-                      {c.code}
+                      {sub.status === "active" && (
+                        <span className="text-[10px] text-emerald-600 font-medium">● Active</span>
+                      )}
+                      {sub.status === "suspended" && (
+                        <span className="text-[10px] text-red-600 font-medium">● Suspended</span>
+                      )}
+                    </div>
+                    {sub.pending_tier && (
+                      <div className="text-[10px] text-amber-700 font-mono mt-1 font-semibold flex items-center gap-1">
+                        <span>⏳ Queued:</span>
+                        <span className="uppercase">{sub.pending_tier}</span>
+                      </div>
+                    )}
+                    {sub.is_cycle_locked && (
+                      <div className="text-[9px] text-zinc-400 font-mono">
+                        Auto-renews: {sub.cycle_end_date ? new Date(sub.cycle_end_date).toLocaleDateString() : "30d"}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-3 font-mono font-bold text-zinc-800">
+                    {sub.monthly_included_minutes.toLocaleString()} mins
+                  </td>
+                  <td className="p-3 font-mono">
+                    <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      +{sub.bonus_rollover_minutes.toFixed(1)} mins
                     </span>
-                    <span className="text-[10px] text-emerald-700 font-semibold font-mono">
-                      {c.discount_percent}% OFF
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-zinc-500">
-                    +{c.bonus_minutes} bonus minutes &bull; Redeemed: {c.times_redeemed}/{c.max_redemptions}
-                  </div>
-                </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-                  Active
-                </span>
-              </div>
-            ))}
-            {coupons.length === 0 && (
-              <div className="p-4 text-center text-zinc-400 font-mono text-xs">
-                No active coupon codes created yet.
-              </div>
-            )}
-          </div>
+                  </td>
+                  <td className="p-3 font-mono text-zinc-600">
+                    {sub.used_minutes_this_cycle.toFixed(1)} mins
+                  </td>
+                  <td className="p-3 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => openManageSubModal(sub)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold mr-1.5 shadow-sm transition-all"
+                    >
+                      Manage Plan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowGrantModal(sub.tenant_id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-medium transition-colors"
+                    >
+                      <Gift className="w-3 h-3 text-indigo-600" />
+                      Grant Bonus
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {subscriptions.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-zinc-500 font-mono text-xs">
+                    No active tenant subscriptions.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
+      )}
+
+      {/* SECTION 4B: Admin Coupon Engine (Full Width) */}
+      {activeTab === "coupons" && (
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+        <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+          <div className="flex items-center gap-2">
+            <Tag className="w-4 h-4 text-emerald-600" />
+            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+              Admin Platform Coupon Engine
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCouponModal(true)}
+            className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Create Promo Code
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {coupons.map((c: any) => (
+            <div
+              key={c.code}
+              className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/70 hover:bg-zinc-50 transition-colors flex items-center justify-between text-xs"
+            >
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-zinc-900 bg-white px-2.5 py-1 rounded-lg border border-zinc-200 text-sm">
+                    {c.code}
+                  </span>
+                  <span className="text-[11px] text-emerald-700 font-bold font-mono bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    {c.discount_percent}% OFF
+                  </span>
+                </div>
+                <div className="text-[11px] text-zinc-600 pt-0.5">
+                  +{c.bonus_minutes} complimentary minutes
+                </div>
+                <div className="text-[10px] text-zinc-400 font-mono">
+                  Redemptions: <strong className="text-zinc-700">{c.times_redeemed}</strong> / {c.max_redemptions}
+                </div>
+              </div>
+              <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+                Active
+              </span>
+            </div>
+          ))}
+          {coupons.length === 0 && (
+            <div className="col-span-full p-8 text-center text-zinc-400 font-mono text-xs">
+              No active coupon codes created yet. Click &quot;Create Promo Code&quot; above to issue new tenant discounts.
+            </div>
+          )}
+        </div>
+      </div>
+      )}
 
       {/* Grant Bonus Minutes Modal */}
       {showGrantModal && (
@@ -1485,6 +1576,7 @@ export default function AdminDashboardPage() {
       )}
 
       {/* SECTION 5: Client Tenants Table with PII Masking & Quota Throttles */}
+      {activeTab === "tenants" && (
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1622,6 +1714,7 @@ export default function AdminDashboardPage() {
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

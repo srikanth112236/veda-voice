@@ -79,6 +79,47 @@ def _is_expired(dt: datetime | None) -> bool:
     return datetime.now(UTC) > dt
 
 
+def execute_cycle_renewal(sub: Subscription, db: Session) -> dict[str, Any]:
+    """Execute monthly billing renewal, apply pending plan changes, and add 10% complimentary rollover."""
+    transitioned_plan_msg = ""
+    if sub.pending_tier and sub.pending_tier in TIER_PLANS:
+        new_plan = TIER_PLANS[sub.pending_tier]
+        sub.tier = sub.pending_tier
+        sub.monthly_included_minutes = int(new_plan["minutes"])
+        transitioned_plan_msg = f" Plan transitioned to {new_plan['name']}."
+        sub.pending_tier = None
+        sub.pending_effective_at = None
+
+    # Rollover Rule: 10% of unused monthly plan minutes roll over as complimentary bonus minutes
+    unused_base_minutes = max(
+        0.0, float(sub.monthly_included_minutes) - sub.used_minutes_this_cycle
+    )
+    complimentary_rollover_bonus = round(unused_base_minutes * 0.10, 2)
+
+    sub.bonus_rollover_minutes += complimentary_rollover_bonus
+    sub.used_minutes_this_cycle = 0.0
+    sub.cycle_start_date = datetime.now(UTC)
+    sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+    sub.cycle_change_locked_until = datetime.now(UTC) + timedelta(days=30)
+
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+
+    return {
+        "success": True,
+        "message": f"Cycle renewed.{transitioned_plan_msg} 10% unused complimentary rollover added ({complimentary_rollover_bonus} minutes).",
+        "new_bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+        "tier": sub.tier,
+        "monthly_included_minutes": sub.monthly_included_minutes,
+        "total_available_minutes": round(
+            float(sub.monthly_included_minutes) + sub.bonus_rollover_minutes, 2
+        ),
+        "cycle_end_date": sub.cycle_end_date.isoformat(),
+        "rollover_added": complimentary_rollover_bonus,
+    }
+
+
 def get_or_create_subscription(db: Session, tenant_id: str) -> Subscription:
     """Ensure every tenant has an active subscription or free trial record."""
     sub = cast(
@@ -123,6 +164,10 @@ def get_current_subscription(
         )
 
     sub = get_or_create_subscription(db, user.tenant_id)
+
+    # Automatic Cycle Renewal check: if subscription cycle has expired, process renewal and 10% rollover automatically
+    if sub.tier != "trial" and _is_expired(sub.cycle_end_date):
+        execute_cycle_renewal(sub, db)
 
     # Calculate remaining minutes based on tier
     if sub.tier == "trial":
@@ -337,7 +382,7 @@ def cycle_renewal_rollover(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Simulate or execute monthly billing renewal with 10% complimentary unused rollover."""
+    """Execute monthly billing renewal with 10% complimentary unused rollover."""
     if not user.tenant_id:
         raise HTTPException(status_code=400, detail="Tenant context required.")
 
@@ -347,41 +392,42 @@ def cycle_renewal_rollover(
             status_code=400, detail="Trial subscriptions do not cycle renew. Upgrade to paid tier."
         )
 
-    # Check if a pending tier change was scheduled for this cycle renewal
-    transitioned_plan_msg = ""
-    if sub.pending_tier and sub.pending_tier in TIER_PLANS:
-        new_plan = TIER_PLANS[sub.pending_tier]
-        sub.tier = sub.pending_tier
-        sub.monthly_included_minutes = int(new_plan["minutes"])
-        transitioned_plan_msg = f" Plan transitioned to {new_plan['name']}."
-        sub.pending_tier = None
-        sub.pending_effective_at = None
+    return execute_cycle_renewal(sub, db)
 
-    # Rollover Rule 2: 10% of unused monthly plan minutes roll over as complimentary bonus minutes!
-    unused_base_minutes = max(
-        0.0, float(sub.monthly_included_minutes) - sub.used_minutes_this_cycle
-    )
-    complimentary_rollover_bonus = round(unused_base_minutes * 0.10, 2)
 
-    sub.bonus_rollover_minutes += complimentary_rollover_bonus
-    sub.used_minutes_this_cycle = 0.0
-    sub.cycle_start_date = datetime.now(UTC)
-    sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
-    sub.cycle_change_locked_until = datetime.now(UTC) + timedelta(days=30)
+@router.post("/subscriptions/cron/process-renewals")
+def process_automated_renewals(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Platform cron endpoint: scans and auto-renews all subscriptions whose cycle has expired."""
+    now = datetime.now(UTC)
+    expired_subs = db.scalars(
+        select(Subscription).where(
+            Subscription.tier != "trial",
+            Subscription.status == "active",
+            Subscription.cycle_end_date <= now,
+        )
+    ).all()
 
-    db.commit()
-    db.refresh(sub)
+    renewed_records: list[dict[str, Any]] = []
+    for sub in expired_subs:
+        result = execute_cycle_renewal(sub, db)
+        renewed_records.append(
+            {
+                "tenant_id": sub.tenant_id,
+                "tier": sub.tier,
+                "rollover_added": result["rollover_added"],
+                "total_available_minutes": result["total_available_minutes"],
+                "new_cycle_end": result["cycle_end_date"],
+            }
+        )
 
     return {
         "success": True,
-        "message": f"Cycle renewed.{transitioned_plan_msg} 10% unused complimentary rollover added ({complimentary_rollover_bonus} minutes).",
-        "new_bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
-        "tier": sub.tier,
-        "monthly_included_minutes": sub.monthly_included_minutes,
-        "total_available_minutes": round(
-            float(sub.monthly_included_minutes) + sub.bonus_rollover_minutes, 2
-        ),
-        "cycle_end_date": sub.cycle_end_date.isoformat(),
+        "processed_at": now.isoformat(),
+        "renewed_count": len(renewed_records),
+        "renewals": renewed_records,
     }
 
 
