@@ -384,13 +384,30 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Pre-connected participant check
     for participant in ctx.room.remote_participants.values():
-        attrs = getattr(participant, "attributes", {})
+        attrs = getattr(participant, "attributes", {}) or {}
         sip_info = parse_sip_attributes(attrs)
-        config = resolve_tenant(sip_info["dialed_number"])
+        p_dialed = (
+            sip_info["dialed_number"]
+            or (attrs.get("dialed_number") if isinstance(attrs, dict) else "")
+            or (attrs.get("phone_number") if isinstance(attrs, dict) else "")
+        )
+        p_tenant = attrs.get("tenant_id") if isinstance(attrs, dict) else ""
+        if p_dialed:
+            config = resolve_tenant(p_dialed)
+        elif p_tenant:
+            try:
+                config = load_business_config(p_tenant)
+            except Exception:
+                config = load_business_config("default")
+        else:
+            config = load_business_config("default")
+
         message_collector.tenant_id = config.tenant_id
         message_collector.caller_id_phone = sip_info["caller_number"]
         caller_masked = redact_phone(sip_info["caller_number"])
-        dialed_masked = redact_phone(sip_info["dialed_number"])
+        dialed_masked = redact_phone(
+            p_dialed or (config.numbers[0] if config.numbers else "[default]")
+        )
         logger.info(
             "Pre-connected caller in room %s: identity=%s caller=%s dialed=%s call_id=%s tenant=%s",
             room_name,
