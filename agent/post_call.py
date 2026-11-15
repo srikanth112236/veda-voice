@@ -139,7 +139,9 @@ def build_post_call_alert(record: CallRecord, config: BusinessConfig) -> PostCal
     elif "urgent" in record.tags:
         urgency = "urgent"
 
-    recipient = os.getenv("OWNER_ALERT_EMAIL", "owner@example.com")
+    recipient = getattr(config, "notification_email", "") or os.getenv(
+        "OWNER_ALERT_EMAIL", "owner@example.com"
+    )
 
     # Format Subject with Urgency Banner
     if urgency == "emergency":

@@ -85,6 +85,10 @@ class UpdateAgentProfileRequest(BaseModel):
     service_cities: list[str] | None = None
     after_hours_policy: str | None = None
     out_of_area_policy: str | None = None
+    notification_email: str | None = None
+    notification_phone: str | None = None
+    notify_on_all_calls: bool | None = None
+    notify_sms_on_emergency: bool | None = None
 
 
 class AgentProfileResponse(BaseModel):
@@ -112,6 +116,10 @@ class AgentProfileResponse(BaseModel):
     service_cities: list[str] = Field(default_factory=list)
     after_hours_policy: str = "take_message_all"
     out_of_area_policy: str = "polite_decline"
+    notification_email: str = ""
+    notification_phone: str = ""
+    notify_on_all_calls: bool = True
+    notify_sms_on_emergency: bool = True
 
 
 @router.get("/dashboard", response_model=TenantDashboardStats)
@@ -281,6 +289,14 @@ def get_agent_profile(
         service_cities=getattr(profile, "service_cities", None) or [],
         after_hours_policy=getattr(profile, "after_hours_policy", None) or "take_message_all",
         out_of_area_policy=getattr(profile, "out_of_area_policy", None) or "polite_decline",
+        notification_email=getattr(profile, "notification_email", "") or "",
+        notification_phone=getattr(profile, "notification_phone", "") or "",
+        notify_on_all_calls=True
+        if getattr(profile, "notify_on_all_calls", None) is None
+        else bool(profile.notify_on_all_calls),
+        notify_sms_on_emergency=True
+        if getattr(profile, "notify_sms_on_emergency", None) is None
+        else bool(profile.notify_sms_on_emergency),
     )
 
 
@@ -350,6 +366,14 @@ def update_agent_profile(
         profile.after_hours_policy = req.after_hours_policy
     if req.out_of_area_policy is not None:
         profile.out_of_area_policy = req.out_of_area_policy
+    if req.notification_email is not None:
+        profile.notification_email = req.notification_email.strip()
+    if req.notification_phone is not None:
+        profile.notification_phone = req.notification_phone.strip()
+    if req.notify_on_all_calls is not None:
+        profile.notify_on_all_calls = req.notify_on_all_calls
+    if req.notify_sms_on_emergency is not None:
+        profile.notify_sms_on_emergency = req.notify_sms_on_emergency
 
     profile.updated_at = datetime.now(UTC)
     db.commit()
@@ -402,4 +426,12 @@ def update_agent_profile(
         service_cities=getattr(profile, "service_cities", None) or [],
         after_hours_policy=getattr(profile, "after_hours_policy", None) or "take_message_all",
         out_of_area_policy=getattr(profile, "out_of_area_policy", None) or "polite_decline",
+        notification_email=getattr(profile, "notification_email", "") or "",
+        notification_phone=getattr(profile, "notification_phone", "") or "",
+        notify_on_all_calls=True
+        if getattr(profile, "notify_on_all_calls", None) is None
+        else bool(profile.notify_on_all_calls),
+        notify_sms_on_emergency=True
+        if getattr(profile, "notify_sms_on_emergency", None) is None
+        else bool(profile.notify_sms_on_emergency),
     )

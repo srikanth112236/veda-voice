@@ -54,5 +54,14 @@ class Settings(BaseSettings):
     CARRIER_PRIMARY_PROVIDER: str = "Twilio Elastic SIP Trunk"
     CARRIER_HOT_STANDBY_PROVIDER: str = "Telnyx SIP (Hot Standby)"
 
+    # Notifications (Email & SMS)
+    NOTIFICATION_ENABLED: bool = True
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "alerts@updates.vedasynk.com"
+    SENDGRID_API_KEY: str = ""
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_FROM_NUMBER: str = ""
+
 
 settings = Settings()

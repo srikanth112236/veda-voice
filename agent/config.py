@@ -62,6 +62,8 @@ class TenantConfig(BaseModel):
     business_notes: str = Field(default="", max_length=500)
     agent_name: str = "receptionist"
     transfer_number: str = ""
+    notification_email: str = ""
+    notification_phone: str = ""
 
     @property
     def emergency_keywords(self) -> list[str]:
@@ -298,6 +300,67 @@ def fetch_tenant_from_api(
                 )
     except Exception as e:
         logger.debug("Dynamic API tenant lookup for %s failed: %s", dialed_number, e)
+        # In-process fallback when running in tests or within the same application process
+        try:
+            from api.app.db.session import SessionLocal
+            from api.app.routers.internal import resolve_tenant_by_number
+
+            with SessionLocal() as db:
+                resp_obj = resolve_tenant_by_number(dialed_number, db=db)
+                if resp_obj:
+                    pricing_mode = resp_obj.pricing_policy
+                    if pricing_mode not in ("no_quote", "listed", "range"):
+                        pricing_mode = "no_quote"
+
+                    tone = resp_obj.tone
+                    if tone not in ("direct", "warm", "formal"):
+                        tone = "direct"
+
+                    emergency_cfg = EmergencyConfig(
+                        keywords=resp_obj.emergency_keywords,
+                        approved_safety_script=resp_obj.emergency_advice,
+                        mode="priority_message",
+                    )
+                    price_items = (
+                        resp_obj.pricing_details.get("price_items", [])
+                        if resp_obj.pricing_details
+                        else []
+                    )
+                    in_process_faqs: list[FAQItem] = []
+                    for f in resp_obj.faq:
+                        if isinstance(f, dict) and "question" in f and "answer" in f:
+                            in_process_faqs.append(
+                                FAQItem(
+                                    question=f["question"],
+                                    answer=f["answer"],
+                                    category=f.get("category", "general"),
+                                    alternate_phrasings=f.get("alternate_phrasings", []),
+                                )
+                            )
+
+                    return TenantConfig(
+                        tenant_id=resp_obj.tenant_id,
+                        business=resp_obj.business_name,
+                        numbers=[dialed_number],
+                        timezone=resp_obj.timezone,
+                        hours=resp_obj.hours,
+                        greeting=resp_obj.greeting,
+                        tone=tone,
+                        voice_id=resp_obj.voice_id,
+                        recording_disclosure=resp_obj.recording_disclosure,
+                        pricing_mode=pricing_mode,
+                        price_items=price_items,
+                        services=resp_obj.services,
+                        faq=in_process_faqs,
+                        emergency=emergency_cfg,
+                        agent_name=resp_obj.agent_name,
+                        transfer_number=resp_obj.transfer_number,
+                    )
+        except Exception as inner_e:
+            logger.debug(
+                "In-process fallback tenant lookup failed for %s: %s", dialed_number, inner_e
+            )
+
         return None
 
     return None

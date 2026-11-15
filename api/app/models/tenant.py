@@ -99,6 +99,10 @@ class AgentProfile(Base):
     out_of_area_policy: Mapped[str] = mapped_column(
         String(64), default="polite_decline", nullable=False
     )
+    notification_email: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    notification_phone: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    notify_on_all_calls: Mapped[bool] = mapped_column(default=True, nullable=False)
+    notify_sms_on_emergency: Mapped[bool] = mapped_column(default=True, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

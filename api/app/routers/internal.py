@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from api.app.db.session import get_db
 from api.app.models.call import Call
 from api.app.models.subscription import Subscription, UsageRecord
 from api.app.models.tenant import PhoneNumber, Tenant
+from api.app.services.notifier import dispatch_call_notifications
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -306,6 +307,7 @@ def start_call(payload: CallStartRequest, db: Session = Depends(get_db)) -> Any:
 @router.post("/calls/complete")
 def save_call_record_from_agent(
     payload: CallCompletionPayload,
+    background_tasks: BackgroundTasks,
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
@@ -420,5 +422,8 @@ def save_call_record_from_agent(
             db.add(usage)
 
     db.commit()
+
+    # Enqueue instant owner alert (Email/SMS) as an asynchronous background task
+    background_tasks.add_task(dispatch_call_notifications, payload.call_id)
 
     return {"status": "ok", "call_id": payload.call_id}

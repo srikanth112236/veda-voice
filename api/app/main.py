@@ -422,6 +422,30 @@ def init_db() -> None:
                         "ALTER TABLE agent_profiles ADD COLUMN out_of_area_policy VARCHAR(64) DEFAULT 'polite_decline'"
                     )
                 )
+            if "notification_email" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN notification_email VARCHAR(255) DEFAULT ''"
+                    )
+                )
+            if "notification_phone" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN notification_phone VARCHAR(32) DEFAULT ''"
+                    )
+                )
+            if "notify_on_all_calls" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN notify_on_all_calls BOOLEAN DEFAULT 1"
+                    )
+                )
+            if "notify_sms_on_emergency" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN notify_sms_on_emergency BOOLEAN DEFAULT 1"
+                    )
+                )
 
             # Tenants table capacity columns
             cursor = conn.execute(text("PRAGMA table_info(tenants)"))
