@@ -65,34 +65,31 @@ def _call_internal_calendar_api(
                         authorization=auth_hdr,
                         db=db,
                     )
-                    return res.model_dump() if hasattr(res, "model_dump") else dict(res)
+                    return cast(
+                        dict[str, Any],
+                        res.model_dump() if hasattr(res, "model_dump") else dict(res),
+                    )
                 if endpoint_path == "hold":
-                    return cast(
-                        dict[str, Any],
-                        hold_appointment_slot(
-                            payload=HoldSlotRequest(**payload),
-                            authorization=auth_hdr,
-                            db=db,
-                        ),
+                    res_hold = hold_appointment_slot(
+                        payload=HoldSlotRequest(**payload),
+                        authorization=auth_hdr,
+                        db=db,
                     )
+                    return cast(dict[str, Any], res_hold)
                 if endpoint_path == "book":
-                    return cast(
-                        dict[str, Any],
-                        confirm_appointment_booking(
-                            payload=BookSlotRequest(**payload),
-                            authorization=auth_hdr,
-                            db=db,
-                        ),
+                    res_book = confirm_appointment_booking(
+                        payload=BookSlotRequest(**payload),
+                        authorization=auth_hdr,
+                        db=db,
                     )
+                    return cast(dict[str, Any], res_book)
                 if endpoint_path == "cancel":
-                    return cast(
-                        dict[str, Any],
-                        cancel_appointment_booking(
-                            payload=CancelBookingRequest(**payload),
-                            authorization=auth_hdr,
-                            db=db,
-                        ),
+                    res_cancel = cancel_appointment_booking(
+                        payload=CancelBookingRequest(**payload),
+                        authorization=auth_hdr,
+                        db=db,
                     )
+                    return cast(dict[str, Any], res_cancel)
         except Exception as inner_e:
             logger.error("In-process internal calendar execution failed: %s", inner_e)
             raise inner_e

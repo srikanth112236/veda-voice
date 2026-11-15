@@ -1,6 +1,6 @@
 param (
     [Parameter(Position=0, Mandatory=$true)]
-    [ValidateSet("dev", "test", "lint", "format", "clean")]
+    [ValidateSet("dev", "test", "lint", "format", "clean", "load-test")]
     [string]$Task
 )
 
@@ -34,5 +34,9 @@ switch ($Task) {
     "clean" {
         Write-Host "Stopping docker compose containers..." -ForegroundColor Cyan
         docker compose down
+    }
+    "load-test" {
+        Write-Host "Running 50-concurrent-call staging load test harness..." -ForegroundColor Cyan
+        & $python -m scripts.load_test.simulate_calls --concurrency 50 --tenants 5
     }
 }

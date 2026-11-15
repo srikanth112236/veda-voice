@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -60,7 +59,7 @@ def hold_time_slot(
             # Refresh hold for same call
             existing.hold_expires_at = now_utc + timedelta(minutes=5)
             db.commit()
-            return cast(Booking, existing)
+            return existing
         raise SlotUnavailableError(
             f"Slot starting at {slot_start.isoformat()} is no longer available."
         )
@@ -112,7 +111,7 @@ def confirm_booking(
         existing_key = db.scalar(select(Booking).where(Booking.idempotency_key == idempotency_key))
         if existing_key:
             logger.info("Idempotent booking hit for key '%s'", idempotency_key)
-            return cast(Booking, existing_key)
+            return existing_key
 
     # 2. Check if this call held this slot
     held_booking = None
@@ -191,7 +190,7 @@ def confirm_booking(
         held_booking.updated_at = now_utc
         db.commit()
         db.refresh(held_booking)
-        return cast(Booking, held_booking)
+        return held_booking
 
     new_booking = Booking(
         tenant_id=tenant_id,
@@ -251,4 +250,4 @@ def cancel_booking(
 
     db.commit()
     db.refresh(booking)
-    return cast(Booking, booking)
+    return booking
