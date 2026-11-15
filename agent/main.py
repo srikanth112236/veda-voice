@@ -91,20 +91,40 @@ async def entrypoint(ctx: JobContext) -> None:
     call_record_written = False
 
     # Check pre-connected participant attributes if available
+    attrs: dict[str, Any] = {}
     for participant in ctx.room.remote_participants.values():
-        attrs: Any = getattr(participant, "attributes", {})
+        attrs = getattr(participant, "attributes", {}) or {}
         sip_info = parse_sip_attributes(attrs)
         break
 
-    # Resolve tenant config from dialed number
-    config = resolve_tenant(sip_info["dialed_number"])
+    # Resolve tenant config from dialed number or participant attributes
+    dialed_number = (
+        sip_info["dialed_number"]
+        or (attrs.get("dialed_number") if isinstance(attrs, dict) else "")
+        or (attrs.get("phone_number") if isinstance(attrs, dict) else "")
+    )
+    tenant_hint = attrs.get("tenant_id") if isinstance(attrs, dict) else ""
+
+    if dialed_number:
+        config = resolve_tenant(dialed_number)
+    elif tenant_hint:
+        try:
+            config = load_business_config(tenant_hint)
+        except Exception:
+            config = load_business_config("default")
+    else:
+        logger.info(
+            "Direct session without dialed number; defaulting to active business config (Apex Plumbing)"
+        )
+        config = load_business_config("default")
+
     message_collector.tenant_id = config.tenant_id
     message_collector.caller_id_phone = sip_info["caller_number"]
     logger.info(
         "Resolved tenant '%s' (%s) for dialed number '%s'",
         config.tenant_id,
         config.business,
-        redact_phone(sip_info["dialed_number"]),
+        redact_phone(dialed_number or config.numbers[0] if config.numbers else "[default]"),
     )
 
     # Initialize take_message tool bound to this session's collector
@@ -147,10 +167,12 @@ async def entrypoint(ctx: JobContext) -> None:
         except Exception:
             pass
 
+    max_dur = float(config.max_call_duration_seconds)
+    warn_dur = max(30.0, max_dur - 60.0) if max_dur > 60.0 else (max_dur + 1.0)
     safety_monitor = SafetyMonitor(
         clock=clock,
-        max_duration_seconds=float(config.max_call_duration_seconds),
-        warn_duration_seconds=float(config.max_call_duration_seconds - 60),
+        max_duration_seconds=max_dur,
+        warn_duration_seconds=warn_dur,
         say_callback=monitor_say,
         end_call_callback=monitor_end_call,
     )
