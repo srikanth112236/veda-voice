@@ -22,6 +22,7 @@ from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.routers.admin import router as admin_router
 from api.app.routers.auth import router as auth_router
+from api.app.routers.calendar import router as calendar_router
 from api.app.routers.forms import router as forms_router
 from api.app.routers.internal import router as internal_router
 from api.app.routers.numbers import router as numbers_router
@@ -608,6 +609,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(numbers_router, prefix="/api/v1")
 app.include_router(portal_router, prefix="/api/v1")
+app.include_router(calendar_router, prefix="/api/v1")
 app.include_router(internal_router, prefix="/api/v1")
 app.include_router(subscriptions_router)
 app.include_router(forms_router)

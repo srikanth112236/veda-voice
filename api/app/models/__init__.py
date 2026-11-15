@@ -1,6 +1,7 @@
 """ORM Models export package."""
 
 from api.app.models.base import Base
+from api.app.models.booking import Booking, TenantIntegration
 from api.app.models.call import Call
 from api.app.models.lead_form import Lead, LeadForm
 from api.app.models.subscription import Coupon, Subscription, UsageRecord
@@ -19,4 +20,6 @@ __all__ = [
     "UsageRecord",
     "LeadForm",
     "Lead",
+    "TenantIntegration",
+    "Booking",
 ]

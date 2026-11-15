@@ -14,6 +14,15 @@ from api.app.db.session import get_db
 from api.app.models.call import Call
 from api.app.models.subscription import Subscription, UsageRecord
 from api.app.models.tenant import PhoneNumber, Tenant
+from api.app.services.calendar.availability import AvailableSlotsResponse, compute_available_slots
+from api.app.services.calendar.booking import (
+    SlotUnavailableError,
+    confirm_booking,
+    hold_time_slot,
+)
+from api.app.services.calendar.booking import (
+    cancel_booking as cancel_booking_service,
+)
 from api.app.services.notifier import dispatch_call_notifications
 
 router = APIRouter(prefix="/internal", tags=["internal"])
@@ -427,3 +436,196 @@ def save_call_record_from_agent(
     background_tasks.add_task(dispatch_call_notifications, payload.call_id)
 
     return {"status": "ok", "call_id": payload.call_id}
+
+
+# ---------------------------------------------------------------------------
+# Internal Voice Agent Calendar & Booking Endpoints (Milestone M3)
+# ---------------------------------------------------------------------------
+
+
+class CheckAvailabilityRequest(BaseModel):
+    target_date: str  # YYYY-MM-DD
+    duration_minutes: int = 60
+    service_type: str = "general_appointment"
+
+
+class HoldSlotRequest(BaseModel):
+    start_iso: str
+    duration_minutes: int = 60
+    service_type: str = "general_appointment"
+    customer_name: str = "Prospective Customer"
+    customer_phone: str = ""
+
+
+class BookSlotRequest(BaseModel):
+    start_iso: str
+    duration_minutes: int = 60
+    customer_name: str
+    customer_phone: str
+    customer_email: str | None = None
+    service_type: str = "general_appointment"
+    idempotency_key: str | None = None
+    notes: str | None = None
+
+
+class CancelBookingRequest(BaseModel):
+    booking_id: str
+
+
+def _verify_agent_token(authorization: str | None) -> dict[str, Any]:
+    """Verify call-scoped JWT token and extract claims."""
+    if not (authorization and authorization.startswith("Bearer ")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or malformed Authorization header",
+        )
+    token = authorization.split(" ")[1]
+    claims = decode_access_token(token)
+    if not claims or claims.get("role") != "agent":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Valid agent token required for internal calendar tools",
+        )
+    return claims
+
+
+@router.post("/calendar/availability", response_model=AvailableSlotsResponse)
+def get_slot_availability(
+    payload: CheckAvailabilityRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Evaluate and return conflict-free bookable slots for target date."""
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+
+    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    try:
+        t_date = datetime.strptime(payload.target_date, "%Y-%m-%d").date()
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid target_date format. Expected YYYY-MM-DD",
+        ) from err
+
+    return compute_available_slots(
+        tenant=tenant,
+        target_date=t_date,
+        db=db,
+        service_duration_minutes=payload.duration_minutes,
+    )
+
+
+@router.post("/calendar/hold")
+def hold_appointment_slot(
+    payload: HoldSlotRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Acquire a temporary 5-minute hold on a slot during a call."""
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+    call_id = claims.get("call_id", "live-call")
+
+    try:
+        slot_start = datetime.fromisoformat(payload.start_iso)
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid start_iso format"
+        ) from err
+
+    try:
+        held = hold_time_slot(
+            tenant_id=tenant_id,
+            slot_start=slot_start,
+            duration_minutes=payload.duration_minutes,
+            call_id=call_id,
+            customer_name=payload.customer_name,
+            customer_phone=payload.customer_phone,
+            service_type=payload.service_type,
+            db=db,
+        )
+        return {
+            "status": "held",
+            "booking_id": held.id,
+            "start_at": held.start_at.isoformat(),
+            "hold_expires_at": held.hold_expires_at.isoformat() if held.hold_expires_at else None,
+        }
+    except SlotUnavailableError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/calendar/book")
+def confirm_appointment_booking(
+    payload: BookSlotRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Confirm appointment booking, generate Google Meet link, and record in calendar."""
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+    call_id = claims.get("call_id")
+
+    try:
+        slot_start = datetime.fromisoformat(payload.start_iso)
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid start_iso format"
+        ) from err
+
+    # Construct auto-idempotency key if not passed
+    idempotency_key = (
+        payload.idempotency_key or f"{tenant_id}:{call_id or 'ext'}:{slot_start.isoformat()}"
+    )
+
+    try:
+        booking = confirm_booking(
+            tenant_id=tenant_id,
+            slot_start=slot_start,
+            duration_minutes=payload.duration_minutes,
+            customer_name=payload.customer_name,
+            customer_phone=payload.customer_phone,
+            customer_email=payload.customer_email,
+            service_type=payload.service_type,
+            call_id=call_id,
+            idempotency_key=idempotency_key,
+            notes=payload.notes,
+            db=db,
+        )
+        return {
+            "status": "confirmed",
+            "booking_id": booking.id,
+            "start_at": booking.start_at.isoformat(),
+            "end_at": booking.end_at.isoformat(),
+            "meet_link": booking.meet_link,
+            "calendar_event_id": booking.calendar_event_id,
+            "customer_name": booking.customer_name,
+        }
+    except SlotUnavailableError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/calendar/cancel")
+def cancel_appointment_booking(
+    payload: CancelBookingRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Cancel an appointment and delete external calendar event."""
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+
+    try:
+        cancelled = cancel_booking_service(
+            booking_id=payload.booking_id,
+            tenant_id=tenant_id,
+            db=db,
+        )
+        return {"status": "cancelled", "booking_id": cancelled.id}
+    except KeyError as err:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found"
+        ) from err

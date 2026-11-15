@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     CARRIER_PRIMARY_PROVIDER: str = "Twilio Elastic SIP Trunk"
     CARRIER_HOT_STANDBY_PROVIDER: str = "Telnyx SIP (Hot Standby)"
 
+    # Google Calendar OAuth & Integrations
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/portal/calendar/callback"
+    ENCRYPTION_SECRET: str = "envelope-secret-key-vedavoice-32bytes-min!"
+
     # Notifications (Email & SMS)
     NOTIFICATION_ENABLED: bool = True
     RESEND_API_KEY: str = ""
