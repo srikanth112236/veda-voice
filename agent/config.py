@@ -165,20 +165,19 @@ def load_tenants_registry(
         elif p.is_file():
             sources_to_check.append(p)
     else:
-        # 1. Check real tenant directory data/tenants/ (gitignored)
-        data_tenants_dir = Path("data/tenants")
-        if data_tenants_dir.exists() and data_tenants_dir.is_dir():
-            sources_to_check.extend(sorted(data_tenants_dir.glob("*.json")))
-
-        # 2. Check agent/clients.json
+        # 1. Check agent/clients.json (base tenant configurations)
         agent_clients = Path(__file__).parent / "clients.json"
         if agent_clients.exists():
             sources_to_check.append(agent_clients)
         else:
-            # Fallback to example clients
             agent_example = Path(__file__).parent / "clients.example.json"
             if agent_example.exists():
                 sources_to_check.append(agent_example)
+
+        # 2. Check dynamic tenant directory data/tenants/ (database-synced tenants)
+        data_tenants_dir = Path("data/tenants")
+        if data_tenants_dir.exists() and data_tenants_dir.is_dir():
+            sources_to_check.extend(sorted(data_tenants_dir.glob("*.json")))
 
     raw_items: list[tuple[str, dict]] = []
     for filepath in sources_to_check:
@@ -215,8 +214,11 @@ def load_tenants_registry(
             if not norm_num:
                 continue
 
-            # Reject two tenants sharing a number at load time
+            # Reject two distinct tenants sharing a number at load time
             if norm_num in registry and registry[norm_num].tenant_id != tenant.tenant_id:
+                if registry[norm_num].business.strip().lower() == tenant.business.strip().lower():
+                    # Same business name (e.g. database sync vs static config) - keep the current one without error
+                    continue
                 raise ValueError(
                     f"Duplicate dialed number '{norm_num}' assigned to multiple tenants: "
                     f"'{registry[norm_num].tenant_id}' and '{tenant.tenant_id}'"
