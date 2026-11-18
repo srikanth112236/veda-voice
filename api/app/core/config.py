@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     GLOBAL_MAX_OUTBOUND: int = 10
 
     # LiveKit SIP Trunking & Carrier Telephony
+    LIVEKIT_URL: str = "wss://steyzi-xvk89l73.livekit.cloud"
+    LIVEKIT_API_KEY: str = ""
+    LIVEKIT_API_SECRET: str = ""
     LIVEKIT_SIP_INBOUND_TRUNK_ID: str = "ST_inbound_livekit_scale"
     LIVEKIT_SIP_OUTBOUND_TRUNK_ID: str = "ST_outbound_twilio_elastic"
     LIVEKIT_SIP_DISPATCH_RULE_NAME: str = "all-tenants-inbound"
