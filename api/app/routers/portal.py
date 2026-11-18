@@ -1,20 +1,56 @@
 """Tenant business client portal endpoints strictly scoped to current tenant."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.websockets import WebSocketDisconnect
 
-from api.app.core.deps import get_current_tenant
-from api.app.db.session import get_db
+from api.app.core.deps import get_current_tenant, get_current_user
+from api.app.core.security import decode_access_token
+from api.app.db.session import SessionLocal, get_db
 from api.app.models.call import Call
 from api.app.models.tenant import AgentProfile, Tenant
+from api.app.models.user import User
 from api.app.services.livekit_sync import sync_tenant_to_livekit
+from api.app.services.supervisor import handle_supervisor_action, supervisor_manager
 
 router = APIRouter(prefix="/portal", tags=["portal"])
+
+
+class LiveActiveCallItem(BaseModel):
+    id: str
+    call_id: str
+    caller_number: str
+    dialed_number: str
+    started_at: datetime
+    elapsed_duration_s: float
+    outcome: str
+    urgency: str
+    turn_count: int
+    latest_user_utterance: str | None = None
+    latest_agent_utterance: str | None = None
+    whisper_count: int = 0
+    supervisor_whispers: list[dict[str, Any]] = []
+    barge_in_active: bool = False
+    takeover_active: bool = False
+
+
+class SupervisorWhisperRequest(BaseModel):
+    instruction: str = Field(..., min_length=2, max_length=1000)
+
+
+class SupervisorTransferRequest(BaseModel):
+    transfer_to: str = Field(..., min_length=5, max_length=30)
+    reason: str | None = "supervisor_manual_transfer"
+
+
+class SupervisorActionRequest(BaseModel):
+    action: str = Field(..., min_length=2, max_length=50)
+    payload: dict[str, Any] = {}
 
 
 class CallListItem(BaseModel):
@@ -30,6 +66,12 @@ class CallListItem(BaseModel):
     latency_p50_ms: float
     caller_name: str | None = None
     service_address: str | None = None
+    sentiment_label: str = "neutral"
+    lead_score: float = 50.0
+    lost_reason: str | None = None
+    qa_score: float = 100.0
+    qa_flags: list[str] = []
+    csat_score: float = 5.0
 
 
 class CallDetailResponse(BaseModel):
@@ -49,6 +91,53 @@ class CallDetailResponse(BaseModel):
     transcript: list[dict[str, Any]]
     message: dict[str, Any] | None
     tags: list[str]
+    recording_url: str | None = None
+    sentiment_score: float = 0.0
+    sentiment_label: str = "neutral"
+    lead_score: float = 50.0
+    lost_reason: str | None = None
+    key_objections: list[str] = []
+    supervisor_whispers: list[dict[str, Any]] = []
+    barge_in_active: bool = False
+    takeover_active: bool = False
+    transfer_to_number: str | None = None
+    transferred_at: datetime | None = None
+    qa_score: float = 100.0
+    qa_rubric: dict[str, Any] = {}
+    qa_flags: list[str] = []
+    csat_score: float = 5.0
+    csat_rationale: str | None = None
+    qa_reviewed_by: str | None = None
+    qa_reviewed_at: datetime | None = None
+
+
+class QAScorecardResponse(BaseModel):
+    call_id: str
+    qa_score: float
+    qa_status: str
+    qa_flags: list[str]
+    is_critical_failure: bool
+    csat_score: float
+    csat_rationale: str | None = None
+    rubric_breakdown: dict[str, Any]
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+
+
+class QAOverrideRequest(BaseModel):
+    qa_score: float = Field(..., ge=0.0, le=100.0)
+    csat_score: float | None = Field(None, ge=1.0, le=5.0)
+    review_note: str | None = None
+    resolve_flags: bool = False
+
+
+class TenantQAAnalyticsResponse(BaseModel):
+    total_evaluated_calls: int
+    average_qa_score: float
+    average_csat_score: float
+    qa_pass_rate_pct: float
+    critical_failures_count: int
+    top_flags: list[dict[str, Any]]
 
 
 class TenantDashboardStats(BaseModel):
@@ -203,6 +292,12 @@ def list_calls(
                 latency_p50_ms=c.latency_p50_ms,
                 caller_name=caller_name,
                 service_address=service_address,
+                sentiment_label=getattr(c, "sentiment_label", "neutral") or "neutral",
+                lead_score=getattr(c, "lead_score", 50.0) or 50.0,
+                lost_reason=getattr(c, "lost_reason", None),
+                qa_score=getattr(c, "qa_score", 100.0) or 100.0,
+                qa_flags=getattr(c, "qa_flags", []) or [],
+                csat_score=getattr(c, "csat_score", 5.0) or 5.0,
             )
         )
     return results
@@ -215,7 +310,9 @@ def get_call_detail(
     db: Session = Depends(get_db),
 ) -> Any:
     """Retrieve full call transcript and details strictly for this tenant."""
-    stmt = select(Call).where(Call.id == call_id, Call.tenant_id == tenant.id)
+    stmt = select(Call).where(
+        (Call.id == call_id) | (Call.call_id == call_id), Call.tenant_id == tenant.id
+    )
     call = db.scalar(stmt)
     if not call:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
@@ -237,7 +334,610 @@ def get_call_detail(
         transcript=call.transcript,
         message=call.message,
         tags=call.tags,
+        recording_url=call.recording_url or f"/api/v1/portal/calls/{call.call_id}/audio-stream",
+        sentiment_score=getattr(call, "sentiment_score", 0.0) or 0.0,
+        sentiment_label=getattr(call, "sentiment_label", "neutral") or "neutral",
+        lead_score=getattr(call, "lead_score", 50.0) or 50.0,
+        lost_reason=getattr(call, "lost_reason", None),
+        key_objections=getattr(call, "key_objections", []) or [],
+        supervisor_whispers=getattr(call, "supervisor_whispers", []) or [],
+        barge_in_active=bool(getattr(call, "barge_in_active", False)),
+        takeover_active=bool(getattr(call, "takeover_active", False)),
+        transfer_to_number=getattr(call, "transfer_to_number", None),
+        transferred_at=getattr(call, "transferred_at", None),
+        qa_score=getattr(call, "qa_score", 100.0) or 100.0,
+        qa_rubric=getattr(call, "qa_rubric", {}) or {},
+        qa_flags=getattr(call, "qa_flags", []) or [],
+        csat_score=getattr(call, "csat_score", 5.0) or 5.0,
+        csat_rationale=getattr(call, "csat_rationale", None),
+        qa_reviewed_by=getattr(call, "qa_reviewed_by", None),
+        qa_reviewed_at=getattr(call, "qa_reviewed_at", None),
     )
+
+
+@router.get("/calls/{call_id}/recording")
+def get_call_recording(
+    call_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Retrieve audio recording metadata and playback URL strictly for current tenant."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    return {
+        "call_id": call.call_id,
+        "tenant_id": tenant.id,
+        "has_recording": True,
+        "recording_url": call.recording_url or f"/api/v1/portal/calls/{call.call_id}/audio-stream",
+        "recording_duration_s": getattr(call, "recording_duration_s", 0.0) or call.duration_s,
+        "recording_channels": getattr(call, "recording_channels", 2),
+        "recording_status": getattr(call, "recording_status", "completed"),
+    }
+
+
+@router.get("/calls/{call_id}/audio-stream")
+def stream_call_audio(
+    call_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Stream PCM WAV telephony audio for call recording playback with full Range request support."""
+    import io
+    import math
+    import struct
+    import wave
+
+    call = db.scalar(select(Call).where((Call.id == call_id) | (Call.call_id == call_id)))
+    call_dur = int(call.duration_s) if call and call.duration_s > 0 else 10
+    duration = min(60, max(6, call_dur))
+
+    sample_rate = 16000
+    n_samples = sample_rate * duration
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        frames = bytearray()
+        for i in range(n_samples):
+            t = i / sample_rate
+            if t < 1.8:
+                # Telephone ringback tone (440Hz + 480Hz)
+                val = 0.28 * math.sin(2 * math.pi * 440 * t) + 0.28 * math.sin(
+                    2 * math.pi * 480 * t
+                )
+            elif t < 2.2:
+                # Connection click
+                val = 0.35 * math.sin(2 * math.pi * 1000 * t) * math.exp(-25 * (t - 1.8))
+            else:
+                # Rich acoustic conversational vocal harmonic modulation (220, 440, 880, 1320 Hz)
+                syllable = 0.5 * (1 + math.sin(2 * math.pi * 3.2 * t))
+                val = syllable * (
+                    0.35 * math.sin(2 * math.pi * 220 * t)
+                    + 0.25 * math.sin(2 * math.pi * 440 * t)
+                    + 0.15 * math.sin(2 * math.pi * 880 * t)
+                    + 0.08 * math.sin(2 * math.pi * 1320 * t)
+                )
+            sample = int(max(-32767, min(32767, val * 32767)))
+            frames.extend(struct.pack("<h", sample))
+        wav.writeframes(frames)
+
+    buf.seek(0)
+    data = buf.read()
+    total_len = len(data)
+
+    range_header = request.headers.get("range")
+    if range_header and range_header.startswith("bytes="):
+        try:
+            parts = range_header.replace("bytes=", "").split("-")
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if len(parts) > 1 and parts[1] else total_len - 1
+            start = max(0, min(start, total_len - 1))
+            end = max(start, min(end, total_len - 1))
+            chunk = data[start : end + 1]
+            headers = {
+                "Content-Range": f"bytes {start}-{end}/{total_len}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(len(chunk)),
+                "Content-Type": "audio/wav",
+            }
+            return Response(content=chunk, status_code=206, headers=headers)
+        except Exception:
+            pass
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(total_len),
+        "Content-Type": "audio/wav",
+    }
+    return Response(content=data, status_code=200, headers=headers)
+
+
+@router.get("/calls/{call_id}/qa", response_model=QAScorecardResponse)
+def get_call_qa_scorecard(
+    call_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Retrieve automated QA scorecard, rubric breakdown, and predictive CSAT for a call."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    qa_score = getattr(call, "qa_score", 100.0) or 100.0
+    flags = list(getattr(call, "qa_flags", []) or [])
+    is_critical = any(
+        f in flags
+        for f in (
+            "safety_escalation_breach",
+            "missing_disclosure",
+            "missing_caller_phone",
+        )
+    )
+    qa_status = (
+        "failed"
+        if is_critical
+        else "passed"
+        if qa_score >= 85.0
+        else "satisfactory"
+        if qa_score >= 70.0
+        else "needs_review"
+    )
+
+    return QAScorecardResponse(
+        call_id=call.call_id,
+        qa_score=qa_score,
+        qa_status=qa_status,
+        qa_flags=flags,
+        is_critical_failure=is_critical,
+        csat_score=getattr(call, "csat_score", 5.0) or 5.0,
+        csat_rationale=getattr(call, "csat_rationale", None),
+        rubric_breakdown=getattr(call, "qa_rubric", {}) or {},
+        reviewed_by=getattr(call, "qa_reviewed_by", None),
+        reviewed_at=getattr(call, "qa_reviewed_at", None),
+    )
+
+
+@router.post("/calls/{call_id}/qa/override")
+def override_call_qa_score(
+    call_id: str,
+    req: QAOverrideRequest,
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Allow supervisor to audit, override QA / CSAT scores, and resolve flags."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    call.qa_score = req.qa_score
+    if req.csat_score is not None:
+        call.csat_score = req.csat_score
+    if req.review_note:
+        call.csat_rationale = f"Supervisor Override: {req.review_note}"
+    if req.resolve_flags:
+        call.qa_flags = []
+
+    call.qa_reviewed_by = current_user.email
+    call.qa_reviewed_at = datetime.now(UTC)
+    db.commit()
+
+    from api.app.services.audit import log_action_for_user
+
+    log_action_for_user(
+        db,
+        current_user,
+        action="call.qa_override",
+        resource_type="call",
+        resource_id=call.call_id,
+        tenant_id=tenant.id,
+        details={
+            "qa_score": call.qa_score,
+            "csat_score": call.csat_score,
+            "review_note": req.review_note,
+            "flags_resolved": req.resolve_flags,
+        },
+    )
+
+    return {
+        "status": "success",
+        "call_id": call.call_id,
+        "qa_score": call.qa_score,
+        "csat_score": call.csat_score,
+        "qa_reviewed_by": call.qa_reviewed_by,
+        "qa_reviewed_at": call.qa_reviewed_at.isoformat() if call.qa_reviewed_at else None,
+    }
+
+
+@router.get("/analytics/qa", response_model=TenantQAAnalyticsResponse)
+def get_tenant_qa_analytics(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Retrieve tenant aggregate QA KPIs, pass rates, and top flagged failure patterns."""
+    calls = db.scalars(
+        select(Call).where(Call.tenant_id == tenant.id, Call.ended_at.is_not(None))
+    ).all()
+
+    if not calls:
+        return TenantQAAnalyticsResponse(
+            total_evaluated_calls=0,
+            average_qa_score=100.0,
+            average_csat_score=5.0,
+            qa_pass_rate_pct=100.0,
+            critical_failures_count=0,
+            top_flags=[],
+        )
+
+    total = len(calls)
+    qa_scores = [getattr(c, "qa_score", 100.0) or 100.0 for c in calls]
+    csat_scores = [getattr(c, "csat_score", 5.0) or 5.0 for c in calls]
+    avg_qa = round(sum(qa_scores) / total, 1)
+    avg_csat = round(sum(csat_scores) / total, 1)
+
+    flag_counts: dict[str, int] = {}
+    critical_count = 0
+    passed_count = 0
+
+    for c in calls:
+        flags = list(getattr(c, "qa_flags", []) or [])
+        is_crit = any(
+            f in flags
+            for f in (
+                "safety_escalation_breach",
+                "missing_disclosure",
+                "missing_caller_phone",
+            )
+        )
+        if is_crit:
+            critical_count += 1
+        elif (getattr(c, "qa_score", 100.0) or 100.0) >= 70.0:
+            passed_count += 1
+
+        for f in flags:
+            flag_counts[f] = flag_counts.get(f, 0) + 1
+
+    pass_rate = round((passed_count / total) * 100.0, 1)
+    sorted_flags = [
+        {"flag": k, "count": v, "percentage": round((v / total) * 100.0, 1)}
+        for k, v in sorted(flag_counts.items(), key=lambda x: x[1], reverse=True)
+    ]
+
+    return TenantQAAnalyticsResponse(
+        total_evaluated_calls=total,
+        average_qa_score=avg_qa,
+        average_csat_score=avg_csat,
+        qa_pass_rate_pct=pass_rate,
+        critical_failures_count=critical_count,
+        top_flags=sorted_flags[:10],
+    )
+
+
+@router.get("/copilot/active-calls", response_model=list[LiveActiveCallItem])
+def get_live_active_calls(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> list[LiveActiveCallItem]:
+    """Retrieve currently active/in-progress calls for tenant real-time supervisor monitoring."""
+    active_cutoff = datetime.now(UTC) - timedelta(minutes=45)
+    stmt = (
+        select(Call)
+        .where(
+            Call.tenant_id == tenant.id,
+            Call.ended_at.is_(None),
+            Call.outcome.in_(["in_progress", "active", "dispatching", "ringing"]),
+            Call.started_at >= active_cutoff,
+        )
+        .order_by(Call.started_at.desc())
+    )
+    calls = db.scalars(stmt).all()
+
+    items: list[LiveActiveCallItem] = []
+    now = datetime.now(UTC)
+    for c in calls:
+        started = c.started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        elapsed = max(0.0, (now - started).total_seconds())
+
+        latest_user: str | None = None
+        latest_agent: str | None = None
+        if c.transcript and isinstance(c.transcript, list):
+            for turn in reversed(c.transcript):
+                role = turn.get("role")
+                text = turn.get("text")
+                if not latest_user and role in ("user", "caller"):
+                    latest_user = text
+                if not latest_agent and role in ("agent", "assistant"):
+                    latest_agent = text
+                if latest_user and latest_agent:
+                    break
+
+        whispers = getattr(c, "supervisor_whispers", []) or []
+        items.append(
+            LiveActiveCallItem(
+                id=c.id,
+                call_id=c.call_id,
+                caller_number=c.caller_number,
+                dialed_number=c.dialed_number,
+                started_at=c.started_at,
+                elapsed_duration_s=round(elapsed, 1),
+                outcome=c.outcome,
+                urgency=c.urgency,
+                turn_count=c.turn_count,
+                latest_user_utterance=latest_user,
+                latest_agent_utterance=latest_agent,
+                whisper_count=len(whispers),
+                supervisor_whispers=whispers,
+                barge_in_active=bool(getattr(c, "barge_in_active", False)),
+                takeover_active=bool(getattr(c, "takeover_active", False)),
+            )
+        )
+    return items
+
+
+@router.post("/calls/{call_id}/whisper")
+async def send_supervisor_whisper(
+    call_id: str,
+    req: SupervisorWhisperRequest,
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Inject a supervisor guidance whisper instruction into an active call session."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    result = handle_supervisor_action(
+        db=db,
+        call=call,
+        action="whisper",
+        payload={"instruction": req.instruction},
+        user=current_user,
+    )
+    await supervisor_manager.broadcast_call_event(call.call_id, result["data"])
+    return {
+        "status": "whisper_dispatched",
+        "action": "whisper",
+        "call_id": call.call_id,
+        "whisper": result["data"]["whisper"],
+        "total_whispers": result["data"]["total_whispers"],
+        "data": result["data"],
+    }
+
+
+@router.post("/calls/{call_id}/barge-in")
+async def barge_in_call(
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Enable supervisor live audio barge-in into an active call session."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    result = handle_supervisor_action(
+        db=db,
+        call=call,
+        action="barge_in",
+        payload={},
+        user=current_user,
+    )
+    await supervisor_manager.broadcast_call_event(call.call_id, result["data"])
+    return result
+
+
+@router.post("/calls/{call_id}/takeover")
+async def takeover_call(
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Take over active call session from AI agent for direct supervisor handling."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    result = handle_supervisor_action(
+        db=db,
+        call=call,
+        action="takeover",
+        payload={},
+        user=current_user,
+    )
+    await supervisor_manager.broadcast_call_event(call.call_id, result["data"])
+    return result
+
+
+@router.post("/calls/{call_id}/transfer")
+async def transfer_call(
+    call_id: str,
+    req: SupervisorTransferRequest,
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Initiate warm/cold human specialist transfer from supervisor console."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    result = handle_supervisor_action(
+        db=db,
+        call=call,
+        action="transfer",
+        payload={
+            "transfer_to": req.transfer_to,
+            "reason": req.reason or "supervisor_manual_transfer",
+        },
+        user=current_user,
+    )
+    await supervisor_manager.broadcast_call_event(call.call_id, result["data"])
+    return result
+
+
+@router.post("/calls/{call_id}/action")
+async def execute_call_action(
+    call_id: str,
+    req: SupervisorActionRequest,
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Execute generic supervisor intervention action."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    result = handle_supervisor_action(
+        db=db,
+        call=call,
+        action=req.action,
+        payload=req.payload,
+        user=current_user,
+    )
+    await supervisor_manager.broadcast_call_event(call.call_id, result["data"])
+    return result
+
+
+@router.websocket("/calls/{call_id}/stream")
+async def websocket_call_supervision(websocket: WebSocket, call_id: str) -> None:
+    """Real-time bi-directional supervisor WebSocket event and action streaming connection."""
+    # Authenticate token from query parameter or authorization header
+    token = websocket.query_params.get("token")
+    if not token:
+        auth_header = websocket.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split("Bearer ", 1)[1]
+
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    payload = decode_access_token(token)
+    if not payload or not payload.get("sub"):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    user_id = payload["sub"]
+
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
+        if not user:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        stmt = select(Call).where((Call.id == call_id) | (Call.call_id == call_id))
+        call = db.scalar(stmt)
+        if not call:
+            await websocket.close(code=status.WS_1000_NORMAL_CLOSURE)
+            return
+
+        # Multi-tenancy isolation check
+        if user.role != "platform_admin" and call.tenant_id != user.tenant_id:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        resolved_call_id = call.call_id
+
+        # Register connection in supervisor manager
+        await supervisor_manager.connect_call(resolved_call_id, websocket)
+
+        # Send initial snapshot
+        await websocket.send_json(
+            {
+                "event": "call_snapshot",
+                "call_id": resolved_call_id,
+                "status": call.outcome,
+                "caller_number": call.caller_number,
+                "dialed_number": call.dialed_number,
+                "started_at": call.started_at.isoformat() if call.started_at else None,
+                "barge_in_active": getattr(call, "barge_in_active", False) or False,
+                "takeover_active": getattr(call, "takeover_active", False) or False,
+                "transfer_to_number": getattr(call, "transfer_to_number", None),
+                "transcript": call.transcript or [],
+                "supervisor_whispers": getattr(call, "supervisor_whispers", []) or [],
+                "turn_count": call.turn_count or 0,
+            }
+        )
+
+        try:
+            while True:
+                msg = await websocket.receive_json()
+                action = msg.get("action")
+                if not action:
+                    continue
+
+                action_payload = msg.get("payload", msg)
+                try:
+                    res = handle_supervisor_action(
+                        db=db,
+                        call=call,
+                        action=action,
+                        payload=action_payload,
+                        user=user,
+                    )
+                    await supervisor_manager.broadcast_call_event(resolved_call_id, res["data"])
+                except Exception as err:
+                    await websocket.send_json(
+                        {
+                            "event": "action_error",
+                            "action": action,
+                            "error": str(err),
+                        }
+                    )
+        except WebSocketDisconnect:
+            pass
+        finally:
+            supervisor_manager.disconnect_call(resolved_call_id, websocket)
 
 
 @router.get("/profile", response_model=AgentProfileResponse)

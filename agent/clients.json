@@ -59,7 +59,8 @@
     },
     "tools_enabled": [
       "take_message",
-      "end_call"
+      "end_call",
+      "booking"
     ],
     "max_call_duration_seconds": 600,
     "transfer_number": "+18005550199",
@@ -112,7 +113,8 @@
     },
     "tools_enabled": [
       "take_message",
-      "end_call"
+      "end_call",
+      "booking"
     ],
     "max_call_duration_seconds": 600,
     "transfer_number": "+18005550199",
@@ -159,7 +161,8 @@
     },
     "tools_enabled": [
       "take_message",
-      "end_call"
+      "end_call",
+      "booking"
     ],
     "max_call_duration_seconds": 600,
     "transfer_number": "+18005550199",

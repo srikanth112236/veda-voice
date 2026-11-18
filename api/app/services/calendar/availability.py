@@ -87,8 +87,35 @@ def compute_available_slots(
     buffer_minutes: int = 15,
     minimum_notice_hours: int = 2,
     custom_provider: CalendarProvider | None = None,
+    service_type: str | None = None,
+    postal_code: str | None = None,
 ) -> AvailableSlotsResponse:
     """Compute conflict-free available slots for a given tenant on target_date."""
+    # Check if tenant has multi-staff technicians configured
+    from sqlalchemy import func
+
+    from api.app.models.staff import StaffMember
+
+    has_staff = db.scalar(
+        select(func.count(StaffMember.id)).where(
+            StaffMember.tenant_id == tenant.id,
+            StaffMember.is_active == True,  # noqa: E712
+        )
+    )
+    if has_staff and has_staff > 0 and custom_provider is None:
+        from api.app.services.calendar.dispatch import compute_multi_staff_available_slots
+
+        return compute_multi_staff_available_slots(
+            tenant=tenant,
+            target_date=target_date,
+            db=db,
+            service_type=service_type,
+            postal_code=postal_code,
+            service_duration_minutes=service_duration_minutes,
+            buffer_minutes=buffer_minutes,
+            minimum_notice_hours=minimum_notice_hours,
+        )
+
     # 1. Resolve Timezone
     try:
         tz = ZoneInfo(tenant.timezone)

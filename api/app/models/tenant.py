@@ -1,5 +1,7 @@
 """Tenant, Agent Profile, and Phone Number database models."""
 
+from __future__ import annotations
+
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -11,6 +13,7 @@ from api.app.models.base import Base
 
 if TYPE_CHECKING:
     from api.app.models.call import Call
+    from api.app.models.location import Location
     from api.app.models.user import User
 
 
@@ -31,22 +34,26 @@ class Tenant(Base):
     max_concurrent_calls: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     max_concurrent_outbound: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
     monthly_minute_quota: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
     # Relationships
-    users: Mapped[list["User"]] = relationship(
+    users: Mapped[list[User]] = relationship(
         "User", back_populates="tenant", cascade="all, delete-orphan"
     )
-    agent_profile: Mapped["AgentProfile"] = relationship(
+    agent_profile: Mapped[AgentProfile] = relationship(
         "AgentProfile", back_populates="tenant", uselist=False, cascade="all, delete-orphan"
     )
-    phone_numbers: Mapped[list["PhoneNumber"]] = relationship(
+    phone_numbers: Mapped[list[PhoneNumber]] = relationship(
         "PhoneNumber", back_populates="tenant", cascade="all, delete-orphan"
     )
-    calls: Mapped[list["Call"]] = relationship(
+    calls: Mapped[list[Call]] = relationship(
         "Call", back_populates="tenant", cascade="all, delete-orphan"
+    )
+    locations: Mapped[list[Location]] = relationship(
+        "Location", back_populates="tenant", cascade="all, delete-orphan"
     )
 
 
@@ -122,6 +129,9 @@ class PhoneNumber(Base):
     tenant_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True
     )
+    location_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("locations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     e164: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
     provider: Mapped[str] = mapped_column(
         String(32), default="livekit", nullable=False
@@ -143,3 +153,4 @@ class PhoneNumber(Base):
     )
 
     tenant: Mapped[Tenant | None] = relationship("Tenant", back_populates="phone_numbers")
+    location: Mapped[Location | None] = relationship("Location", back_populates="phone_numbers")

@@ -1,10 +1,14 @@
 """Cryptographic security utilities for password hashing and JWT access tokens."""
 
+import base64
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import bcrypt
 import jwt
+from cryptography.fernet import Fernet
 
 from api.app.core.config import settings
 
@@ -46,3 +50,28 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return dict(payload) if isinstance(payload, dict) else None
     except jwt.PyJWTError:
         return None
+
+
+def _get_encryption_cipher() -> Fernet:
+    """Derive 32-byte Fernet key from platform JWT secret."""
+    key = base64.urlsafe_b64encode(hashlib.sha256(settings.JWT_SECRET.encode("utf-8")).digest())
+    return Fernet(key)
+
+
+def encrypt_token(token_data: dict[str, Any] | str) -> str:
+    """Encrypt OAuth token or credentials using AES-128-CBC with HMAC-SHA256 (envelope encryption)."""
+    cipher = _get_encryption_cipher()
+    raw_str = json.dumps(token_data) if isinstance(token_data, dict) else str(token_data)
+    encrypted = cipher.encrypt(raw_str.encode("utf-8"))
+    return cast(str, encrypted.decode("utf-8"))
+
+
+def decrypt_token(ciphertext: str) -> dict[str, Any] | str:
+    """Decrypt OAuth token ciphertext."""
+    cipher = _get_encryption_cipher()
+    decrypted_bytes = cipher.decrypt(ciphertext.encode("utf-8"))
+    decrypted_str = decrypted_bytes.decode("utf-8")
+    try:
+        return cast(dict[str, Any], json.loads(decrypted_str))
+    except json.JSONDecodeError:
+        return decrypted_str

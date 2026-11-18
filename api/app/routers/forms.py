@@ -1,5 +1,6 @@
 """Multi-tenant Lead Form Builder and Public Lead Intake Router."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,8 +11,11 @@ from sqlalchemy.orm import Session
 from api.app.core.deps import get_current_user
 from api.app.db.session import get_db
 from api.app.models.lead_form import Lead, LeadForm
+from api.app.models.outbound import ConsentRecord
 from api.app.models.tenant import Tenant
 from api.app.models.user import User
+from api.app.services.compliance import normalize_e164_phone
+from api.app.services.outbound import trigger_speed_to_lead_outbound
 
 router = APIRouter(prefix="/api/v1/forms", tags=["forms"])
 
@@ -232,12 +236,35 @@ def submit_public_lead_form(
     if not form:
         raise HTTPException(status_code=404, detail="Form not found or has been deactivated.")
 
+    now = datetime.now(UTC)
+    norm_phone = normalize_e164_phone(req.caller_phone)
+    tenant = db.scalar(select(Tenant).where(Tenant.id == form.tenant_id))
+    seller_name = tenant.name if tenant else "Service Provider"
+
+    # Evidentiary consent record with 5-year retention and AI voice disclosure (Milestone M5b)
+    consent_record = ConsentRecord(
+        tenant_id=form.tenant_id,
+        phone_number=norm_phone,
+        source=f"web_form_{form.id}",
+        consent_confirmed=True,
+        consent_text=f"By submitting, user authorized {seller_name} and its automated AI voice system to contact them regarding their inquiry.",
+        category="C",
+        ai_voice_disclosed=True,
+        method="web_form",
+        form_url=f"/forms/{form.id}",
+        seller_name=seller_name,
+        created_at=now,
+        retention_until=now + timedelta(days=5 * 365),
+    )
+    db.add(consent_record)
+    db.flush()
+
     # Create Lead record
     lead = Lead(
         tenant_id=form.tenant_id,
         form_id=form.id,
         caller_name=req.caller_name,
-        caller_phone=req.caller_phone,
+        caller_phone=norm_phone,
         urgency=req.urgency.lower(),
         service_requested=req.service_requested,
         service_address=req.service_address,
@@ -246,9 +273,26 @@ def submit_public_lead_form(
         outbound_call_triggered=False,
     )
 
-    # If form specifies call_triage, mark outbound call triggered (simulating 2-second speed-to-lead queue)
+    # If form specifies call_triage, trigger speed-to-lead outbound through compliance gate
+    compliance_reason = "not_requested"
     if form.submit_action == "call_triage":
-        lead.outbound_call_triggered = True
+        dispatch, compliance = trigger_speed_to_lead_outbound(
+            db=db,
+            tenant_id=form.tenant_id,
+            to_phone=lead.caller_phone,
+            lead_id=lead.id,
+            caller_name=lead.caller_name,
+            service_requested=lead.service_requested,
+            category="C",
+            has_consent=True,
+        )
+        lead.outbound_call_triggered = compliance.passed
+        compliance_reason = compliance.reason
+        lead.custom_data = {
+            **(lead.custom_data or {}),
+            "compliance_verdict": compliance.to_dict(),
+            "dispatch_id": dispatch.id,
+        }
 
     db.add(lead)
     db.commit()
@@ -263,6 +307,7 @@ def submit_public_lead_form(
             else "Your service inquiry has been recorded. Our team will follow up shortly."
         ),
         "call_triage_triggered": lead.outbound_call_triggered,
+        "compliance_reason": compliance_reason,
     }
 
 

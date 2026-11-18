@@ -8,6 +8,8 @@ import {
   TenantSummary,
   PhoneNumberRecord,
   SipTrunkTelemetry,
+  AgencySubAccount,
+  AgencyAuditLog,
 } from "@/lib/api";
 import { InfoTrigger } from "@/context/info-modal-context";
 import {
@@ -42,6 +44,10 @@ import {
   CreditCard,
   Tag,
   Gift,
+  UserCheck,
+  History,
+  ExternalLink,
+  ShieldAlert,
 } from "lucide-react";
 
 export default function AdminDashboardPage() {
@@ -54,14 +60,25 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [maskPii, setMaskPii] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"telemetry" | "tenants" | "billing" | "inventory" | "coupons">("telemetry");
+  const [activeTab, setActiveTab] = useState<"telemetry" | "tenants" | "subaccounts" | "audit" | "billing" | "inventory" | "coupons">("telemetry");
+
+  // Agency Sub-Accounts & Impersonation state (Milestone M8b)
+  const [subAccounts, setSubAccounts] = useState<AgencySubAccount[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AgencyAuditLog[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditActionFilter, setAuditActionFilter] = useState<string>("");
+  const [auditImpersonatedOnly, setAuditImpersonatedOnly] = useState<boolean>(false);
+  const [impersonateTarget, setImpersonateTarget] = useState<AgencySubAccount | null>(null);
+  const [impersonateReason, setImpersonateReason] = useState("Technical investigation and QA configuration audit");
+  const [impersonating, setImpersonating] = useState(false);
+  const [selectedAuditLog, setSelectedAuditLog] = useState<AgencyAuditLog | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get("tab");
-      if (tabParam && ["telemetry", "tenants", "billing", "inventory", "coupons"].includes(tabParam)) {
-        setActiveTab(tabParam as "telemetry" | "tenants" | "billing" | "inventory" | "coupons");
+      if (tabParam && ["telemetry", "tenants", "subaccounts", "audit", "billing", "inventory", "coupons"].includes(tabParam)) {
+        setActiveTab(tabParam as any);
       }
     }
   }, []);
@@ -116,20 +133,51 @@ export default function AdminDashboardPage() {
       api.getSipTrunkTelemetry(),
       api.getAdminSubscriptions().catch(() => []),
       api.getAdminCoupons().catch(() => []),
+      api.getAgencySubAccounts().catch(() => []),
+      api.getAgencyAuditLogs({ limit: 100 }).catch(() => ({ total: 0, items: [] })),
     ])
-      .then(([statsRes, tenantsRes, numbersRes, trunkRes, subsRes, couponsRes]) => {
+      .then(([statsRes, tenantsRes, numbersRes, trunkRes, subsRes, couponsRes, subAccountsRes, auditRes]) => {
         setStats(statsRes);
         setTenants(tenantsRes);
         setNumbers(numbersRes);
         setTrunkTelemetry(trunkRes);
         setSubscriptions(subsRes);
         setCoupons(couponsRes);
+        setSubAccounts(subAccountsRes as any);
+        setAuditLogs(auditRes.items as any);
+        setAuditTotal(auditRes.total);
       })
       .catch((err) => console.error("Failed to load admin data:", err))
       .finally(() => {
         setLoading(false);
         setRefreshing(false);
       });
+  };
+
+  const loadAuditLogs = () => {
+    api
+      .getAgencyAuditLogs({
+        action: auditActionFilter || undefined,
+        is_impersonated: auditImpersonatedOnly ? true : undefined,
+        limit: 100,
+      })
+      .then((res) => {
+        setAuditLogs(res.items);
+        setAuditTotal(res.total);
+      })
+      .catch((err) => console.error("Failed to filter audit logs:", err));
+  };
+
+  const handleStartImpersonation = async () => {
+    if (!impersonateTarget) return;
+    setImpersonating(true);
+    try {
+      await api.impersonateSubAccount(impersonateTarget.id, impersonateReason);
+      window.location.href = "/portal/dashboard";
+    } catch (err: any) {
+      alert(`Failed to start impersonation: ${err.message || err}`);
+      setImpersonating(false);
+    }
   };
 
   const handleSyncTrunkDispatch = async () => {
@@ -468,6 +516,41 @@ export default function AdminDashboardPage() {
           <span>Organizations</span>
           <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
             {tenants.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("subaccounts")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "subaccounts"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+          <span>Sub-Accounts &amp; Proxy</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
+            {subAccounts.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab("audit");
+            loadAuditLogs();
+          }}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "audit"
+              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          }`}
+        >
+          <History className="w-3.5 h-3.5 text-purple-600" />
+          <span>Audit Trail</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
+            {auditTotal}
           </span>
         </button>
 
@@ -1724,6 +1807,350 @@ export default function AdminDashboardPage() {
           </table>
         </div>
       </div>
+      )}
+
+      {/* Sub-Accounts & Proxy Tab (Milestone M8b) */}
+      {activeTab === "subaccounts" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-indigo-600" />
+                Agency Sub-Accounts &amp; Operator Impersonation
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Manage all client sub-accounts, view aggregated call metrics and launch proxy sessions with mandatory audit logs.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono text-zinc-500">
+                Total Sub-Accounts: <strong>{subAccounts.length}</strong>
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono text-[11px] uppercase">
+                <tr>
+                  <th className="p-3">Client Sub-Account</th>
+                  <th className="p-3">Plan Tier</th>
+                  <th className="p-3">Minutes Usage</th>
+                  <th className="p-3">Calls &amp; Emer.</th>
+                  <th className="p-3">QA / CSAT Rating</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Proxy Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {subAccounts.map((sub) => {
+                  return (
+                    <tr key={sub.id} className="hover:bg-zinc-50/80 transition-colors">
+                      <td className="p-3">
+                        <div className="font-bold text-zinc-900 text-sm flex items-center gap-1.5">
+                          {sub.name}
+                        </div>
+                        <div className="text-[10px] font-mono text-zinc-400">ID: {sub.id}</div>
+                      </td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
+                          {sub.plan_tier}
+                        </span>
+                      </td>
+                      <td className="p-3 font-mono">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                          <span className="text-zinc-800 font-bold">{sub.minutes_used}m</span>
+                          <span className="text-zinc-400">/ {sub.monthly_minute_quota}m</span>
+                        </div>
+                        <div className="w-24 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              sub.usage_pct > 80 ? "bg-red-500" : sub.usage_pct > 50 ? "bg-amber-500" : "bg-emerald-500"
+                            }`}
+                            style={{ width: `${Math.min(sub.usage_pct, 100)}%` }}
+                          />
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="font-bold text-zinc-900">{sub.total_calls} calls</div>
+                        {sub.emergency_calls > 0 && (
+                          <div className="text-[10px] text-red-600 font-semibold">{sub.emergency_calls} emergencies</div>
+                        )}
+                      </td>
+                      <td className="p-3 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded bg-zinc-100 font-bold text-zinc-800">
+                            {sub.qa_avg_score.toFixed(0)}% QA
+                          </span>
+                          <span className="text-amber-500 font-bold">★ {sub.csat_avg_score.toFixed(1)}</span>
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          {sub.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setImpersonateTarget(sub)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white text-indigo-700 text-xs font-semibold transition-all shadow-sm"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          Impersonate Client
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Immutable Audit Trail Tab (Milestone M8b) */}
+      {activeTab === "audit" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <History className="w-5 h-5 text-purple-600" />
+                Immutable Agency Audit Trail
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Cryptographically anchored event log recording all operator impersonation sessions, supervisor actions, and tenant changes.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={auditActionFilter}
+                onChange={(e) => {
+                  setAuditActionFilter(e.target.value);
+                }}
+                className="text-xs border border-zinc-200 rounded-xl px-2.5 py-1.5 bg-white text-zinc-800"
+              >
+                <option value="">All Actions</option>
+                <option value="auth.impersonate_start">auth.impersonate_start</option>
+                <option value="auth.impersonate_end">auth.impersonate_end</option>
+                <option value="call.qa_override">call.qa_override</option>
+                <option value="supervisor.whisper">supervisor.whisper</option>
+                <option value="supervisor.barge_in">supervisor.barge_in</option>
+                <option value="supervisor.takeover">supervisor.takeover</option>
+                <option value="supervisor.transfer">supervisor.transfer</option>
+              </select>
+
+              <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer bg-white border border-zinc-200 px-3 py-1.5 rounded-xl">
+                <input
+                  type="checkbox"
+                  checked={auditImpersonatedOnly}
+                  onChange={(e) => setAuditImpersonatedOnly(e.target.checked)}
+                  className="rounded text-purple-600"
+                />
+                <span>Impersonated Only</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={loadAuditLogs}
+                className="p-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition-colors"
+                title="Refresh Audit Logs"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono text-[11px] uppercase">
+                <tr>
+                  <th className="p-3">Timestamp (UTC)</th>
+                  <th className="p-3">Action</th>
+                  <th className="p-3">Actor &amp; Impersonator</th>
+                  <th className="p-3">Target Tenant</th>
+                  <th className="p-3">Resource</th>
+                  <th className="p-3 text-right">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-zinc-400">
+                      No audit events matching criteria.
+                    </td>
+                  </tr>
+                ) : (
+                  auditLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-zinc-50/80 transition-colors">
+                      <td className="p-3 font-mono text-zinc-600 whitespace-nowrap">
+                        {new Date(log.created_at).toLocaleString()}
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                          log.action.includes("impersonate")
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : log.action.includes("qa")
+                            ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                            : log.action.includes("supervisor")
+                            ? "bg-purple-50 text-purple-700 border-purple-200"
+                            : "bg-zinc-100 text-zinc-800 border-zinc-200"
+                        }`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div className="font-semibold text-zinc-900">{log.actor_email}</div>
+                        {log.is_impersonated && (
+                          <div className="text-[10px] text-amber-600 font-mono flex items-center gap-1">
+                            <span>Proxy by: {log.impersonator_email || log.impersonator_id}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 font-mono text-[11px] text-zinc-600">
+                        {log.tenant_id ? log.tenant_id.slice(0, 12) + "..." : "Global Platform"}
+                      </td>
+                      <td className="p-3 font-mono text-[11px] text-zinc-500">
+                        {log.resource_type} {log.resource_id ? `(${log.resource_id.slice(0, 8)}...)` : ""}
+                      </td>
+                      <td className="p-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAuditLog(log)}
+                          className="px-2.5 py-1 text-[11px] font-medium rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-700 transition-colors"
+                        >
+                          View JSON
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Impersonation Confirmation Modal */}
+      {impersonateTarget && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-zinc-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-indigo-600" />
+                Launch Impersonation Session
+              </h3>
+              <button
+                onClick={() => setImpersonateTarget(null)}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+              <div className="font-bold flex items-center gap-1">
+                <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
+                Mandatory Audit Trail Enforcement
+              </div>
+              <div>
+                You are about to enter client workspace <strong>{impersonateTarget.name}</strong> as an authenticated operator. All changes will be logged in the immutable audit log under your identity.
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-zinc-700">Audit Reason / Justification</label>
+              <textarea
+                value={impersonateReason}
+                onChange={(e) => setImpersonateReason(e.target.value)}
+                rows={3}
+                className="w-full text-xs rounded-xl border border-zinc-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="State the reason for accessing this client sub-account..."
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setImpersonateTarget(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStartImpersonation}
+                disabled={impersonating || !impersonateReason.trim()}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
+              >
+                {impersonating ? "Generating Token..." : "Confirm & Enter Portal"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audit Log JSON Details Modal */}
+      {selectedAuditLog && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full border border-zinc-200 shadow-2xl p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900 font-mono">
+                  {selectedAuditLog.action}
+                </h3>
+                <div className="text-xs text-zinc-500">ID: {selectedAuditLog.id}</div>
+              </div>
+              <button
+                onClick={() => setSelectedAuditLog(null)}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="grid grid-cols-2 gap-2 p-3 bg-zinc-50 rounded-xl font-mono text-[11px]">
+                <div>
+                  <span className="text-zinc-400">Actor:</span> {selectedAuditLog.actor_email}
+                </div>
+                <div>
+                  <span className="text-zinc-400">Role:</span> {selectedAuditLog.actor_role}
+                </div>
+                <div>
+                  <span className="text-zinc-400">Impersonated:</span> {selectedAuditLog.is_impersonated ? "YES" : "NO"}
+                </div>
+                <div>
+                  <span className="text-zinc-400">Impersonator:</span> {selectedAuditLog.impersonator_email || "N/A"}
+                </div>
+                <div>
+                  <span className="text-zinc-400">Tenant:</span> {selectedAuditLog.tenant_id || "Global"}
+                </div>
+                <div>
+                  <span className="text-zinc-400">Time:</span> {new Date(selectedAuditLog.created_at).toISOString()}
+                </div>
+              </div>
+
+              <div>
+                <div className="font-semibold text-zinc-700 mb-1">Payload Details:</div>
+                <pre className="p-3 bg-zinc-900 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto">
+                  {JSON.stringify(selectedAuditLog.details, null, 2)}
+                </pre>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedAuditLog(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-zinc-900 text-white hover:bg-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -6,12 +6,14 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.app.models.base import Base
 
 if TYPE_CHECKING:
+    from api.app.models.location import Location
+    from api.app.models.staff import StaffMember
     from api.app.models.tenant import Tenant
 
 
@@ -53,8 +55,8 @@ class Booking(Base):
 
     __tablename__ = "bookings"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "start_at", name="uq_tenant_booking_start_slot"),
         Index("ix_bookings_tenant_status", "tenant_id", "status"),
+        Index("ix_bookings_tenant_staff_start", "tenant_id", "staff_id", "start_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -62,9 +64,16 @@ class Booking(Base):
         String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
     )
     call_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    staff_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("staff_members.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    location_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("locations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_phone: Mapped[str] = mapped_column(String(32), nullable=False)
     customer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     service_type: Mapped[str] = mapped_column(
         String(128), default="general_appointment", nullable=False
     )
@@ -91,3 +100,9 @@ class Booking(Base):
     )
 
     tenant: Mapped[Tenant] = relationship("Tenant", foreign_keys=[tenant_id])
+    location: Mapped[Location | None] = relationship(
+        "Location", back_populates="bookings", foreign_keys=[location_id]
+    )
+    staff: Mapped[StaffMember | None] = relationship(
+        "StaffMember", back_populates="bookings", foreign_keys=[staff_id]
+    )

@@ -345,7 +345,7 @@ def test_admin_number_search_and_voice_sync() -> None:
 def test_self_serve_onboarding_wizard_full_flow() -> None:
     """Verify Phase 2 complete public self-serve client onboarding wizard (/onboarding)."""
     unique_suffix = uuid.uuid4().hex[:6]
-    test_e164 = f"+1512888{unique_suffix[:4]}"
+    test_e164 = f"+1512{uuid.uuid4().int % 9000000 + 1000000}"
     client_email = f"marcus_{unique_suffix}@aquatechplumbing.com"
 
     onboarding_payload = {

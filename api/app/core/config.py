@@ -16,13 +16,15 @@ class Settings(BaseSettings):
     # API
     API_TITLE: str = "VedaVoice API"
     API_VERSION: str = "0.1.0"
-    API_BASE_URL: str = "http://localhost:8000"
+    API_BASE_URL: str = "http://localhost:8001"
     APP_BASE_URL: str = "http://localhost:3000"
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
     ]
 
     # Database: Default to local SQLite file for standalone local dev when PostgreSQL is unavailable
@@ -59,6 +61,25 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/portal/calendar/callback"
     ENCRYPTION_SECRET: str = "envelope-secret-key-vedavoice-32bytes-min!"
+
+    # HubSpot OAuth 2.0 App
+    HUBSPOT_CLIENT_ID: str = ""
+    HUBSPOT_CLIENT_SECRET: str = ""
+    HUBSPOT_REDIRECT_URI: str = "http://localhost:8000/api/v1/integrations/hubspot/callback"
+
+    # GoHighLevel OAuth 2.0 App
+    GHL_CLIENT_ID: str = ""
+    GHL_CLIENT_SECRET: str = ""
+    GHL_REDIRECT_URI: str = "http://localhost:8000/api/v1/integrations/gohighlevel/callback"
+
+    # Pipedrive OAuth 2.0 App
+    PIPEDRIVE_CLIENT_ID: str = ""
+    PIPEDRIVE_CLIENT_SECRET: str = ""
+    PIPEDRIVE_REDIRECT_URI: str = "http://localhost:8000/api/v1/integrations/pipedrive/callback"
+
+    # Meta (Facebook & Instagram) Lead Ads
+    META_VERIFY_TOKEN: str = "vedavoice_meta_verify_token"
+    META_APP_SECRET: str = ""
 
     # Notifications (Email & SMS)
     NOTIFICATION_ENABLED: bool = True

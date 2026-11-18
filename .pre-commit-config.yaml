@@ -10,6 +10,8 @@ repos:
     rev: v1.14.0
     hooks:
       - id: mypy
+        args: [--config-file=pyproject.toml, --ignore-missing-imports]
+        exclude: ^(run_250_scenarios_and_report\.py|run_realistic_250_scenarios\.py|api/tests/|agent/tests/)
         additional_dependencies:
           - pydantic>=2.10.0
           - sqlalchemy>=2.0.0

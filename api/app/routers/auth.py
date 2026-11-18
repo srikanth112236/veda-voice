@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from api.app.core.deps import get_current_user
 from api.app.core.security import create_access_token, hash_password, verify_password
 from api.app.db.session import get_db
+from api.app.models.entitlement import TrialAbuseRecord
 from api.app.models.subscription import Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
+from api.app.services.entitlements import verify_trial_eligibility
 from api.app.services.livekit_sync import sync_tenant_to_livekit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -56,6 +58,9 @@ class UserResponse(BaseModel):
     role: str
     tenant_id: str | None
     tenant_name: str | None = None
+    is_impersonated: bool = False
+    impersonator_id: str | None = None
+    impersonator_email: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -100,6 +105,24 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email address already exists",
+        )
+
+    # Verify trial eligibility and block disposable emails or serial trial phone churn (FR-TRIAL-3 & 9)
+    is_eligible, ineligibility_reason = verify_trial_eligibility(
+        db, email=req.email, phone=req.phone_number or ""
+    )
+    if not is_eligible:
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if (
+                "already assigned" in (ineligibility_reason or "").lower()
+                or "already been redeemed" in (ineligibility_reason or "").lower()
+            )
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail=ineligibility_reason,
         )
 
     # 1. Create Tenant
@@ -206,6 +229,15 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         allow_overage=True,
     )
     db.add(sub)
+
+    # Record trial identity for anti-abuse tracking (FR-TRIAL-3 & 9)
+    email_domain = req.email.split("@")[-1].lower() if "@" in req.email else None
+    abuse_rec = TrialAbuseRecord(
+        tenant_id=tenant.id,
+        phone_number=req.phone_number,
+        email_domain=email_domain,
+    )
+    db.add(abuse_rec)
     try:
         db.commit()
     except Exception as ie:
@@ -253,4 +285,7 @@ def get_me(current_user: User = Depends(get_current_user)) -> Any:
         role=current_user.role,
         tenant_id=current_user.tenant_id,
         tenant_name=tenant_name,
+        is_impersonated=getattr(current_user, "is_impersonated", False),
+        impersonator_id=getattr(current_user, "impersonator_id", None),
+        impersonator_email=getattr(current_user, "impersonator_email", None),
     )

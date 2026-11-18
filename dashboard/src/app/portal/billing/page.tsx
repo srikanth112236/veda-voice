@@ -40,6 +40,9 @@ export default function BillingPage() {
   const [couponError, setCouponError] = useState("");
   const [upgrading, setUpgrading] = useState(false);
   const [upgradeSuccess, setUpgradeSuccess] = useState<string | null>(null);
+  const [downgradeWarning, setDowngradeWarning] = useState<string | null>(null);
+  const [billingMode, setBillingMode] = useState<"minute" | "second">("minute");
+  const [togglingMode, setTogglingMode] = useState(false);
 
   // Stripe Checkout Test Mode state
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
@@ -87,9 +90,41 @@ export default function BillingPage() {
         if (subRes.tier !== "trial") {
           setSelectedTier(subRes.tier);
         }
+        if (subRes.billing_increment) {
+          setBillingMode(subRes.billing_increment);
+        }
       })
       .catch((err) => console.error("Failed to load subscription:", err))
       .finally(() => setLoading(false));
+  };
+
+  const handleSelectTier = async (tier: string) => {
+    setSelectedTier(tier);
+    setDowngradeWarning(null);
+    if (sub && sub.tier !== "trial" && tier !== sub.tier) {
+      try {
+        const check = await api.checkSubscriptionDowngrade(tier);
+        if (!check.allowed && check.excess_resources && check.excess_resources.length > 0) {
+          const msgs = check.excess_resources.map((e) => e.message).join(" ");
+          setDowngradeWarning(msgs);
+        }
+      } catch (err) {
+        console.error("Downgrade check failed", err);
+      }
+    }
+  };
+
+  const handleToggleBillingMode = async (mode: "minute" | "second") => {
+    try {
+      setTogglingMode(true);
+      await api.updateBillingMode(mode);
+      setBillingMode(mode);
+      loadSubscription();
+    } catch (err: any) {
+      alert(err.message || "Failed to update billing precision mode");
+    } finally {
+      setTogglingMode(false);
+    }
   };
 
   useEffect(() => {
@@ -168,7 +203,24 @@ export default function BillingPage() {
   const total = sub.is_trial ? sub.trial_minutes_allocated : sub.monthly_included_minutes + sub.bonus_rollover_minutes;
   const pct = Math.min(100, Math.round((used / (total || 1)) * 100));
 
-  const planPrices: Record<string, number> = { starter: 299, pro: 399, enterprise: 499 };
+  const planPrices: Record<string, number> = {
+    lite: 99,
+    starter: 299,
+    growth: 399,
+    pro: 499,
+    scale: 999,
+    enterprise: 1999,
+    agency: 1000,
+  };
+  const planMinutes: Record<string, number> = {
+    lite: 300,
+    starter: 1000,
+    growth: 1500,
+    pro: 2000,
+    scale: 4000,
+    enterprise: 10000,
+    agency: 5000,
+  };
   const basePrice = planPrices[selectedTier] || 299;
   const discountAmt = validatedCoupon ? Math.round(basePrice * (validatedCoupon.discount_percent / 100)) : 0;
   const finalPrice = Math.max(0, basePrice - discountAmt);
@@ -312,6 +364,47 @@ export default function BillingPage() {
             </p>
           </div>
         </div>
+
+        {/* Telephony Billing Mode & Branch Allocation Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-zinc-100">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-zinc-600 font-medium">Billing Resolution Mode:</span>
+            <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 bg-zinc-50">
+              <button
+                type="button"
+                onClick={() => handleToggleBillingMode("minute")}
+                disabled={togglingMode}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                  billingMode === "minute"
+                    ? "bg-white text-zinc-900 shadow-xs border border-zinc-200"
+                    : "text-zinc-500 hover:text-zinc-800"
+                }`}
+              >
+                60s Telephony Rounding
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleBillingMode("second")}
+                disabled={togglingMode}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                  billingMode === "second"
+                    ? "bg-white text-indigo-700 shadow-xs border border-zinc-200"
+                    : "text-zinc-500 hover:text-zinc-800"
+                }`}
+              >
+                Per-Second Precision
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-zinc-600 font-mono">
+            <Layers className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Branch Plan Tier:</span>
+            <span className="font-semibold text-zinc-900">
+              {sub.tier === "scale" ? "Up to 25 Branches" : sub.tier === "enterprise" || sub.tier === "agency" ? "Unlimited Branches" : "Single Branch Location"}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* PLAN TIERS SELECTION MATRIX */}
@@ -325,52 +418,75 @@ export default function BillingPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             {
               id: "starter",
               name: "Starter",
               minutes: 1000,
               price: 299,
-              overage: 0.20,
+              overage: 0.35,
+              branches: "Single Branch Location",
               desc: "Ideal for local plumbing, electrical, and single-location trade contractors.",
               features: [
                 "1,000 LiveKit voice minutes",
                 "1 Dedicated carrier phone number",
+                "1 Branch location included",
                 "100% Free trial rollover credit",
                 "10% Monthly cycle rollover",
-                "$0.20/min overage cap",
+                "$0.35/min overage cap",
               ],
             },
             {
               id: "pro",
               name: "Professional",
-              minutes: 1200,
-              price: 399,
-              overage: 0.20,
+              minutes: 2000,
+              price: 499,
+              overage: 0.35,
               badge: "Most Popular",
+              branches: "Single Branch (Multi-Staff)",
               desc: "Engineered for busy dental practices, clinics, and multi-truck HVAC trades.",
               features: [
-                "1,200 LiveKit voice minutes",
-                "Up to 3 Dedicated phone numbers",
-                "Sub-2s Speed-to-lead ad webhooks",
-                "Priority hazard emergency routing",
+                "2,000 LiveKit voice minutes",
+                "Up to 5 Dedicated phone numbers",
+                "Multi-staff round-robin calendar",
+                "Warm & cold transfer routing",
                 "10% Monthly cycle rollover",
+                "$0.35/min overage cap",
+              ],
+            },
+            {
+              id: "scale",
+              name: "Scale (Multi-Branch)",
+              minutes: 4000,
+              price: 999,
+              overage: 0.30,
+              branches: "Up to 25 Branches",
+              desc: "Designed for expanding multi-location service franchises and regional dealerships.",
+              features: [
+                "4,000 LiveKit voice minutes",
+                "Up to 20 Carrier phone numbers",
+                "Up to 25 Branch Locations",
+                "Location postal code territory routing",
+                "Per-location analytics & QA breakdown",
+                "$0.30/min overage cap",
               ],
             },
             {
               id: "enterprise",
               name: "Enterprise Scale",
-              minutes: 1500,
-              price: 499,
+              minutes: 10000,
+              price: 1999,
               overage: 0.20,
-              desc: "High-volume 24/7 answering for regional multi-location service franchises.",
+              branches: "Unlimited Branches",
+              desc: "High-volume 24/7 answering with unlimited branch locations and custom SLA.",
               features: [
-                "1,500 LiveKit voice minutes",
+                "10,000 LiveKit voice minutes",
                 "Unlimited phone lines & trunks",
-                "Full custom acoustic tone tuning",
-                "Multi-seat dispatcher escalation",
-                "Dedicated SLA & 10% rollover",
+                "Unlimited Branch Locations",
+                "Dedicated 99.99% telephony SLA",
+                "White-label branding & SSO",
+                "$0.20/min overage cap",
               ],
             },
           ].map((plan) => {
@@ -378,7 +494,7 @@ export default function BillingPage() {
             return (
               <div
                 key={plan.id}
-                onClick={() => setSelectedTier(plan.id)}
+                onClick={() => handleSelectTier(plan.id)}
                 className={`p-6 rounded-2xl border text-left cursor-pointer transition-all space-y-4 relative flex flex-col justify-between ${
                   isSelected
                     ? "border-zinc-900 bg-white ring-2 ring-zinc-900 shadow-md"
@@ -402,6 +518,11 @@ export default function BillingPage() {
                   <div className="flex items-baseline gap-1">
                     <span className="text-3xl font-extrabold font-mono text-zinc-900">${plan.price}</span>
                     <span className="text-xs text-zinc-500 font-medium">/ month</span>
+                  </div>
+
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-100 text-[11px] font-mono text-zinc-700">
+                    <Layers className="w-3 h-3 text-indigo-600" />
+                    <span>{plan.branches}</span>
                   </div>
 
                   <p className="text-xs text-zinc-500 leading-relaxed">{plan.desc}</p>
@@ -487,6 +608,20 @@ export default function BillingPage() {
           </div>
         )}
 
+        {/* Downgrade Limit Warning */}
+        {downgradeWarning && (
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 flex items-start gap-2.5 font-medium max-w-2xl">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <strong className="block font-bold text-amber-900">Downgrade Resource Limit Guard:</strong>
+              <p className="text-[11px] leading-relaxed text-amber-800">{downgradeWarning}</p>
+              <p className="text-[10px] text-amber-700 italic">
+                Please deactivate excess phone numbers or branch locations before transitioning to this plan.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Upgrade Action Button */}
         <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-0.5">
@@ -511,8 +646,9 @@ export default function BillingPage() {
           {sub.is_trial ? (
             <button
               type="button"
+              disabled={Boolean(downgradeWarning)}
               onClick={() => setShowCheckoutModal(true)}
-              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CreditCard className="w-4 h-4" />
               Proceed to Stripe Checkout (${finalPrice}/mo)
@@ -530,8 +666,9 @@ export default function BillingPage() {
           ) : (
             <button
               type="button"
+              disabled={Boolean(downgradeWarning)}
               onClick={() => setShowCheckoutModal(true)}
-              className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
+              className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Clock className="w-4 h-4 text-amber-400" />
               Schedule Plan Change (${finalPrice}/mo)
@@ -677,7 +814,7 @@ export default function BillingPage() {
             <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-2 text-xs font-mono">
               <div className="flex justify-between text-zinc-600">
                 <span>Selected Plan:</span>
-                <span className="font-bold text-zinc-900 uppercase">{selectedTier} (1,200 min/mo)</span>
+                <span className="font-bold text-zinc-900 uppercase">{selectedTier} ({(planMinutes[selectedTier] || 1000).toLocaleString()} min/mo)</span>
               </div>
               <div className="flex justify-between text-zinc-600">
                 <span>Base Subscription:</span>

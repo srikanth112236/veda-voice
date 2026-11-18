@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,6 +14,22 @@ logger = logging.getLogger("receptionist.config")
 
 # Phone normalization regex: extracts digits
 _DIGITS_ONLY = re.compile(r"\D")
+
+# In-memory tenant configuration cache with 60-second TTL for distributed workers
+_TENANT_CACHE: dict[str, tuple[float, "TenantConfig"]] = {}
+_CACHE_TTL_SECONDS = 60.0
+
+
+def invalidate_tenant_cache(key: str | None = None) -> None:
+    """Invalidate all or a specific entry in the dynamic tenant cache."""
+    global _TENANT_CACHE
+    if key is None:
+        _TENANT_CACHE.clear()
+    else:
+        _TENANT_CACHE.pop(key, None)
+        norm = normalize_e164(key)
+        if norm:
+            _TENANT_CACHE.pop(norm, None)
 
 
 class FAQItem(BaseModel):
@@ -57,13 +74,21 @@ class TenantConfig(BaseModel):
     out_of_area_policy: str = "polite_decline"
     faq: list[FAQItem] = Field(default_factory=list)
     emergency: EmergencyConfig = Field(default_factory=EmergencyConfig)
-    tools_enabled: list[str] = Field(default_factory=lambda: ["take_message", "end_call"])
+    tools_enabled: list[str] = Field(
+        default_factory=lambda: ["take_message", "end_call", "booking"]
+    )
     max_call_duration_seconds: int = 600
     business_notes: str = Field(default="", max_length=500)
     agent_name: str = "receptionist"
     transfer_number: str = ""
     notification_email: str = ""
     notification_phone: str = ""
+    call_token: str = ""
+    industry_pack_slug: str | None = None
+    industry_pack_prompt: str | None = None
+    location_id: str | None = None
+    location_name: str | None = None
+    location_city: str | None = None
 
     @property
     def emergency_keywords(self) -> list[str]:
@@ -75,33 +100,44 @@ class TenantConfig(BaseModel):
 BusinessConfig = TenantConfig
 
 
+def _resolve_llm_model() -> str:
+    """Resolve LiveKit Inference LLM model name with safe fallback for deprecated or unsupported models."""
+    val = os.getenv("LLM_MODEL", "").strip()
+    # google/gemma-2-9b-it is not hosted on LiveKit Inference and returns 404 (Error getting model definition).
+    # LiveKit Inference actively serves google/gemini-2.5-flash and google/gemini-2.5-flash-lite.
+    if not val or val == "google/gemma-2-9b-it":
+        return "google/gemini-2.5-flash"
+    return val
+
+
 class AgentSettings(BaseModel):
     """LiveKit agent runtime model settings verified against LiveKit Inference.
 
-    Model IDs & Pricing verified on 2026-11-13 against:
-      - LiveKit Inference Models Catalog: https://docs.livekit.io/agents/models/
-      - LiveKit Inference Pricing: https://livekit.com/pricing/inference
-
-    Catalog Lines (Verified 2026-11-13):
+    Model IDs & Pricing verified against LiveKit Inference:
       STT: deepgram/nova-3
-           Rate on Scale: $0.0048 / min (monolingual English)
-      LLM: google/gemma-2-9b-it
-           Rate on Scale: $0.06 / 1M input tokens, $0.06 / 1M output tokens (Partner-credit eligible default)
-           Override: google/gemini-2.5-flash supported via LLM_MODEL env var
+      LLM: google/gemini-2.5-flash (LiveKit Cloud hosted inference default)
+           Override: google/gemini-2.5-flash-lite or openai/gpt-4o-mini supported via LLM_MODEL env var
       TTS: inworld/inworld-tts-1
-           Rate on Scale: $20.00 / 1M characters (~$0.018/min at 900 chars/min), Default Voice: "Alex"
-           Alternative: rime/arcana ($30.00 / 1M characters)
+           Default Voice: "Alex"
     """
 
     # STT: Deepgram Nova-3
     stt_model: str = Field(default_factory=lambda: os.getenv("STT_MODEL", "deepgram/nova-3"))
 
-    # LLM: Google Gemma-2-9b-it (partner-credit default); override with Gemini 2.5 Flash via env
-    llm_model: str = Field(default_factory=lambda: os.getenv("LLM_MODEL", "google/gemma-2-9b-it"))
+    # LLM: Google Gemini 2.5 Flash (LiveKit Cloud Inference default)
+    llm_model: str = Field(default_factory=_resolve_llm_model)
 
     # TTS: Inworld Realtime TTS (cheaper than Rime)
     tts_model: str = Field(default_factory=lambda: os.getenv("TTS_MODEL", "inworld/inworld-tts-1"))
     tts_voice_id: str = Field(default_factory=lambda: os.getenv("TTS_VOICE_ID", "Alex"))
+
+    # VAD Latency Optimization (Sub-400ms end-of-utterance response)
+    vad_min_silence_duration: float = Field(
+        default_factory=lambda: float(os.getenv("VAD_MIN_SILENCE_DURATION", "0.38"))
+    )
+    vad_prefix_padding_duration: float = Field(
+        default_factory=lambda: float(os.getenv("VAD_PREFIX_PADDING_DURATION", "0.30"))
+    )
 
 
 def normalize_e164(phone: str | None) -> str:
@@ -237,167 +273,80 @@ def fetch_tenant_from_api(
     api_base_url: str | None = None,
 ) -> TenantConfig | None:
     """Fetch tenant configuration dynamically from FastAPI internal endpoint via HTTP."""
-    import urllib.error
-    import urllib.parse
-    import urllib.request
+    if api_base_url:
+        from agent.config_client import InternalApiClient
 
-    base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-    encoded_number = urllib.parse.quote(dialed_number)
-    endpoint = f"{base_url}/api/v1/internal/tenants/by-number/{encoded_number}"
+        return InternalApiClient(base_url=api_base_url).fetch_tenant_by_number(dialed_number)
+    from agent.config_client import default_api_client
 
-    try:
-        req = urllib.request.Request(
-            endpoint,
-            headers={"User-Agent": "LiveKit-Agent-Worker/1.0", "Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode("utf-8"))
-                pricing_mode = data.get("pricing_policy", "no_quote")
-                if pricing_mode not in ("no_quote", "listed", "range"):
-                    pricing_mode = "no_quote"
+    return default_api_client.fetch_tenant_by_number(dialed_number)
 
-                tone = data.get("tone", "direct")
-                if tone not in ("direct", "warm", "formal"):
-                    tone = "direct"
 
-                emergency_cfg = EmergencyConfig(
-                    keywords=data.get("emergency_keywords", []),
-                    approved_safety_script=data.get("emergency_advice", ""),
-                    mode="priority_message",
-                )
+def fetch_tenant_from_api_by_id(
+    tenant_id: str,
+    api_base_url: str | None = None,
+) -> TenantConfig | None:
+    """Fetch tenant configuration dynamically by tenant_id via HTTP or in-process fallback."""
+    if api_base_url:
+        from agent.config_client import InternalApiClient
 
-                price_items = data.get("pricing_details", {}).get("price_items", [])
+        return InternalApiClient(base_url=api_base_url).fetch_tenant_by_id(tenant_id)
+    from agent.config_client import default_api_client
 
-                raw_faqs = data.get("faq", [])
-                parsed_faqs: list[FAQItem] = []
-                for f in raw_faqs:
-                    if isinstance(f, dict) and "question" in f and "answer" in f:
-                        parsed_faqs.append(
-                            FAQItem(
-                                question=f["question"],
-                                answer=f["answer"],
-                                category=f.get("category", "general"),
-                                alternate_phrasings=f.get("alternate_phrasings", []),
-                            )
-                        )
-
-                return TenantConfig(
-                    tenant_id=data["tenant_id"],
-                    business=data["business_name"],
-                    numbers=[dialed_number],
-                    timezone=data.get("timezone", "America/New_York"),
-                    hours=data.get("hours", "Mon-Fri 8am-6pm"),
-                    greeting=data.get("greeting", f"Thanks for calling {data['business_name']}."),
-                    tone=tone,
-                    voice_id=data.get("voice_id", "Alex"),
-                    recording_disclosure=data.get("recording_disclosure", True),
-                    pricing_mode=pricing_mode,
-                    price_items=price_items,
-                    services=data.get("services", []),
-                    faq=parsed_faqs,
-                    emergency=emergency_cfg,
-                    agent_name=data.get("agent_name", "receptionist"),
-                    transfer_number=data.get("transfer_number", ""),
-                )
-    except Exception as e:
-        logger.debug("Dynamic API tenant lookup for %s failed: %s", dialed_number, e)
-        # In-process fallback when running in tests or within the same application process
-        try:
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import resolve_tenant_by_number
-
-            with SessionLocal() as db:
-                resp_obj = resolve_tenant_by_number(dialed_number, db=db)
-                if resp_obj:
-                    pricing_mode = resp_obj.pricing_policy
-                    if pricing_mode not in ("no_quote", "listed", "range"):
-                        pricing_mode = "no_quote"
-
-                    tone = resp_obj.tone
-                    if tone not in ("direct", "warm", "formal"):
-                        tone = "direct"
-
-                    emergency_cfg = EmergencyConfig(
-                        keywords=resp_obj.emergency_keywords,
-                        approved_safety_script=resp_obj.emergency_advice,
-                        mode="priority_message",
-                    )
-                    price_items = (
-                        resp_obj.pricing_details.get("price_items", [])
-                        if resp_obj.pricing_details
-                        else []
-                    )
-                    in_process_faqs: list[FAQItem] = []
-                    for f in resp_obj.faq:
-                        if isinstance(f, dict) and "question" in f and "answer" in f:
-                            in_process_faqs.append(
-                                FAQItem(
-                                    question=f["question"],
-                                    answer=f["answer"],
-                                    category=f.get("category", "general"),
-                                    alternate_phrasings=f.get("alternate_phrasings", []),
-                                )
-                            )
-
-                    return TenantConfig(
-                        tenant_id=resp_obj.tenant_id,
-                        business=resp_obj.business_name,
-                        numbers=[dialed_number],
-                        timezone=resp_obj.timezone,
-                        hours=resp_obj.hours,
-                        greeting=resp_obj.greeting,
-                        tone=tone,
-                        voice_id=resp_obj.voice_id,
-                        recording_disclosure=resp_obj.recording_disclosure,
-                        pricing_mode=pricing_mode,
-                        price_items=price_items,
-                        services=resp_obj.services,
-                        faq=in_process_faqs,
-                        emergency=emergency_cfg,
-                        agent_name=resp_obj.agent_name,
-                        transfer_number=resp_obj.transfer_number,
-                    )
-        except Exception as inner_e:
-            logger.debug(
-                "In-process fallback tenant lookup failed for %s: %s", dialed_number, inner_e
-            )
-
-        return None
-
-    return None
+    return default_api_client.fetch_tenant_by_id(tenant_id)
 
 
 def resolve_tenant(
     dialed_number: str,
     registry: dict[str, TenantConfig] | None = None,
 ) -> TenantConfig:
-    """Resolve a tenant by dialed E.164 phone number.
+    """Resolve a tenant by dialed E.164 phone number with API-First distributed resolution.
 
-    If the number is not in static files, attempts dynamic lookup via internal API.
-    If unknown or unassigned, returns a safe default tenant that takes no data and logs it.
+    Priority:
+      1. Provided mock registry (if non-empty and matching).
+      2. In-memory TTL cache (60s).
+      3. Live internal API (/api/v1/internal/tenants/by-number/{e164}).
+      4. Fallback to local static JSON registry (if API unavailable).
+      5. Safe default tenant if unknown/unassigned.
     """
-    if registry is None:
-        registry = load_tenants_registry()
-
     norm_dialed = normalize_e164(dialed_number)
-    if norm_dialed and norm_dialed in registry:
+
+    # 1. If explicit registry was passed (e.g. unit tests) and matches, honor it
+    if registry is not None and norm_dialed and norm_dialed in registry:
         return registry[norm_dialed]
 
-    # Dynamic lookup: Query backend API if dialed number is not in static files
+    # 2. In-memory cache check
+    now = time.time()
+    if norm_dialed and norm_dialed in _TENANT_CACHE:
+        expiry, cached_tenant = _TENANT_CACHE[norm_dialed]
+        if now < expiry:
+            return cached_tenant
+
+    # 3. Dynamic API-First Lookup: Query backend API for real-time config
     if norm_dialed:
         api_tenant = fetch_tenant_from_api(norm_dialed)
         if api_tenant:
-            registry[norm_dialed] = api_tenant
-            registry[api_tenant.tenant_id] = api_tenant
+            _TENANT_CACHE[norm_dialed] = (now + _CACHE_TTL_SECONDS, api_tenant)
+            _TENANT_CACHE[api_tenant.tenant_id] = (now + _CACHE_TTL_SECONDS, api_tenant)
+            if registry is not None:
+                registry[norm_dialed] = api_tenant
+                registry[api_tenant.tenant_id] = api_tenant
             logger.info(
-                "Dynamically resolved tenant '%s' for number '%s' via internal API",
+                "API-First dynamic resolution: resolved tenant '%s' for number '%s'",
                 api_tenant.business,
                 norm_dialed,
             )
             return api_tenant
 
-    # Log unknown number and return safe default
+    # 4. Fallback to static JSON files if API is unreachable
+    if registry is None:
+        registry = load_tenants_registry()
+
+    if norm_dialed and norm_dialed in registry:
+        logger.warning("API lookup failed for '%s'; fell back to static disk registry", norm_dialed)
+        return registry[norm_dialed]
+
+    # 5. Log unknown number and return safe default
     logger.warning(
         "Call received on unknown or unassigned dialed number: '%s' (normalized: '%s'); using safe default tenant",
         dialed_number,
@@ -411,10 +360,8 @@ def load_business_config(
     config_path: Path | str | None = None,
 ) -> TenantConfig:
     """Load business/tenant config by tenant_id, dialed number, or 'default' fallback."""
-    registry = load_tenants_registry(config_path)
-
     if client_key == "default":
-        # Return Apex Plumbing (+18005550199) or the first registered tenant
+        registry = load_tenants_registry(config_path)
         if "+18005550199" in registry:
             return registry["+18005550199"]
         for t in registry.values():
@@ -422,6 +369,27 @@ def load_business_config(
                 return t
         return get_safe_default_tenant()
 
+    # Check cache
+    now = time.time()
+    if client_key in _TENANT_CACHE:
+        expiry, cached_tenant = _TENANT_CACHE[client_key]
+        if now < expiry:
+            return cached_tenant
+
+    # Try API-first resolution by tenant_id
+    api_tenant = fetch_tenant_from_api_by_id(client_key)
+    if not api_tenant:
+        norm_key = normalize_e164(client_key)
+        if norm_key:
+            api_tenant = fetch_tenant_from_api(norm_key)
+
+    if api_tenant:
+        _TENANT_CACHE[client_key] = (now + _CACHE_TTL_SECONDS, api_tenant)
+        _TENANT_CACHE[api_tenant.tenant_id] = (now + _CACHE_TTL_SECONDS, api_tenant)
+        return api_tenant
+
+    # Fallback to local static registry
+    registry = load_tenants_registry(config_path)
     if client_key in registry:
         return registry[client_key]
 

@@ -52,6 +52,24 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Attach impersonation context if token was issued for an agency impersonation session
+    is_impersonated = bool(payload.get("is_impersonated", False))
+    user.is_impersonated = is_impersonated
+    if is_impersonated:
+        impersonated_tenant_id = payload.get("tenant_id")
+        user.impersonator_id = payload.get("impersonator_id")
+        user.impersonator_email = payload.get("impersonator_email")
+        user.session_id = payload.get("session_id")
+        if impersonated_tenant_id:
+            user.tenant_id = impersonated_tenant_id
+            target_tenant = db.scalar(select(Tenant).where(Tenant.id == impersonated_tenant_id))
+            if target_tenant:
+                user.tenant = target_tenant
+    else:
+        user.impersonator_id = None
+        user.impersonator_email = None
+        user.session_id = None
+
     return user
 
 
@@ -72,14 +90,16 @@ def get_current_tenant(
     db: Annotated[Session, Depends(get_db)],
     x_tenant_id: Annotated[str | None, Header()] = None,
 ) -> Tenant:
-    """Enforce tenant scoping. Platform admin can impersonate with X-Tenant-ID header."""
+    """Enforce tenant scoping. Platform admin can impersonate with token or X-Tenant-ID header."""
     target_tenant_id = current_user.tenant_id
 
-    # Allow platform admin to impersonate a tenant via header
-    if current_user.role == "platform_admin":
+    # If this is an impersonation token session, always use the impersonated tenant
+    if getattr(current_user, "is_impersonated", False) and current_user.tenant_id:
+        target_tenant_id = current_user.tenant_id
+    elif current_user.role == "platform_admin":
         if x_tenant_id:
             target_tenant_id = x_tenant_id
-        else:
+        elif not target_tenant_id:
             # If no tenant specified, return first active tenant or 400
             stmt = select(Tenant).where(Tenant.status == "active").order_by(Tenant.created_at.asc())
             fallback_tenant: Tenant | None = db.scalar(stmt)

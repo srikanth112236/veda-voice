@@ -487,10 +487,23 @@ def dispatch_call_notifications(
             html_body = format_email_html(payload)
             email_sent = email_worker.send(recipient_email, subject, text_body, html_body)
 
-        # Deliver SMS for emergencies
+        # Deliver SMS for emergencies to business owner
         if recipient_phone and notify_sms_emerg and payload.urgency == "emergency":
             sms_body = format_sms_text(payload)
             sms_sent = sms_worker.send(recipient_phone, sms_body)
+
+        # Deliver Omnichannel Customer Confirmation SMS
+        caller_sms_sent = False
+        caller_phone = call.caller_number
+        if caller_phone and not caller_phone.startswith("anon") and len(caller_phone) >= 10:
+            caller_msg = None
+            if call.outcome in ("booked", "appointment_booked", "confirmed"):
+                caller_msg = f"Hi {payload.caller_name or 'there'}, your appointment with {tenant.name} is confirmed! Thank you for calling."
+            elif call.outcome in ("message_taken", "info_provided", "transferred"):
+                caller_msg = f"Hi {payload.caller_name or 'there'}, thank you for contacting {tenant.name}! We have received your inquiry and our team will follow up with you shortly."
+
+            if caller_msg:
+                caller_sms_sent = sms_worker.send(caller_phone, caller_msg)
 
         return {
             "status": "delivered",
@@ -499,6 +512,7 @@ def dispatch_call_notifications(
             "recipient_phone": recipient_phone,
             "email_sent": email_sent,
             "sms_sent": sms_sent,
+            "caller_sms_sent": caller_sms_sent,
             "urgency": payload.urgency,
         }
 

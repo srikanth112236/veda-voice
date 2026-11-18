@@ -81,7 +81,7 @@ def sync_tenant_to_livekit(
             "approved_safety_script": emergency_advice,
             "mode": getattr(profile, "emergency_mode", "priority_message") or "priority_message",
         },
-        "tools_enabled": ["take_message", "end_call"],
+        "tools_enabled": ["take_message", "end_call", "booking"],
         "max_call_duration_seconds": 600,
         "business_notes": getattr(profile, "business_notes", "") or "",
         "agent_name": getattr(profile, "agent_name", "receptionist") or "receptionist",

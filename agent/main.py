@@ -1,6 +1,7 @@
 """LiveKit Voice Agent entrypoint for Milestones M1a, M1b, M1c & M2-lite."""
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -27,12 +28,18 @@ from livekit.agents.metrics import EOUMetrics, LLMMetrics, TTSMetrics
 from livekit.plugins import silero
 
 from agent.config import get_agent_settings, load_business_config, resolve_tenant
+from agent.config_client import default_api_client
 from agent.post_call import dispatch_post_call_notification
-from agent.prompts import build_system_prompt
-from agent.records import CallRecord, FileCallStore, TranscriptEntry
+from agent.prompts import build_outbound_system_prompt, build_system_prompt
+from agent.records import CallRecord, FileCallStore, TranscriptEntry, sync_call_record_to_api
 from agent.safety import SafetyMonitor, SystemClock
 from agent.telemetry import LatencyTracker, parse_sip_attributes, redact_phone
+from agent.tools.booking import create_booking_tools
+from agent.tools.knowledge import create_knowledge_tools
 from agent.tools.message import MessageCollector, create_take_message_tool
+from agent.tools.opt_out import create_opt_out_tool
+from agent.tools.transfer import create_transfer_tool
+from agent.tools.voicemail import create_voicemail_tool
 
 # Load local environment overrides first, then default environment file
 load_dotenv(".env.local")
@@ -127,17 +134,84 @@ async def entrypoint(ctx: JobContext) -> None:
         redact_phone(dialed_number or config.numbers[0] if config.numbers else "[default]"),
     )
 
+    # Distributed HTTP call-start handshake (capacity check, quota gate, and call token)
+    start_handshake = default_api_client.start_call_session(
+        dialed_number=dialed_number or (config.numbers[0] if config.numbers else ""),
+        caller_number=sip_info.get("caller_number", ""),
+        call_id=sip_info.get("call_id") or room_name or "call",
+    )
+    if start_handshake and start_handshake.get("allow") is False:
+        rejection_msg = (
+            start_handshake.get("message")
+            or f"All lines for {config.business} are currently busy. We have recorded your call and our coordinator will reach out to you shortly in a few minutes. Goodbye!"
+        )
+        logger.warning(
+            "Call rejected by control plane for tenant '%s': reason=%s message=%s",
+            config.tenant_id,
+            start_handshake.get("reason"),
+            rejection_msg,
+        )
+        try:
+            # Connect briefly to speak the busy callback notice before terminating call
+            await ctx.connect()
+            busy_session = AgentSession(tts=settings.tts_model)
+            await busy_session.start(room=ctx.room, agent=Agent(instructions=""))
+            await busy_session.say(rejection_msg, allow_interruptions=False)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.warning("Could not speak rejection notice: %s", e)
+        try:
+            await ctx.room.disconnect()
+        except Exception:
+            pass
+        return
+
+    if start_handshake and start_handshake.get("call_token"):
+        config.call_token = start_handshake["call_token"]
+    if start_handshake and start_handshake.get("config"):
+        raw_cfg = start_handshake["config"]
+        if isinstance(raw_cfg, dict):
+            if "max_call_duration_seconds" in raw_cfg:
+                config.max_call_duration_seconds = raw_cfg["max_call_duration_seconds"]
+            if raw_cfg.get("location_id"):
+                config.location_id = raw_cfg["location_id"]
+                config.location_name = raw_cfg.get("location_name")
+                config.location_city = raw_cfg.get("location_city")
+                if raw_cfg.get("location_hours"):
+                    config.hours = raw_cfg["location_hours"]
+            if raw_cfg.get("industry_pack_slug"):
+                config.industry_pack_slug = raw_cfg["industry_pack_slug"]
+            if raw_cfg.get("industry_pack_prompt"):
+                config.industry_pack_prompt = raw_cfg["industry_pack_prompt"]
+
+    # Fallback local signed token generation for local dev / direct dispatch
+    if not config.call_token:
+        try:
+            from api.app.core.security import create_access_token
+
+            config.call_token = create_access_token(
+                {
+                    "sub": "livekit-agent",
+                    "role": "agent",
+                    "tenant_id": config.tenant_id,
+                    "call_id": sip_info.get("call_id") or room_name or "call",
+                }
+            )
+            logger.info("Generated local signed call token for tenant '%s'", config.tenant_id)
+        except Exception as e:
+            logger.warning("Could not generate fallback local call token: %s", e)
+
     # Initialize take_message tool bound to this session's collector
     take_message_tool = create_take_message_tool(message_collector)
 
-    # Initialize AgentSession with VAD and LiveKit Inference model strings
+    # Initialize AgentSession with tuned VAD and LiveKit Inference model strings
     session: AgentSession = AgentSession(
         stt=settings.stt_model,
         llm=settings.llm_model,
         tts=settings.tts_model,
         vad=silero.VAD.load(
-            min_silence_duration=0.75,
-            prefix_padding_duration=0.6,
+            min_silence_duration=settings.vad_min_silence_duration,
+            prefix_padding_duration=settings.vad_prefix_padding_duration,
         ),
         user_away_timeout=10.0,
     )
@@ -209,7 +283,12 @@ async def entrypoint(ctx: JobContext) -> None:
             current_llm_calls_this_turn += 1
             if current_llm_ttft_ms == 0.0 and m.ttft > 0:
                 current_llm_ttft_ms = m.ttft * 1000.0
+            p_tok = getattr(m, "prompt_tokens", 0) or 0
+            c_tok = getattr(m, "completion_tokens", 0) or 0
+            tracker.record_tokens(p_tok, c_tok)
         elif isinstance(m, TTSMetrics):
+            chars_cnt = getattr(m, "characters_count", 0) or 0
+            tracker.record_tts_characters(chars_cnt)
             if m.audio_duration <= 0 or m.characters_count == 0 or m.ttfb <= 0:
                 return
 
@@ -352,6 +431,9 @@ async def entrypoint(ctx: JobContext) -> None:
             latency_p50_ms=float(summary["pipeline_median_ms"]),
             latency_p95_ms=float(summary["pipeline_p95_ms"]),
             turn_latencies_ms=tracker.pipeline_latencies_ms,
+            llm_prompt_tokens=int(summary.get("prompt_tokens", 0)),
+            llm_completion_tokens=int(summary.get("completion_tokens", 0)),
+            tts_characters=int(summary.get("tts_characters", 0)),
             transcript=transcript_log,
         )
 
@@ -359,6 +441,10 @@ async def entrypoint(ctx: JobContext) -> None:
             saved_path = call_store.save_call_record(record, tenant_id=config.tenant_id)
             logger.info(
                 "Call record successfully stored at %s for tenant %s", saved_path, config.tenant_id
+            )
+            # Sync call record and billable minutes to live PostgreSQL database asynchronously
+            asyncio.create_task(
+                asyncio.to_thread(sync_call_record_to_api, record, config.call_token)
             )
             # Dispatch post-call notification asynchronously so teardown does not block
             asyncio.create_task(asyncio.to_thread(dispatch_post_call_notification, record, config))
@@ -419,10 +505,38 @@ async def entrypoint(ctx: JobContext) -> None:
         )
         break
 
-    prompt = build_system_prompt(
-        config,
-        caller_phone=sip_info["caller_number"],
+    # Check if outbound speed-to-lead call
+    metadata_raw = getattr(ctx.job, "metadata", "") or ""
+    outbound_meta: dict[str, Any] = {}
+    if metadata_raw:
+        try:
+            outbound_meta = json.loads(metadata_raw)
+        except Exception:
+            pass
+
+    is_outbound = (
+        room_name.startswith("out-")
+        or outbound_meta.get("direction") == "outbound"
+        or outbound_meta.get("purpose") == "call_triage"
     )
+
+    if is_outbound:
+        prompt = build_outbound_system_prompt(
+            config,
+            lead_name=str(
+                outbound_meta.get("caller_name") or outbound_meta.get("lead_name") or "there"
+            ),
+            service_requested=str(
+                outbound_meta.get("service_requested") or "your requested service"
+            ),
+            source=str(outbound_meta.get("source") or "online inquiry"),
+            caller_phone=sip_info["caller_number"],
+        )
+    else:
+        prompt = build_system_prompt(
+            config,
+            caller_phone=sip_info["caller_number"],
+        )
 
     @function_tool(
         description="End the phone call cleanly when conversation is complete, caller says goodbye, or caller asks to hang up."
@@ -448,6 +562,59 @@ async def entrypoint(ctx: JobContext) -> None:
     active_tools: list[Any] = [end_call_tool]
     if "take_message" in config.tools_enabled:
         active_tools.append(take_message_tool)
+
+    # Attach calendar booking tools if booking is enabled
+    if any(
+        b in config.tools_enabled
+        for b in ("booking", "book_appointment", "check_availability", "calendar")
+    ):
+        if config.call_token:
+            booking_tools = create_booking_tools(config.call_token)
+            active_tools.extend(booking_tools)
+
+    # Attach knowledge base RAG tool (Milestone M10a)
+    if config.call_token:
+        knowledge_tools = create_knowledge_tools(config.call_token)
+        active_tools.extend(knowledge_tools)
+
+    # Attach opt-out tool for DNC compliance if call token is available
+    if config.call_token:
+        opt_out_tool = create_opt_out_tool(
+            call_token=config.call_token,
+            phone_number=sip_info.get("caller_number", ""),
+        )
+        active_tools.append(opt_out_tool)
+
+    # Attach human transfer tool if configured or enabled
+    if bool(config.transfer_number) or ("transfer" in config.tools_enabled):
+        transfer_tool = create_transfer_tool(
+            config=config,
+            livekit_session=session,
+            room=ctx.room,
+            call_id=sip_info.get("call_id") or room_name,
+        )
+        active_tools.append(transfer_tool)
+
+    # Attach automated voicemail drop tool for outbound calls
+    if is_outbound:
+
+        def _set_voicemail_outcome(outcome_val: str) -> None:
+            nonlocal call_outcome
+            call_outcome = outcome_val
+
+        vm_tool = create_voicemail_tool(
+            config=config,
+            livekit_session=session,
+            room=ctx.room,
+            lead_name=str(
+                outbound_meta.get("caller_name") or outbound_meta.get("lead_name") or "there"
+            ),
+            service_requested=str(
+                outbound_meta.get("service_requested") or "your requested service"
+            ),
+            on_voicemail_dropped=_set_voicemail_outcome,
+        )
+        active_tools.append(vm_tool)
 
     # Initialize Voice Agent
     agent = Agent(

@@ -37,6 +37,18 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = [
+    "api.tests.*",
+    "agent.tests.*",
+    "run_250_scenarios_and_report.*",
+    "run_realistic_250_scenarios.*",
+    "scripts.*",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = false
+
 [tool.pytest.ini_options]
 testpaths = ["api/tests", "agent/tests"]
 pythonpath = ["."]

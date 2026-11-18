@@ -36,6 +36,17 @@ def test_agent_settings_defaults() -> None:
     assert settings.llm_model in ("google/gemma-2-9b-it", "google/gemini-2.5-flash")
     assert settings.tts_model == "inworld/inworld-tts-1"
     assert settings.tts_voice_id == "Alex"
+    assert settings.vad_min_silence_duration == 0.38
+    assert settings.vad_prefix_padding_duration == 0.30
+
+
+def test_agent_settings_vad_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify VAD low-latency settings can be overridden via environment variables."""
+    monkeypatch.setenv("VAD_MIN_SILENCE_DURATION", "0.25")
+    monkeypatch.setenv("VAD_PREFIX_PADDING_DURATION", "0.20")
+    settings = get_agent_settings()
+    assert settings.vad_min_silence_duration == 0.25
+    assert settings.vad_prefix_padding_duration == 0.20
 
 
 def test_emergency_keywords_no_false_positive_on_gas_equipment() -> None:

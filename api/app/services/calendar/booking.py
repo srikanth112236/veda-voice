@@ -10,9 +10,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from api.app.models.booking import Booking
+from api.app.models.staff import StaffMember
 from api.app.models.tenant import Tenant
 from api.app.services.calendar.availability import _get_tenant_calendar_provider
 from api.app.services.calendar.base import CalendarProvider, ExternalEvent
+from api.app.services.calendar.dispatch import (
+    assign_technician_round_robin,
+    filter_eligible_staff,
+)
 
 logger = logging.getLogger("vedavoice.calendar.booking")
 
@@ -32,6 +37,8 @@ def hold_time_slot(
     customer_name: str = "Prospective Customer",
     customer_phone: str = "",
     service_type: str = "general_appointment",
+    postal_code: str | None = None,
+    staff_id: str | None = None,
 ) -> Booking:
     """Acquire a temporary 5-minute hold lock on a slot during a live call."""
     slot_end = slot_start + timedelta(minutes=duration_minutes)
@@ -45,14 +52,25 @@ def hold_time_slot(
     ).update({"status": "cancelled"})
     db.commit()
 
+    # Resolve technician if staff members exist
+    assigned_staff_id = staff_id
+    if not assigned_staff_id:
+        eligible = filter_eligible_staff(tenant_id, service_type, postal_code, db)
+        if eligible:
+            tech = assign_technician_round_robin(eligible, slot_start, db)
+            if tech:
+                assigned_staff_id = tech.id
+
     # Check for existing active booking
-    existing = db.scalar(
-        select(Booking).where(
-            Booking.tenant_id == tenant_id,
-            Booking.start_at == slot_start,
-            Booking.status.in_(["confirmed", "held"]),
-        )
+    conflict_query = select(Booking).where(
+        Booking.tenant_id == tenant_id,
+        Booking.start_at == slot_start,
+        Booking.status.in_(["confirmed", "held"]),
     )
+    if assigned_staff_id:
+        conflict_query = conflict_query.where(Booking.staff_id == assigned_staff_id)
+
+    existing = db.scalar(conflict_query)
 
     if existing:
         if existing.status == "held" and existing.call_id == call_id:
@@ -64,11 +82,19 @@ def hold_time_slot(
             f"Slot starting at {slot_start.isoformat()} is no longer available."
         )
 
+    from api.app.services.locations import resolve_location_for_caller
+
+    resolved_loc = resolve_location_for_caller(tenant_id, db=db, postal_code=postal_code)
+    loc_id = resolved_loc.id if resolved_loc else None
+
     hold_booking = Booking(
         tenant_id=tenant_id,
         call_id=call_id,
+        location_id=loc_id,
+        staff_id=assigned_staff_id,
         customer_name=customer_name,
         customer_phone=customer_phone,
+        postal_code=postal_code,
         service_type=service_type,
         start_at=slot_start,
         end_at=slot_end,
@@ -101,6 +127,8 @@ def confirm_booking(
     idempotency_key: str | None = None,
     notes: str | None = None,
     custom_provider: CalendarProvider | None = None,
+    postal_code: str | None = None,
+    staff_id: str | None = None,
 ) -> Booking:
     """Confirm appointment booking, prevent double booking, and insert external calendar event."""
     slot_end = slot_start + timedelta(minutes=duration_minutes)
@@ -125,16 +153,36 @@ def confirm_booking(
             )
         )
 
+    # Resolve staff assignment
+    assigned_staff_id = staff_id or (held_booking.staff_id if held_booking else None)
+    if not assigned_staff_id:
+        eligible = filter_eligible_staff(tenant_id, service_type, postal_code, db)
+        if eligible:
+            tech = assign_technician_round_robin(eligible, slot_start, db)
+            if tech:
+                assigned_staff_id = tech.id
+
     # 3. Check for conflicting active bookings (unless it is our held slot)
-    conflict = db.scalar(
-        select(Booking).where(
-            Booking.tenant_id == tenant_id,
-            Booking.start_at == slot_start,
-            Booking.status == "confirmed",
-        )
+    conflict_query = select(Booking).where(
+        Booking.tenant_id == tenant_id,
+        Booking.start_at == slot_start,
+        Booking.status == "confirmed",
     )
+    if assigned_staff_id:
+        conflict_query = conflict_query.where(Booking.staff_id == assigned_staff_id)
+    if held_booking:
+        conflict_query = conflict_query.where(Booking.id != held_booking.id)
+
+    conflict = db.scalar(conflict_query)
     if conflict:
         raise SlotUnavailableError(f"Slot {slot_start.isoformat()} is already booked.")
+
+    # Fetch technician name if assigned
+    tech_name = None
+    if assigned_staff_id:
+        staff_rec = db.scalar(select(StaffMember).where(StaffMember.id == assigned_staff_id))
+        if staff_rec:
+            tech_name = staff_rec.name
 
     # 4. Create External Calendar Event (Google Calendar with Meet link)
     cal_provider = custom_provider
@@ -148,11 +196,14 @@ def confirm_booking(
     if cal_provider:
         tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
         biz_name = tenant.name if tenant else "Service Appointment"
-        event_title = f"{service_type.replace('_', ' ').title()} - {customer_name}"
+        title_suffix = f" (Tech: {tech_name})" if tech_name else ""
+        event_title = f"{service_type.replace('_', ' ').title()} - {customer_name}{title_suffix}"
         event_desc = (
             f"Customer: {customer_name}\n"
             f"Phone: {customer_phone}\n"
             f"Service: {service_type}\n"
+            f"Postal Code: {postal_code or 'N/A'}\n"
+            f"Assigned Technician: {tech_name or 'Unassigned'}\n"
             f"Business: {biz_name}\n"
             f"Notes: {notes or 'Booked via VedaVoice AI Voice Agent'}"
         )
@@ -176,11 +227,20 @@ def confirm_booking(
             # We still record booking in DB even if external sync encounters network error
 
     # 5. Persist confirmed booking in DB
+    from api.app.services.locations import resolve_location_for_caller
+
+    resolved_loc = resolve_location_for_caller(tenant_id, db=db, postal_code=postal_code)
+    loc_id = resolved_loc.id if resolved_loc else None
+
     if held_booking:
         held_booking.status = "confirmed"
+        if loc_id and not held_booking.location_id:
+            held_booking.location_id = loc_id
+        held_booking.staff_id = assigned_staff_id
         held_booking.customer_name = customer_name
         held_booking.customer_phone = customer_phone
         held_booking.customer_email = customer_email
+        held_booking.postal_code = postal_code or held_booking.postal_code
         held_booking.service_type = service_type
         held_booking.calendar_event_id = calendar_event_id
         held_booking.meet_link = meet_link
@@ -195,9 +255,12 @@ def confirm_booking(
     new_booking = Booking(
         tenant_id=tenant_id,
         call_id=call_id,
+        location_id=loc_id,
+        staff_id=assigned_staff_id,
         customer_name=customer_name,
         customer_phone=customer_phone,
         customer_email=customer_email,
+        postal_code=postal_code,
         service_type=service_type,
         start_at=slot_start,
         end_at=slot_end,

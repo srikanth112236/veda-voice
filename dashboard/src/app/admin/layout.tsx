@@ -13,6 +13,8 @@ import {
   CreditCard,
   Tag,
   PhoneCall,
+  UserCheck,
+  History,
 } from "lucide-react";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -85,6 +87,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               <Building2 className="w-4 h-4 text-blue-600" />
               Client Tenants &amp; RLS
+            </Link>
+
+            <Link
+              href="/admin/dashboard?tab=subaccounts"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
+            >
+              <UserCheck className="w-4 h-4 text-indigo-600" />
+              Sub-Accounts &amp; Proxy
+            </Link>
+
+            <Link
+              href="/admin/dashboard?tab=audit"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
+            >
+              <History className="w-4 h-4 text-purple-600" />
+              Immutable Audit Trail
             </Link>
 
             <Link

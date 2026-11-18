@@ -11,28 +11,61 @@ from sqlalchemy.orm import Session
 
 from api.app.core.deps import get_current_user, require_platform_admin
 from api.app.db.session import get_db
+from api.app.models.entitlement import (
+    Plan,
+    TenantEntitlementOverride,
+)
+from api.app.models.location import Location
 from api.app.models.subscription import Coupon, Subscription
-from api.app.models.tenant import Tenant
+from api.app.models.tenant import PhoneNumber, Tenant
 from api.app.models.user import User
+from api.app.services.entitlements import (
+    PLAN_ENTITLEMENTS_MATRIX,
+    check_downgrade_limits,
+    resolve_tenant_entitlements,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["subscriptions"])
 
-# Tier minute definitions and monthly prices
+# Tier minute definitions and monthly prices (7-Plan Ladder)
 TIER_PLANS: dict[str, dict[str, Any]] = {
-    "starter": {"minutes": 1000, "price_usd": 299.00, "name": "Starter Plan"},
-    "pro": {"minutes": 1200, "price_usd": 399.00, "name": "Professional Plan"},
-    "enterprise": {"minutes": 1500, "price_usd": 499.00, "name": "Enterprise Scale Plan"},
+    "lite": {"minutes": 300, "price_usd": 99.00, "name": "Lite Plan", "overage_usd": 0.40},
+    "starter": {"minutes": 1000, "price_usd": 299.00, "name": "Starter Plan", "overage_usd": 0.35},
+    "growth": {"minutes": 1500, "price_usd": 399.00, "name": "Growth Plan", "overage_usd": 0.35},
+    "pro": {"minutes": 2000, "price_usd": 499.00, "name": "Professional Plan", "overage_usd": 0.35},
+    "scale": {"minutes": 4000, "price_usd": 999.00, "name": "Scale Plan", "overage_usd": 0.30},
+    "enterprise": {
+        "minutes": 10000,
+        "price_usd": 1999.00,
+        "name": "Enterprise Scale Plan",
+        "overage_usd": 0.20,
+    },
+    "agency": {
+        "minutes": 5000,
+        "price_usd": 1000.00,
+        "name": "Agency Wholesale Plan",
+        "overage_usd": 0.25,
+    },
 }
 
 
 class UpgradeSubscriptionRequest(BaseModel):
-    tier: str = Field(..., description="Target tier: starter, pro, or enterprise")
+    tier: str = Field(
+        ..., description="Target tier: lite, starter, growth, pro, scale, enterprise, agency"
+    )
     coupon_code: str | None = Field(
         None, description="Optional coupon code for discount/bonus minutes"
     )
     payment_method_id: str | None = Field(
         None, description="Stripe payment method token or test card"
     )
+
+
+class SetEntitlementOverrideRequest(BaseModel):
+    key: str = Field(..., description="Feature flag key from catalog")
+    value: Any = Field(..., description="Overridden value (bool, int, list, str)")
+    reason: str = Field(..., description="Mandatory audit justification")
+    expires_in_days: int | None = Field(None, description="Optional expiry in days")
 
 
 class CreateCouponRequest(BaseModel):
@@ -69,6 +102,13 @@ class AdminUpdateLimitsRequest(BaseModel):
     monthly_included_minutes: int = Field(..., ge=0)
     overage_rate_usd: float = Field(0.20, ge=0.0)
     allow_overage: bool = Field(True)
+    billing_increment: str | None = Field(None, description="'minute' or 'second'")
+
+
+class UpdateBillingModeRequest(BaseModel):
+    billing_increment: str = Field(
+        ..., description="'minute' (60s rounding) or 'second' (per-second precision)"
+    )
 
 
 def _is_expired(dt: datetime | None) -> bool:
@@ -191,6 +231,7 @@ def get_current_subscription(
         "remaining_minutes": round(remaining_minutes, 2),
         "overage_rate_usd": sub.overage_rate_usd,
         "allow_overage": sub.allow_overage,
+        "billing_increment": getattr(sub, "billing_increment", "minute"),
         "is_trial": sub.tier == "trial",
         "trial_days": sub.trial_days,
         "trial_ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
@@ -211,28 +252,237 @@ def get_current_subscription(
         "applied_coupon_code": sub.applied_coupon_code,
         "available_plans": [
             {
-                "tier": "starter",
-                "name": "Starter",
-                "minutes": 1000,
-                "price_usd": 299.00,
-                "overage_usd": 0.20,
-            },
-            {
-                "tier": "pro",
-                "name": "Professional",
-                "minutes": 1200,
-                "price_usd": 399.00,
-                "overage_usd": 0.20,
-            },
-            {
-                "tier": "enterprise",
-                "name": "Enterprise Scale",
-                "minutes": 1500,
-                "price_usd": 499.00,
-                "overage_usd": 0.20,
-            },
+                "tier": code,
+                "name": p["name"],
+                "minutes": p["minutes"],
+                "price_usd": p["price_usd"],
+                "overage_usd": p.get("overage_usd", 0.35),
+                "locations_max": PLAN_ENTITLEMENTS_MATRIX.get(code, {}).get("locations.max", 1),
+            }
+            for code, p in TIER_PLANS.items()
         ],
     }
+
+
+@router.get("/plans")
+def list_subscription_plans(
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List public subscription plans with pricing, minute allocations, overage rates, and feature entitlements."""
+    plans = db.scalars(
+        select(Plan).where(Plan.active.is_(True)).order_by(Plan.sort_order.asc())
+    ).all()
+    if plans:
+        return [
+            {
+                "code": p.code,
+                "name": p.name,
+                "track": p.track,
+                "price_usd": round(p.price_cents / 100.0, 2) if p.price_cents is not None else None,
+                "included_minutes": p.included_minutes,
+                "overage_rate_usd": round(p.overage_cents_per_min / 100.0, 2)
+                if p.overage_cents_per_min is not None
+                else None,
+                "max_concurrent_calls": p.max_concurrent_calls,
+                "max_concurrent_outbound": p.max_concurrent_outbound,
+                "entitlements": p.entitlements,
+                "public": p.public,
+            }
+            for p in plans
+        ]
+
+    # Fallback to in-memory catalog
+    return [
+        {
+            "code": code,
+            "name": p["name"],
+            "track": "direct",
+            "price_usd": p["price_usd"],
+            "included_minutes": p["minutes"],
+            "overage_rate_usd": p.get("overage_usd", 0.35),
+            "max_concurrent_calls": 3,
+            "max_concurrent_outbound": 1,
+            "entitlements": PLAN_ENTITLEMENTS_MATRIX.get(code, {}),
+            "public": True,
+        }
+        for code, p in TIER_PLANS.items()
+    ]
+
+
+@router.get("/entitlements")
+def get_tenant_entitlements(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Retrieve active feature entitlements, limits, usage meters, and trial standing."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+
+    sub = db.scalar(select(Subscription).where(Subscription.tenant_id == user.tenant_id))
+    entitlements = resolve_tenant_entitlements(db, user.tenant_id)
+
+    # Current resource usage counts
+    active_numbers = len(
+        db.scalars(
+            select(PhoneNumber).where(
+                PhoneNumber.tenant_id == user.tenant_id, PhoneNumber.status == "active"
+            )
+        ).all()
+    )
+    active_seats = len(
+        db.scalars(
+            select(User).where(User.tenant_id == user.tenant_id, User.is_active.is_(True))
+        ).all()
+    )
+    active_locations = len(
+        db.scalars(
+            select(Location).where(
+                Location.tenant_id == user.tenant_id, Location.is_active.is_(True)
+            )
+        ).all()
+    )
+
+    trial_info = None
+    if sub and (sub.tier == "trial" or sub.status == "trialing"):
+        now = datetime.now(UTC)
+        ends_at = sub.trial_ends_at
+        if ends_at and ends_at.tzinfo is None:
+            ends_at = ends_at.replace(tzinfo=UTC)
+        days_left = max(0, (ends_at - now).days) if ends_at else 0
+        trial_info = {
+            "status": "trialing" if not sub.is_trial_expired else "expired",
+            "trial_minutes_allocated": sub.trial_minutes_allocated,
+            "trial_minutes_used": sub.trial_minutes_used,
+            "trial_minutes_remaining": max(
+                0.0, float(sub.trial_minutes_allocated) - float(sub.trial_minutes_used)
+            ),
+            "trial_days_remaining": days_left,
+            "is_trial_expired": sub.is_trial_expired,
+        }
+
+    return {
+        "tenant_id": user.tenant_id,
+        "tier": sub.tier if sub else "starter",
+        "status": sub.status if sub else "active",
+        "trial": trial_info,
+        "entitlements": entitlements,
+        "usage_meters": {
+            "active_numbers": active_numbers,
+            "numbers_limit": entitlements.get("numbers.max", 1),
+            "active_seats": active_seats,
+            "seats_limit": entitlements.get("seats.max", 2),
+            "active_locations": active_locations,
+            "locations_limit": entitlements.get("locations.max", 1),
+            "monthly_included_minutes": sub.monthly_included_minutes if sub else 1000,
+            "used_minutes_this_cycle": sub.used_minutes_this_cycle if sub else 0.0,
+            "billing_increment": getattr(sub, "billing_increment", "minute") if sub else "minute",
+        },
+    }
+
+
+@router.get("/subscriptions/check-downgrade")
+def check_subscription_downgrade(
+    target_tier: str = Query(..., description="Target plan code to evaluate"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Pre-downgrade gate (FR-PLAN-2): list any resources exceeding the target plan limits."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    return check_downgrade_limits(db, user.tenant_id, target_tier)
+
+
+@router.get("/admin/tenants/{tenant_id}/entitlement-overrides")
+def get_tenant_overrides(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> list[dict[str, Any]]:
+    """List agency-granted entitlement overrides for a specific tenant."""
+    overrides = db.scalars(
+        select(TenantEntitlementOverride).where(TenantEntitlementOverride.tenant_id == tenant_id)
+    ).all()
+    return [
+        {
+            "id": ov.id,
+            "key": ov.key,
+            "value": ov.value,
+            "reason": ov.reason,
+            "granted_by": ov.granted_by,
+            "expires_at": ov.expires_at.isoformat() if ov.expires_at else None,
+            "created_at": ov.created_at.isoformat(),
+        }
+        for ov in overrides
+    ]
+
+
+@router.put("/admin/tenants/{tenant_id}/entitlement-overrides")
+def set_tenant_override(
+    tenant_id: str,
+    req: SetEntitlementOverrideRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Set or update an entitlement override with audit reason (Tier 3)."""
+    now = datetime.now(UTC)
+    exp = now + timedelta(days=req.expires_in_days) if req.expires_in_days else None
+
+    override = db.scalar(
+        select(TenantEntitlementOverride).where(
+            TenantEntitlementOverride.tenant_id == tenant_id,
+            TenantEntitlementOverride.key == req.key,
+        )
+    )
+    if override:
+        override.value = req.value
+        override.reason = req.reason
+        override.granted_by = admin.id
+        override.expires_at = exp
+    else:
+        override = TenantEntitlementOverride(
+            tenant_id=tenant_id,
+            key=req.key,
+            value=req.value,
+            reason=req.reason,
+            granted_by=admin.id,
+            expires_at=exp,
+            created_at=now,
+        )
+        db.add(override)
+
+    db.commit()
+    db.refresh(override)
+
+    return {
+        "success": True,
+        "tenant_id": tenant_id,
+        "key": override.key,
+        "value": override.value,
+        "reason": override.reason,
+        "expires_at": override.expires_at.isoformat() if override.expires_at else None,
+    }
+
+
+@router.delete("/admin/tenants/{tenant_id}/entitlement-overrides/{key}")
+def delete_tenant_override(
+    tenant_id: str,
+    key: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Delete an active entitlement override, reverting tenant to plan tier default."""
+    override = db.scalar(
+        select(TenantEntitlementOverride).where(
+            TenantEntitlementOverride.tenant_id == tenant_id,
+            TenantEntitlementOverride.key == key,
+        )
+    )
+    if not override:
+        raise HTTPException(status_code=404, detail="Entitlement override not found.")
+
+    db.delete(override)
+    db.commit()
+    return {"success": True, "message": f"Override '{key}' removed."}
 
 
 @router.post("/subscriptions/upgrade")
@@ -257,6 +507,16 @@ def upgrade_subscription(
 
     plan = TIER_PLANS[tier_key]
     sub = get_or_create_subscription(db, user.tenant_id)
+
+    # Pre-change resource limit gate (FR-PLAN-2)
+    # Check if target plan can accommodate current active resources (numbers, seats, locations)
+    downgrade_check = check_downgrade_limits(db, user.tenant_id, tier_key)
+    if not downgrade_check.get("allowed", True):
+        excess_msgs = "; ".join([e["message"] for e in downgrade_check.get("excess_resources", [])])
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot transition to {plan['name']}: Resource limits exceeded. {excess_msgs}",
+        )
 
     # 1-Subscription-Per-Month Enforced:
     # If tenant is already on an active paid plan (not in trial)
@@ -374,6 +634,31 @@ def upgrade_subscription(
             "stripe_subscription_id": sub.stripe_subscription_id,
         },
         "cycle_end_date": sub.cycle_end_date.isoformat(),
+    }
+
+
+@router.patch("/subscriptions/billing-mode")
+def update_billing_mode(
+    req: UpdateBillingModeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Configure tenant billing precision: 'minute' (60s rounding) or 'second' (per-second precision)."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    if req.billing_increment not in ("minute", "second"):
+        raise HTTPException(
+            status_code=400, detail="billing_increment must be 'minute' or 'second'."
+        )
+    sub = get_or_create_subscription(db, user.tenant_id)
+    sub.billing_increment = req.billing_increment
+    db.commit()
+    db.refresh(sub)
+    return {
+        "success": True,
+        "tenant_id": user.tenant_id,
+        "billing_increment": sub.billing_increment,
+        "message": f"Billing resolution updated to {req.billing_increment}.",
     }
 
 
@@ -597,6 +882,8 @@ def admin_set_subscription_limits(
     sub.monthly_included_minutes = req.monthly_included_minutes
     sub.overage_rate_usd = req.overage_rate_usd
     sub.allow_overage = req.allow_overage
+    if req.billing_increment in ("minute", "second"):
+        sub.billing_increment = req.billing_increment
     db.commit()
     db.refresh(sub)
     return {
@@ -605,6 +892,7 @@ def admin_set_subscription_limits(
         "monthly_included_minutes": sub.monthly_included_minutes,
         "overage_rate_usd": sub.overage_rate_usd,
         "allow_overage": sub.allow_overage,
+        "billing_increment": sub.billing_increment,
         "message": "Subscription limits successfully updated",
     }
 
@@ -755,6 +1043,43 @@ def get_tenant_invoices(
     return invoices
 
 
+def _find_subscription_for_stripe_event(
+    event_data: dict[str, Any], db: Session
+) -> Subscription | None:
+    """Resolve tenant subscription from Stripe event by customer ID, subscription ID, or metadata."""
+    # 1. By customer id
+    customer_id = event_data.get("customer")
+    if customer_id:
+        sub = db.scalar(
+            select(Subscription).where(Subscription.stripe_customer_id == str(customer_id))
+        )
+        if sub:
+            return sub
+
+    # 2. By subscription id
+    sub_id = event_data.get("subscription") or event_data.get("id")
+    if sub_id:
+        sub = db.scalar(
+            select(Subscription).where(Subscription.stripe_subscription_id == str(sub_id))
+        )
+        if sub:
+            return sub
+
+    # 3. By client_reference_id or metadata tenant_id
+    meta_tenant_id = (
+        event_data.get("metadata", {}).get("tenant_id")
+        if isinstance(event_data.get("metadata"), dict)
+        else None
+    ) or event_data.get("client_reference_id")
+
+    if meta_tenant_id:
+        sub = db.scalar(select(Subscription).where(Subscription.tenant_id == str(meta_tenant_id)))
+        if sub:
+            return sub
+
+    return None
+
+
 @router.post("/subscriptions/webhook")
 def stripe_webhook_receiver(
     payload: dict[str, Any],
@@ -764,18 +1089,58 @@ def stripe_webhook_receiver(
     event_type = payload.get("type", "unknown")
     event_data = payload.get("data", {}).get("object", {})
 
-    if event_type == "invoice.payment_succeeded":
-        customer_id = event_data.get("customer")
-        if customer_id:
-            sub = db.scalar(
-                select(Subscription).where(Subscription.stripe_customer_id == customer_id)
-            )
-            if sub and sub.tier != "trial":
-                unused = max(0.0, float(sub.monthly_included_minutes) - sub.used_minutes_this_cycle)
-                sub.bonus_rollover_minutes += round(unused * 0.10, 2)
-                sub.used_minutes_this_cycle = 0.0
-                sub.cycle_start_date = datetime.now(UTC)
-                sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
-                db.commit()
+    sub = _find_subscription_for_stripe_event(event_data, db)
+    action_taken = "none"
 
-    return {"received": True, "event": event_type}
+    if event_type == "invoice.payment_succeeded":
+        # Recurring monthly subscription cycle renewal or paid invoice
+        if sub and sub.tier != "trial":
+            execute_cycle_renewal(sub, db)
+            sub.status = "active"
+            db.commit()
+            action_taken = "cycle_renewed_with_rollover"
+
+    elif event_type == "invoice.payment_failed":
+        # Payment failed -> Mark past_due to trigger suspension gate
+        if sub:
+            sub.status = "past_due"
+            db.commit()
+            action_taken = "marked_past_due"
+
+    elif event_type == "customer.subscription.deleted":
+        # Subscription canceled in Stripe -> Cancel subscription
+        if sub:
+            sub.status = "canceled"
+            db.commit()
+            action_taken = "marked_canceled"
+
+    elif event_type == "checkout.session.completed":
+        # Customer completed initial checkout in Stripe Checkout
+        if sub:
+            meta = (
+                event_data.get("metadata", {})
+                if isinstance(event_data.get("metadata"), dict)
+                else {}
+            )
+            tier = meta.get("tier", "starter")
+            if tier in TIER_PLANS:
+                sub.tier = tier
+                sub.monthly_included_minutes = int(TIER_PLANS[tier]["minutes"])
+            sub.status = "active"
+            cust_id = event_data.get("customer")
+            stripe_sub_id = event_data.get("subscription")
+            if cust_id:
+                sub.stripe_customer_id = str(cust_id)
+            if stripe_sub_id:
+                sub.stripe_subscription_id = str(stripe_sub_id)
+            sub.cycle_start_date = datetime.now(UTC)
+            sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+            db.commit()
+            action_taken = "checkout_activated"
+
+    return {
+        "received": True,
+        "event": event_type,
+        "action": action_taken,
+        "tenant_id": sub.tenant_id if sub else None,
+    }

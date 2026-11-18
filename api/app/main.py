@@ -16,18 +16,34 @@ from api.app.core.security import hash_password
 from api.app.db.session import SessionLocal, engine
 from api.app.models.base import Base
 from api.app.models.call import Call
+from api.app.models.compliance import ConsentText, StateRule
+from api.app.models.entitlement import (
+    FeatureFlag,
+    Plan,
+)
 from api.app.models.lead_form import Lead, LeadForm
 from api.app.models.subscription import Coupon, Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.routers.admin import router as admin_router
+from api.app.routers.agency import router as agency_router
 from api.app.routers.auth import router as auth_router
 from api.app.routers.calendar import router as calendar_router
+from api.app.routers.compliance import router as compliance_router
+from api.app.routers.crm import router as crm_router
 from api.app.routers.forms import router as forms_router
+from api.app.routers.industry_packs import router as industry_packs_router
+from api.app.routers.integrations import router as integrations_router
 from api.app.routers.internal import router as internal_router
+from api.app.routers.knowledge import router as knowledge_router
+from api.app.routers.leads import router as leads_router
+from api.app.routers.locations import router as locations_router
 from api.app.routers.numbers import router as numbers_router
 from api.app.routers.portal import router as portal_router
+from api.app.routers.staff import router as staff_router
 from api.app.routers.subscriptions import router as subscriptions_router
+from api.app.services.entitlements import DEFAULT_FEATURE_FLAGS, PLAN_ENTITLEMENTS_MATRIX
+from api.app.services.industry_packs import seed_default_industry_packs
 
 
 def seed_initial_data() -> None:
@@ -302,6 +318,216 @@ def seed_initial_data() -> None:
                     )
             db.commit()
 
+        # Seed US State Compliance Rules (Milestone M5b)
+        state_rules_count = db.scalar(select(func.count(StateRule.state)))
+        if not state_rules_count:
+            default_rules = [
+                StateRule(
+                    state="US",
+                    window_start="08:00",
+                    window_end="21:00",
+                    max_attempts_24h=None,
+                    requires_state_dnc=False,
+                    all_party_recording=False,
+                    ai_disclosure_required=True,
+                    notes="Federal TCPA default baseline (8am-9pm local recipient time)",
+                ),
+                StateRule(
+                    state="FL",
+                    window_start="08:00",
+                    window_end="20:00",
+                    max_attempts_24h=3,
+                    requires_state_dnc=True,
+                    all_party_recording=True,
+                    ai_disclosure_required=True,
+                    notes="Florida FTSA: 8am-8pm, max 3 attempts per 24h, two-party consent",
+                ),
+                StateRule(
+                    state="OK",
+                    window_start="08:00",
+                    window_end="20:00",
+                    max_attempts_24h=3,
+                    requires_state_dnc=True,
+                    all_party_recording=False,
+                    ai_disclosure_required=True,
+                    notes="Oklahoma OTSA: 8am-8pm, max 3 attempts per 24h on same subject",
+                ),
+                StateRule(
+                    state="MD",
+                    window_start="08:00",
+                    window_end="20:00",
+                    max_attempts_24h=3,
+                    requires_state_dnc=True,
+                    all_party_recording=True,
+                    ai_disclosure_required=True,
+                    notes="Maryland Stop the Spam Calls Act: 8am-8pm, two-party recording consent",
+                ),
+                StateRule(
+                    state="WA",
+                    window_start="08:00",
+                    window_end="20:00",
+                    max_attempts_24h=3,
+                    requires_state_dnc=True,
+                    all_party_recording=True,
+                    ai_disclosure_required=True,
+                    notes="Washington Commercial Electronic Mail & Two-Party Recording Consent",
+                ),
+                StateRule(
+                    state="CA",
+                    window_start="08:00",
+                    window_end="21:00",
+                    max_attempts_24h=None,
+                    requires_state_dnc=False,
+                    all_party_recording=True,
+                    ai_disclosure_required=True,
+                    notes="California Cal. Penal Code § 632 two-party consent; strict AI bot disclosure",
+                ),
+                StateRule(
+                    state="TX",
+                    window_start="08:00",
+                    window_end="21:00",
+                    max_attempts_24h=None,
+                    requires_state_dnc=True,
+                    all_party_recording=False,
+                    ai_disclosure_required=True,
+                    notes="Texas Business & Commerce Code: 8am-9pm, state DNC registration",
+                ),
+            ]
+            for rule in default_rules:
+                db.add(rule)
+            db.commit()
+
+        # Seed Standard Legal Consent Text if empty
+        consent_text_count = db.scalar(select(func.count(ConsentText.id)))
+        if not consent_text_count:
+            db.add(
+                ConsentText(
+                    tenant_id=None,
+                    version=1,
+                    body=(
+                        "By submitting this form, you authorize {seller_name} and its automated AI voice system "
+                        "to contact you at the phone number provided regarding your inquiry, including calls initiated "
+                        "by an automated dialing system. Consent is not a condition of purchase."
+                    ),
+                )
+            )
+            db.commit()
+
+        # Seed 7-Plan Ladder if empty (Milestone M5c)
+        plan_count = db.scalar(select(func.count(Plan.code)))
+        if not plan_count:
+            plans_data = [
+                Plan(
+                    code="lite",
+                    name="Lite",
+                    track="direct",
+                    price_cents=9900,
+                    included_minutes=300,
+                    overage_cents_per_min=40,
+                    max_concurrent_calls=2,
+                    max_concurrent_outbound=1,
+                    entitlements=PLAN_ENTITLEMENTS_MATRIX["lite"],
+                    public=True,
+                    sort_order=10,
+                ),
+                Plan(
+                    code="starter",
+                    name="Starter",
+                    track="direct",
+                    price_cents=29900,
+                    included_minutes=1000,
+                    overage_cents_per_min=35,
+                    max_concurrent_calls=3,
+                    max_concurrent_outbound=1,
+                    entitlements=PLAN_ENTITLEMENTS_MATRIX["starter"],
+                    public=True,
+                    sort_order=20,
+                ),
+                Plan(
+                    code="growth",
+                    name="Growth",
+                    track="direct",
+                    price_cents=39900,
+                    included_minutes=1500,
+                    overage_cents_per_min=35,
+                    max_concurrent_calls=5,
+                    max_concurrent_outbound=2,
+                    entitlements=PLAN_ENTITLEMENTS_MATRIX["growth"],
+                    public=True,
+                    sort_order=30,
+                ),
+                Plan(
+                    code="pro",
+                    name="Pro",
+                    track="direct",
+                    price_cents=49900,
+                    included_minutes=2000,
+                    overage_cents_per_min=35,
+                    max_concurrent_calls=8,
+                    max_concurrent_outbound=3,
+                    entitlements=PLAN_ENTITLEMENTS_MATRIX["pro"],
+                    public=True,
+                    sort_order=40,
+                ),
+                Plan(
+                    code="scale",
+                    name="Scale",
+                    track="direct",
+                    price_cents=99900,
+                    included_minutes=4000,
+                    overage_cents_per_min=30,
+                    max_concurrent_calls=20,
+                    max_concurrent_outbound=5,
+                    entitlements=PLAN_ENTITLEMENTS_MATRIX["scale"],
+                    public=True,
+                    sort_order=50,
+                ),
+                Plan(
+                    code="enterprise",
+                    name="Enterprise",
+                    track="enterprise",
+                    price_cents=None,
+                    included_minutes=None,
+                    overage_cents_per_min=None,
+                    max_concurrent_calls=40,
+                    max_concurrent_outbound=10,
+                    entitlements=PLAN_ENTITLEMENTS_MATRIX["enterprise"],
+                    public=False,
+                    sort_order=60,
+                ),
+                Plan(
+                    code="agency",
+                    name="Agency",
+                    track="agency",
+                    price_cents=100000,
+                    included_minutes=5000,
+                    overage_cents_per_min=25,
+                    max_concurrent_calls=40,
+                    max_concurrent_outbound=10,
+                    entitlements=PLAN_ENTITLEMENTS_MATRIX["agency"],
+                    public=False,
+                    sort_order=70,
+                ),
+            ]
+            for p in plans_data:
+                db.add(p)
+            db.commit()
+
+        # Seed Feature Flags Catalog if empty (Milestone M5d)
+        flag_count = db.scalar(select(func.count(FeatureFlag.key)))
+        if not flag_count:
+            for flag in DEFAULT_FEATURE_FLAGS:
+                db.add(
+                    FeatureFlag(
+                        key=flag["key"],
+                        kind=flag["kind"],
+                        description=flag["description"],
+                        default_value=flag["default_value"],
+                        compliance_sensitive=flag["compliance_sensitive"],
+                    )
+                )
+            db.commit()
+
         # 3. Import existing calls from data/calls/ if database calls are empty
         call_count = db.scalar(select(Call.id))
         if not call_count:
@@ -347,6 +573,8 @@ def seed_initial_data() -> None:
                         db.add(db_call)
                     except Exception:
                         pass
+                # Seed Launch Industry Packs
+                seed_default_industry_packs(db)
                 db.commit()
     finally:
         db.close()
@@ -469,14 +697,88 @@ def init_db() -> None:
                         "ALTER TABLE tenants ADD COLUMN monthly_minute_quota INTEGER DEFAULT 500 NOT NULL"
                     )
                 )
+            if "config" not in existing_tenant_cols:
+                conn.execute(
+                    text("ALTER TABLE tenants ADD COLUMN config JSON DEFAULT '{}' NOT NULL")
+                )
 
-            # Calls table direction column
+            # Calls table columns
             cursor = conn.execute(text("PRAGMA table_info(calls)"))
             existing_call_cols = {row[1] for row in cursor.fetchall()}
             if "direction" not in existing_call_cols:
                 conn.execute(
                     text(
                         "ALTER TABLE calls ADD COLUMN direction VARCHAR(16) DEFAULT 'inbound' NOT NULL"
+                    )
+                )
+            if "billable_minutes" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN billable_minutes INTEGER DEFAULT 0 NOT NULL")
+                )
+            if "llm_prompt_tokens" not in existing_call_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE calls ADD COLUMN llm_prompt_tokens INTEGER DEFAULT 0 NOT NULL"
+                    )
+                )
+            if "llm_completion_tokens" not in existing_call_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE calls ADD COLUMN llm_completion_tokens INTEGER DEFAULT 0 NOT NULL"
+                    )
+                )
+            if "sentiment_score" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN sentiment_score FLOAT DEFAULT 0.0 NOT NULL")
+                )
+            if "sentiment_label" not in existing_call_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE calls ADD COLUMN sentiment_label VARCHAR(32) DEFAULT 'neutral' NOT NULL"
+                    )
+                )
+            if "lead_score" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN lead_score FLOAT DEFAULT 50.0 NOT NULL")
+                )
+            if "lost_reason" not in existing_call_cols:
+                conn.execute(text("ALTER TABLE calls ADD COLUMN lost_reason VARCHAR(64) NULL"))
+            if "key_objections" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN key_objections JSON DEFAULT '[]' NOT NULL")
+                )
+            if "supervisor_whispers" not in existing_call_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE calls ADD COLUMN supervisor_whispers JSON DEFAULT '[]' NOT NULL"
+                    )
+                )
+
+            # Usage records table columns
+            cursor = conn.execute(text("PRAGMA table_info(usage_records)"))
+            existing_usage_cols = {row[1] for row in cursor.fetchall()}
+            if "llm_prompt_tokens" not in existing_usage_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE usage_records ADD COLUMN llm_prompt_tokens INTEGER DEFAULT 0 NOT NULL"
+                    )
+                )
+            if "llm_completion_tokens" not in existing_usage_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE usage_records ADD COLUMN llm_completion_tokens INTEGER DEFAULT 0 NOT NULL"
+                    )
+                )
+            if "tts_characters" not in existing_usage_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE usage_records ADD COLUMN tts_characters INTEGER DEFAULT 0 NOT NULL"
+                    )
+                )
+            if "estimated_cogs_usd" not in existing_usage_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE usage_records ADD COLUMN estimated_cogs_usd FLOAT DEFAULT 0.0 NOT NULL"
                     )
                 )
 
@@ -535,6 +837,189 @@ def init_db() -> None:
                 conn.execute(
                     text(
                         "ALTER TABLE subscriptions ADD COLUMN cycle_change_locked_until DATETIME NULL"
+                    )
+                )
+
+            # Outbound dispatches table columns
+            cursor = conn.execute(text("PRAGMA table_info(outbound_dispatches)"))
+            existing_outbound_cols = {row[1] for row in cursor.fetchall()}
+            if "scheduled_for" not in existing_outbound_cols:
+                conn.execute(
+                    text("ALTER TABLE outbound_dispatches ADD COLUMN scheduled_for DATETIME NULL")
+                )
+
+            # Consent records table columns (Milestone M5b US Compliance v2)
+            cursor = conn.execute(text("PRAGMA table_info(consent_records)"))
+            existing_consent_cols = {row[1] for row in cursor.fetchall()}
+            if "category" not in existing_consent_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE consent_records ADD COLUMN category VARCHAR(16) DEFAULT 'B' NOT NULL"
+                    )
+                )
+            if "consent_text_id" not in existing_consent_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE consent_records ADD COLUMN consent_text_id VARCHAR(36) NULL REFERENCES consent_texts(id)"
+                    )
+                )
+            if "ai_voice_disclosed" not in existing_consent_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE consent_records ADD COLUMN ai_voice_disclosed BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "method" not in existing_consent_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE consent_records ADD COLUMN method VARCHAR(32) DEFAULT 'web_form' NOT NULL"
+                    )
+                )
+            if "form_url" not in existing_consent_cols:
+                conn.execute(
+                    text("ALTER TABLE consent_records ADD COLUMN form_url VARCHAR(512) NULL")
+                )
+            if "seller_name" not in existing_consent_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE consent_records ADD COLUMN seller_name VARCHAR(255) DEFAULT '' NOT NULL"
+                    )
+                )
+            if "user_agent" not in existing_consent_cols:
+                conn.execute(
+                    text("ALTER TABLE consent_records ADD COLUMN user_agent VARCHAR(255) NULL")
+                )
+            if "revoked_at" not in existing_consent_cols:
+                conn.execute(
+                    text("ALTER TABLE consent_records ADD COLUMN revoked_at DATETIME NULL")
+                )
+            if "revoked_via" not in existing_consent_cols:
+                conn.execute(
+                    text("ALTER TABLE consent_records ADD COLUMN revoked_via VARCHAR(64) NULL")
+                )
+            if "revoked_at_call_id" not in existing_consent_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE consent_records ADD COLUMN revoked_at_call_id VARCHAR(128) NULL"
+                    )
+                )
+            if "retention_until" not in existing_consent_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE consent_records ADD COLUMN retention_until DATETIME DEFAULT (DATETIME('now', '+5 years')) NOT NULL"
+                    )
+                )
+
+            # Contacts table columns
+            cursor = conn.execute(text("PRAGMA table_info(contacts)"))
+            existing_contact_cols = {row[1] for row in cursor.fetchall()}
+            if "is_callable" not in existing_contact_cols:
+                conn.execute(
+                    text("ALTER TABLE contacts ADD COLUMN is_callable BOOLEAN DEFAULT 1 NOT NULL")
+                )
+
+            # Calls table supervisor & transfer columns
+            cursor = conn.execute(text("PRAGMA table_info(calls)"))
+            existing_call_cols = {row[1] for row in cursor.fetchall()}
+            if "barge_in_active" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN barge_in_active BOOLEAN DEFAULT 0 NOT NULL")
+                )
+            if "takeover_active" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN takeover_active BOOLEAN DEFAULT 0 NOT NULL")
+                )
+            if "transfer_to_number" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN transfer_to_number VARCHAR(64) NULL")
+                )
+            if "transferred_at" not in existing_call_cols:
+                conn.execute(text("ALTER TABLE calls ADD COLUMN transferred_at DATETIME NULL"))
+            if "transferred_by" not in existing_call_cols:
+                conn.execute(text("ALTER TABLE calls ADD COLUMN transferred_by VARCHAR(64) NULL"))
+            if "qa_score" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN qa_score FLOAT DEFAULT 100.0 NOT NULL")
+                )
+            if "qa_rubric" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN qa_rubric JSON DEFAULT '{}' NOT NULL")
+                )
+            if "qa_flags" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN qa_flags JSON DEFAULT '[]' NOT NULL")
+                )
+            if "csat_score" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN csat_score FLOAT DEFAULT 5.0 NOT NULL")
+                )
+            if "csat_rationale" not in existing_call_cols:
+                conn.execute(text("ALTER TABLE calls ADD COLUMN csat_rationale VARCHAR(512) NULL"))
+            if "qa_reviewed_by" not in existing_call_cols:
+                conn.execute(text("ALTER TABLE calls ADD COLUMN qa_reviewed_by VARCHAR(64) NULL"))
+            if "qa_reviewed_at" not in existing_call_cols:
+                conn.execute(text("ALTER TABLE calls ADD COLUMN qa_reviewed_at DATETIME NULL"))
+
+            # Bookings table multi-staff dispatch columns (Milestone M10b)
+            cursor = conn.execute(text("PRAGMA table_info(bookings)"))
+            existing_booking_cols = {row[1] for row in cursor.fetchall()}
+            if "staff_id" not in existing_booking_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE bookings ADD COLUMN staff_id VARCHAR(36) NULL REFERENCES staff_members(id) ON DELETE SET NULL"
+                    )
+                )
+            if "postal_code" not in existing_booking_cols:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN postal_code VARCHAR(16) NULL"))
+            if "location_id" not in existing_booking_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE bookings ADD COLUMN location_id VARCHAR(36) NULL REFERENCES locations(id) ON DELETE SET NULL"
+                    )
+                )
+
+            # Multi-Location columns (Milestone M11)
+            cursor = conn.execute(text("PRAGMA table_info(phone_numbers)"))
+            existing_phone_cols = {row[1] for row in cursor.fetchall()}
+            if "location_id" not in existing_phone_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE phone_numbers ADD COLUMN location_id VARCHAR(36) NULL REFERENCES locations(id) ON DELETE SET NULL"
+                    )
+                )
+
+            cursor = conn.execute(text("PRAGMA table_info(staff_members)"))
+            existing_staff_cols = {row[1] for row in cursor.fetchall()}
+            if "location_id" not in existing_staff_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE staff_members ADD COLUMN location_id VARCHAR(36) NULL REFERENCES locations(id) ON DELETE SET NULL"
+                    )
+                )
+
+            cursor = conn.execute(text("PRAGMA table_info(calls)"))
+            existing_call_cols = {row[1] for row in cursor.fetchall()}
+            if "location_id" not in existing_call_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE calls ADD COLUMN location_id VARCHAR(36) NULL REFERENCES locations(id) ON DELETE SET NULL"
+                    )
+                )
+
+            cursor = conn.execute(text("PRAGMA table_info(users)"))
+            existing_user_cols = {row[1] for row in cursor.fetchall()}
+            if "location_ids" not in existing_user_cols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN location_ids JSON DEFAULT '[]' NOT NULL")
+                )
+
+            # Subscriptions table billing increment column
+            cursor = conn.execute(text("PRAGMA table_info(subscriptions)"))
+            existing_sub_cols = {row[1] for row in cursor.fetchall()}
+            if "billing_increment" not in existing_sub_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE subscriptions ADD COLUMN billing_increment VARCHAR(16) DEFAULT 'minute' NOT NULL"
                     )
                 )
 
@@ -607,12 +1092,26 @@ app.add_middleware(
 # Mount API routers
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(agency_router, prefix="/api/v1")
+app.include_router(agency_router)
 app.include_router(numbers_router, prefix="/api/v1")
 app.include_router(portal_router, prefix="/api/v1")
 app.include_router(calendar_router, prefix="/api/v1")
+app.include_router(staff_router, prefix="/api/v1")
+app.include_router(staff_router)
 app.include_router(internal_router, prefix="/api/v1")
 app.include_router(subscriptions_router)
 app.include_router(forms_router)
+app.include_router(crm_router)
+app.include_router(leads_router)
+app.include_router(integrations_router)
+app.include_router(compliance_router)
+app.include_router(knowledge_router, prefix="/api/v1")
+app.include_router(knowledge_router)
+app.include_router(industry_packs_router, prefix="/api/v1")
+app.include_router(industry_packs_router)
+app.include_router(locations_router, prefix="/api/v1")
+app.include_router(locations_router)
 
 
 @app.get("/health", tags=["system"])

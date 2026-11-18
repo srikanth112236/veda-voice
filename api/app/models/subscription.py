@@ -47,6 +47,9 @@ class Subscription(Base):
     # Overage & Rates
     overage_rate_usd: Mapped[float] = mapped_column(Float, default=0.20, nullable=False)
     allow_overage: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    billing_increment: Mapped[str] = mapped_column(
+        String(16), default="minute", nullable=False
+    )  # "minute" or "second"
 
     # Stripe Identifiers
     stripe_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -160,6 +163,10 @@ class UsageRecord(Base):
     call_id: Mapped[str] = mapped_column(String(64), nullable=False)
     duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     billable_minutes: Mapped[float] = mapped_column(Float, nullable=False)
+    llm_prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    llm_completion_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    tts_characters: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    estimated_cogs_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

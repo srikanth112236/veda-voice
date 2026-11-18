@@ -98,6 +98,18 @@ class LatencyTracker:
         self.pipeline_latencies_ms: list[float] = []
         self.library_e2e_latencies_ms: list[float] = []
         self.total_llm_calls: int = 0
+        self.total_prompt_tokens: int = 0
+        self.total_completion_tokens: int = 0
+        self.total_tts_characters: int = 0
+
+    def record_tokens(self, prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
+        """Accumulate LLM prompt and completion tokens."""
+        self.total_prompt_tokens += max(0, prompt_tokens)
+        self.total_completion_tokens += max(0, completion_tokens)
+
+    def record_tts_characters(self, characters_count: int = 0) -> None:
+        """Accumulate synthesized TTS character count."""
+        self.total_tts_characters += max(0, characters_count)
 
     def record_turn(
         self,
@@ -144,4 +156,87 @@ class LatencyTracker:
             "ttfb_p95_ms": ttfb_p95,
             "e2e_median_ms": e2e_p50,
             "e2e_p95_ms": e2e_p95,
+            "prompt_tokens": self.total_prompt_tokens,
+            "completion_tokens": self.total_completion_tokens,
+            "tts_characters": self.total_tts_characters,
         }
+
+    def check_sla_compliance(
+        self,
+        target_eou_ms: float = 750.0,
+        target_ttft_ms: float = 350.0,
+        target_ttfb_ms: float = 250.0,
+        target_pipeline_p95_ms: float = 1200.0,
+    ) -> dict[str, Any]:
+        """Evaluate call latencies against telephony SLA thresholds and identify bottleneck stages."""
+        s = self.summary()
+        breaches: list[str] = []
+        bottleneck: str | None = None
+        max_deviation = 0.0
+
+        eou_p95 = float(s["eou_p95_ms"])
+        ttft_p95 = float(s["ttft_p95_ms"])
+        ttfb_p95 = float(s["ttfb_p95_ms"])
+        pipe_p95 = float(s["pipeline_p95_ms"])
+
+        if eou_p95 > target_eou_ms:
+            breaches.append(f"EOU delay p95 ({eou_p95}ms > {target_eou_ms}ms)")
+            dev = eou_p95 - target_eou_ms
+            if dev > max_deviation:
+                max_deviation = dev
+                bottleneck = "STT_EOU"
+
+        if ttft_p95 > target_ttft_ms:
+            breaches.append(f"LLM TTFT p95 ({ttft_p95}ms > {target_ttft_ms}ms)")
+            dev = ttft_p95 - target_ttft_ms
+            if dev > max_deviation:
+                max_deviation = dev
+                bottleneck = "LLM_INFERENCE"
+
+        if ttfb_p95 > target_ttfb_ms:
+            breaches.append(f"TTS TTFB p95 ({ttfb_p95}ms > {target_ttfb_ms}ms)")
+            dev = ttfb_p95 - target_ttfb_ms
+            if dev > max_deviation:
+                max_deviation = dev
+                bottleneck = "TTS_SYNTHESIS"
+
+        if pipe_p95 > target_pipeline_p95_ms and not breaches:
+            breaches.append(f"Pipeline p95 ({pipe_p95}ms > {target_pipeline_p95_ms}ms)")
+            bottleneck = "PIPELINE_ORCHESTRATION"
+
+        return {
+            "compliant": len(breaches) == 0,
+            "breaches": breaches,
+            "bottleneck_stage": bottleneck,
+            "metrics": s,
+        }
+
+
+def check_sla_compliance(
+    stt_latency_ms: float = 180.0,
+    llm_ttft_ms: float = 220.0,
+    tts_ttfb_ms: float = 180.0,
+    target_eou_ms: float = 750.0,
+    target_ttft_ms: float = 350.0,
+    target_ttfb_ms: float = 250.0,
+) -> dict[str, Any]:
+    """Helper function to evaluate a single turn's component latencies against SLA targets."""
+    tracker = LatencyTracker()
+    total_ms = stt_latency_ms + llm_ttft_ms + tts_ttfb_ms
+    tracker.record_turn(
+        pipeline_latency_ms=total_ms,
+        eou_delay_ms=stt_latency_ms,
+        llm_ttft_ms=llm_ttft_ms,
+        tts_ttfb_ms=tts_ttfb_ms,
+    )
+    res = tracker.check_sla_compliance(
+        target_eou_ms=target_eou_ms,
+        target_ttft_ms=target_ttft_ms,
+        target_ttfb_ms=target_ttfb_ms,
+    )
+    return {
+        "compliant": res["compliant"],
+        "turn_latency_ms": round(total_ms, 1),
+        "primary_bottleneck": res["bottleneck_stage"],
+        "breaches": res["breaches"],
+    }
