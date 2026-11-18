@@ -113,7 +113,7 @@ module postgresModule 'modules/postgres.bicep' = if (empty(existingPostgresFqdn)
   }
 }
 
-var effectivePostgresFqdn = empty(existingPostgresFqdn) ? (empty(postgresModule) ? '' : postgresModule.outputs.postgresServerFqdn) : existingPostgresFqdn
+var effectivePostgresFqdn = !empty(existingPostgresFqdn) ? existingPostgresFqdn : (empty(postgresModule) ? '' : postgresModule!.outputs.postgresServerFqdn)
 var databaseUrl = 'postgresql+psycopg://vaadmin:${postgresAdminPassword}@${effectivePostgresFqdn}:5432/vedavoice?sslmode=require'
 
 // 6. Container Apps & Workers
@@ -140,7 +140,7 @@ module alertsModule 'modules/alerts.bicep' = if (empty(existingPostgresFqdn)) {
   name: 'alertsDeployment'
   params: {
     apiContainerAppId: resourceId('Microsoft.App/containerApps', 'api')
-    postgresServerId: empty(existingPostgresFqdn) ? postgresModule.outputs.postgresServerId : ''
+    postgresServerId: !empty(existingPostgresFqdn) ? '' : postgresModule!.outputs.postgresServerId
     actionGroupId: alertActionGroupId
   }
   dependsOn: [

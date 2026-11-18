@@ -62,7 +62,8 @@ if [ -z "$EXISTING_RG_LOC" ]; then
     az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
     echo "    [DONE] Resource Group created in '$LOCATION'."
 else
-    echo "    [DONE] Resource Group exists (metadata location: '$EXISTING_RG_LOC'). Workload resources will be deployed to '$LOCATION'."
+    LOCATION="$EXISTING_RG_LOC"
+    echo "    [DONE] Resource Group exists in '$LOCATION'. Workload resources will match this location."
 fi
 
 # 4. Create Azure AD App & GitHub Actions OIDC Federated Credential
