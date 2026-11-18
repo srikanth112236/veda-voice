@@ -82,7 +82,7 @@ jobs:
             --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }}
 
       - name: Deploy Voice Agent to LiveKit Cloud
-        if: ${{ env.LIVEKIT_ACCESS_TOKEN != '' }}
+        if: ${{ secrets.LIVEKIT_ACCESS_TOKEN != '' }}
         env:
           LIVEKIT_ACCESS_TOKEN: ${{ secrets.LIVEKIT_ACCESS_TOKEN }}
         run: |
