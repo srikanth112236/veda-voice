@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   api,
   PlatformStats,
@@ -50,7 +51,9 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
-export default function AdminDashboardPage() {
+function AdminDashboardContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [numbers, setNumbers] = useState<PhoneNumberRecord[]>([]);
@@ -74,14 +77,16 @@ export default function AdminDashboardPage() {
   const [selectedAuditLog, setSelectedAuditLog] = useState<AgencyAuditLog | null>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const tabParam = params.get("tab");
-      if (tabParam && ["telemetry", "tenants", "subaccounts", "audit", "billing", "inventory", "coupons"].includes(tabParam)) {
-        setActiveTab(tabParam as any);
-      }
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["telemetry", "tenants", "subaccounts", "audit", "billing", "inventory", "coupons"].includes(tabParam)) {
+      setActiveTab(tabParam as any);
     }
-  }, []);
+  }, [searchParams]);
+
+  const handleTabChange = (newTab: "telemetry" | "tenants" | "subaccounts" | "audit" | "billing" | "inventory" | "coupons") => {
+    setActiveTab(newTab);
+    router.replace(`/admin/dashboard?tab=${newTab}`, { scroll: false });
+  };
   const [provisioningMode, setProvisioningMode] = useState<"carrier_search" | "agency_pool">("carrier_search");
 
   // Phone number inventory filter & actions state
@@ -492,7 +497,7 @@ export default function AdminDashboardPage() {
       <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200 overflow-x-auto">
         <button
           type="button"
-          onClick={() => setActiveTab("telemetry")}
+          onClick={() => handleTabChange("telemetry")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "telemetry"
               ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
@@ -505,7 +510,7 @@ export default function AdminDashboardPage() {
 
         <button
           type="button"
-          onClick={() => setActiveTab("tenants")}
+          onClick={() => handleTabChange("tenants")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "tenants"
               ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
@@ -521,7 +526,7 @@ export default function AdminDashboardPage() {
 
         <button
           type="button"
-          onClick={() => setActiveTab("subaccounts")}
+          onClick={() => handleTabChange("subaccounts")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "subaccounts"
               ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
@@ -538,7 +543,7 @@ export default function AdminDashboardPage() {
         <button
           type="button"
           onClick={() => {
-            setActiveTab("audit");
+            handleTabChange("audit");
             loadAuditLogs();
           }}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
@@ -556,7 +561,7 @@ export default function AdminDashboardPage() {
 
         <button
           type="button"
-          onClick={() => setActiveTab("billing")}
+          onClick={() => handleTabChange("billing")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "billing"
               ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
@@ -572,7 +577,7 @@ export default function AdminDashboardPage() {
 
         <button
           type="button"
-          onClick={() => setActiveTab("inventory")}
+          onClick={() => handleTabChange("inventory")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "inventory"
               ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
@@ -588,7 +593,7 @@ export default function AdminDashboardPage() {
 
         <button
           type="button"
-          onClick={() => setActiveTab("coupons")}
+          onClick={() => handleTabChange("coupons")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "coupons"
               ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
@@ -2155,3 +2160,19 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
+
+export default function AdminDashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 font-mono text-xs text-zinc-500 flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+          <span>Loading agency command suite...</span>
+        </div>
+      }
+    >
+      <AdminDashboardContent />
+    </Suspense>
+  );
+}
+

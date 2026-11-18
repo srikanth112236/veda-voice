@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { Suspense, useEffect } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/auth-context";
 import {
   ShieldAlert,
@@ -17,9 +17,107 @@ import {
   History,
 } from "lucide-react";
 
+function AdminSidebarNav() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get("tab") || "telemetry";
+
+  const getLinkClass = (tabName: string) => {
+    const isActive = pathname === "/admin/dashboard" && currentTab === tabName;
+    return `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+      isActive
+        ? "bg-zinc-900 text-white shadow-sm"
+        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+    }`;
+  };
+
+  return (
+    <nav className="space-y-1">
+      <Link
+        href="/admin/dashboard?tab=telemetry"
+        className={getLinkClass("telemetry")}
+      >
+        <LayoutDashboard className="w-4 h-4 text-indigo-500" />
+        Platform Command Center
+      </Link>
+
+      <div className="pt-3 pb-1">
+        <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold px-3">
+          Agency Operations
+        </span>
+      </div>
+
+      <Link
+        href="/admin/dashboard?tab=tenants"
+        className={getLinkClass("tenants")}
+      >
+        <Building2 className="w-4 h-4 text-blue-600" />
+        Client Tenants &amp; RLS
+      </Link>
+
+      <Link
+        href="/admin/dashboard?tab=subaccounts"
+        className={getLinkClass("subaccounts")}
+      >
+        <UserCheck className="w-4 h-4 text-indigo-600" />
+        Sub-Accounts &amp; Proxy
+      </Link>
+
+      <Link
+        href="/admin/dashboard?tab=audit"
+        className={getLinkClass("audit")}
+      >
+        <History className="w-4 h-4 text-purple-600" />
+        Immutable Audit Trail
+      </Link>
+
+      <Link
+        href="/admin/dashboard?tab=billing"
+        className={getLinkClass("billing")}
+      >
+        <CreditCard className="w-4 h-4 text-emerald-600" />
+        Minute Billing &amp; Rollovers
+      </Link>
+
+      <Link
+        href="/admin/dashboard?tab=inventory"
+        className={getLinkClass("inventory")}
+      >
+        <PhoneCall className="w-4 h-4 text-indigo-600" />
+        Inbound Phone Inventory
+      </Link>
+
+      <Link
+        href="/admin/dashboard?tab=coupons"
+        className={getLinkClass("coupons")}
+      >
+        <Tag className="w-4 h-4 text-amber-600" />
+        Coupons &amp; Bonus Credits
+      </Link>
+
+      <div className="pt-3 pb-1">
+        <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold px-3">
+          Expansion
+        </span>
+      </div>
+
+      <Link
+        href="/onboarding"
+        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+          pathname === "/onboarding"
+            ? "bg-zinc-900 text-white shadow-sm"
+            : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+        }`}
+      >
+        <PlusCircle className="w-4 h-4 text-emerald-600" />
+        Onboard New Client
+      </Link>
+    </nav>
+  );
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
-  const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
@@ -61,92 +159,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </h2>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="space-y-1">
-            <Link
-              href="/admin/dashboard?tab=telemetry"
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                pathname === "/admin/dashboard"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4 text-indigo-500" />
-              Platform Command Center
-            </Link>
-
-            <div className="pt-3 pb-1">
-              <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold px-3">
-                Agency Operations
-              </span>
-            </div>
-
-            <Link
-              href="/admin/dashboard?tab=tenants"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
-            >
-              <Building2 className="w-4 h-4 text-blue-600" />
-              Client Tenants &amp; RLS
-            </Link>
-
-            <Link
-              href="/admin/dashboard?tab=subaccounts"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
-            >
-              <UserCheck className="w-4 h-4 text-indigo-600" />
-              Sub-Accounts &amp; Proxy
-            </Link>
-
-            <Link
-              href="/admin/dashboard?tab=audit"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
-            >
-              <History className="w-4 h-4 text-purple-600" />
-              Immutable Audit Trail
-            </Link>
-
-            <Link
-              href="/admin/dashboard?tab=billing"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
-            >
-              <CreditCard className="w-4 h-4 text-emerald-600" />
-              Minute Billing &amp; Rollovers
-            </Link>
-
-            <Link
-              href="/admin/dashboard?tab=inventory"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
-            >
-              <PhoneCall className="w-4 h-4 text-indigo-600" />
-              Inbound Phone Inventory
-            </Link>
-
-            <Link
-              href="/admin/dashboard?tab=coupons"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-all"
-            >
-              <Tag className="w-4 h-4 text-amber-600" />
-              Coupons &amp; Bonus Credits
-            </Link>
-
-            <div className="pt-3 pb-1">
-              <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold px-3">
-                Expansion
-              </span>
-            </div>
-
-            <Link
-              href="/onboarding"
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                pathname === "/onboarding"
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-              }`}
-            >
-              <PlusCircle className="w-4 h-4 text-emerald-600" />
-              Onboard New Client
-            </Link>
-          </nav>
+          {/* Navigation Links wrapped in Suspense for searchParams */}
+          <Suspense fallback={<div className="h-64" />}>
+            <AdminSidebarNav />
+          </Suspense>
         </div>
 
         {/* User Card */}
