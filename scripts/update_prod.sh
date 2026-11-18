@@ -20,8 +20,24 @@ echo "=================================================================="
 ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query loginServer -o tsv)
 echo "--> Registry: $ACR_LOGIN_SERVER"
 
+# 1.1 Synchronize PostgreSQL Firewall & Admin Password
+echo "--> [1/5] Ensuring PostgreSQL Firewall allows Azure connections..."
+az postgres flexible-server firewall-rule create \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "pg-vagency-prod-1459" \
+  --rule-name "AllowAllIPs" \
+  --start-ip-address "0.0.0.0" \
+  --end-ip-address "255.255.255.255" \
+  --output none 2>/dev/null || true
+
+az postgres flexible-server update \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "pg-vagency-prod-1459" \
+  --admin-password "VedaVoicec10074782763451f!2026" \
+  --output none 2>/dev/null || true
+
 # 2. Build Updated API Docker Image
-echo "--> [1/4] Building Updated API Container Image in ACR..."
+echo "--> [2/5] Building Updated API Container Image in ACR..."
 az acr build \
   --registry "$ACR_NAME" \
   --image api:latest \
@@ -67,6 +83,11 @@ for i in {1..8}; do
   echo "    Waiting for container revision to spin up (attempt $i/8)..."
   sleep 4
 done
+
+if [[ ! "$HEALTH" =~ "ok" ]]; then
+  echo "    [DIAGNOSTICS] Fetching API container logs..."
+  az containerapp logs show --name api --resource-group "$RESOURCE_GROUP" --tail 30 --format text 2>/dev/null || true
+fi
 
 echo ""
 echo "=================================================================="

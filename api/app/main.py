@@ -1076,7 +1076,12 @@ def init_db() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
     """Startup and shutdown events."""
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("uvicorn.error").error(f"Startup DB init error: {exc}")
     yield
 
 
