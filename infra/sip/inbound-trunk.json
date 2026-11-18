@@ -3,6 +3,7 @@
   "_security_notes": "Compensating controls: strict +E.164 numbers allowlist, per-client max concurrent calls, max call duration limits, and daily minute alerts. TODO: add allowed_addresses once Telnyx published signaling IPs are verified and cited.",
   "name": "telnyx-inbound-trunk",
   "numbers": [
-    "+15551234567"
+    "+18489996035",
+    "+18005550199"
   ]
 }
