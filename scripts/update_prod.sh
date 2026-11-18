@@ -22,18 +22,23 @@ echo "--> Registry: $ACR_LOGIN_SERVER"
 
 # 1.1 Synchronize PostgreSQL Firewall & Admin Password
 echo "--> [1/5] Ensuring PostgreSQL Firewall allows Azure connections..."
+PG_SERVER_NAME=$(az postgres flexible-server list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "pg-vagency-prod-1459")
+echo "--> PostgreSQL Server Name: $PG_SERVER_NAME"
+
 az postgres flexible-server firewall-rule create \
   --resource-group "$RESOURCE_GROUP" \
-  --name "pg-vagency-prod-1459" \
+  --name "$PG_SERVER_NAME" \
   --rule-name "AllowAllIPs" \
   --start-ip-address "0.0.0.0" \
   --end-ip-address "255.255.255.255" \
   --output none 2>/dev/null || true
 
-az postgres flexible-server update \
+az postgres flexible-server firewall-rule create \
   --resource-group "$RESOURCE_GROUP" \
-  --name "pg-vagency-prod-1459" \
-  --admin-password "VedaVoicec10074782763451f!2026" \
+  --name "$PG_SERVER_NAME" \
+  --rule-name "AllowAllAzureServices" \
+  --start-ip-address "0.0.0.0" \
+  --end-ip-address "0.0.0.0" \
   --output none 2>/dev/null || true
 
 # 2. Build Updated API Docker Image

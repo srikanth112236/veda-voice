@@ -29,7 +29,7 @@ else:
     engine = create_engine(
         db_url,
         pool_pre_ping=True,
-        connect_args={"connect_timeout": 5},
+        connect_args={"connect_timeout": 30},
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
