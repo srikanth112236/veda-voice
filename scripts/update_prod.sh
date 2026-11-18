@@ -37,33 +37,36 @@ az postgres flexible-server update \
   --output none 2>/dev/null || true
 
 # 2. Build Updated API Docker Image
-echo "--> [2/5] Building Updated API Container Image in ACR..."
+IMAGE_TAG="v$(date +%s)"
+echo "--> [2/5] Building Updated API Container Image in ACR (Tag: $IMAGE_TAG)..."
 az acr build \
   --registry "$ACR_NAME" \
-  --image api:latest \
+  --image "api:${IMAGE_TAG}" \
+  --image "api:latest" \
   --file api/Dockerfile .
 
 # 3. Build Updated Dashboard Image
-echo "--> [2/4] Building Updated Dashboard Container Image in ACR..."
+echo "--> [3/5] Building Updated Dashboard Container Image in ACR (Tag: $IMAGE_TAG)..."
 az acr build \
   --registry "$ACR_NAME" \
-  --image dashboard:latest \
+  --image "dashboard:${IMAGE_TAG}" \
+  --image "dashboard:latest" \
   --file dashboard/Dockerfile .
 
 # 4. Trigger Container Apps Revisions Update
-echo "--> [3/4] Updating Container Apps Revisions..."
+echo "--> [4/5] Deploying Fresh Container App Revisions..."
 az containerapp update \
   --name api \
   --resource-group "$RESOURCE_GROUP" \
-  --image "${ACR_LOGIN_SERVER}/api:latest"
+  --image "${ACR_LOGIN_SERVER}/api:${IMAGE_TAG}"
 
 az containerapp update \
   --name dashboard \
   --resource-group "$RESOURCE_GROUP" \
-  --image "${ACR_LOGIN_SERVER}/dashboard:latest"
+  --image "${ACR_LOGIN_SERVER}/dashboard:${IMAGE_TAG}"
 
 # 5. Run DB Migration Job
-echo "--> [4/4] Starting Database Migrations (alembic upgrade head)..."
+echo "--> [5/5] Starting Database Migrations (alembic upgrade head)..."
 az containerapp job start \
   --name db-migrate-job \
   --resource-group "$RESOURCE_GROUP" || true
