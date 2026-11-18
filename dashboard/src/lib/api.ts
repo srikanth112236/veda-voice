@@ -22,6 +22,14 @@ export interface AuthResponse {
   user: UserProfile;
 }
 
+export interface TestCallSessionResponse {
+  room_name: string;
+  livekit_url: string;
+  token: string;
+  playground_url: string;
+  call_id: string;
+}
+
 export interface CallListItem {
   id: string;
   call_id: string;
@@ -647,6 +655,11 @@ export const api = {
 
   getPortalCallDetail: (callId: string) =>
     request<CallDetail>(`/api/v1/portal/calls/${callId}`),
+
+  createTestCallSession: () =>
+    request<TestCallSessionResponse>("/api/v1/portal/calls/test-session", {
+      method: "POST",
+    }),
 
   getPortalProfile: () => request<AgentProfile>("/api/v1/portal/profile"),
 

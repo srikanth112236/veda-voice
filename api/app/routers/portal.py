@@ -1,5 +1,8 @@
 """Tenant business client portal endpoints strictly scoped to current tenant."""
 
+import logging
+import os
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -9,16 +12,18 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.websockets import WebSocketDisconnect
 
+from api.app.core.config import settings
 from api.app.core.deps import get_current_tenant, get_current_user
 from api.app.core.security import decode_access_token
 from api.app.db.session import SessionLocal, get_db
 from api.app.models.call import Call
-from api.app.models.tenant import AgentProfile, Tenant
+from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.services.livekit_sync import sync_tenant_to_livekit
 from api.app.services.supervisor import handle_supervisor_action, supervisor_manager
 
 router = APIRouter(prefix="/portal", tags=["portal"])
+logger = logging.getLogger(__name__)
 
 
 class LiveActiveCallItem(BaseModel):
@@ -251,6 +256,79 @@ def get_dashboard_stats(
         median_latency_ms=round(float(median_lat), 2),
         tenant_name=tenant.name,
         phone_numbers=phone_numbers,
+    )
+
+
+class TestCallSessionResponse(BaseModel):
+    room_name: str
+    livekit_url: str
+    token: str
+    playground_url: str
+    call_id: str
+
+
+@router.post("/calls/test-session", response_model=TestCallSessionResponse)
+def create_test_call_session(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Generate a browser WebRTC test session token and room to audition the LiveKit voice agent."""
+    session_id = uuid.uuid4().hex[:8]
+    room_name = f"in-portal-{session_id}"
+    call_id = f"test-web-{session_id}"
+
+    lk_url: str = str(
+        os.getenv("LIVEKIT_URL")
+        or getattr(settings, "LIVEKIT_URL", "wss://steyzi-xvk89l73.livekit.cloud")
+    )
+    lk_key: str = str(os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", ""))
+    lk_secret: str = str(
+        os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", "")
+    )
+
+    token = ""
+    try:
+        from livekit import api as lk_api
+
+        token = (
+            lk_api.AccessToken(lk_key, lk_secret)
+            .with_identity(f"portal-caller-{session_id}")
+            .with_name(f"{tenant.name} Test Caller")
+            .with_grants(lk_api.VideoGrants(room_join=True, room=room_name))
+            .to_jwt()
+        )
+    except Exception as e:
+        logger.warning("Failed to generate LiveKit AccessToken: %s", e)
+
+    # Pre-register Call record in DB so it shows in supervision console
+    phone = db.scalar(
+        select(PhoneNumber).where(
+            PhoneNumber.tenant_id == tenant.id, PhoneNumber.status == "active"
+        )
+    )
+    dialed_num = phone.e164 if phone else "+18005550199"
+    new_call = Call(
+        tenant_id=tenant.id,
+        call_id=call_id,
+        caller_number="WebRTC Browser Caller",
+        dialed_number=dialed_num,
+        direction="inbound",
+        outcome="in_progress",
+        urgency="normal",
+        tags=["inbound", "in_progress", "web_test"],
+        started_at=datetime.now(UTC),
+    )
+    db.add(new_call)
+    db.commit()
+
+    playground_url = f"https://agents-playground.livekit.io/#url={lk_url}&token={token}"
+
+    return TestCallSessionResponse(
+        room_name=room_name,
+        livekit_url=lk_url,
+        token=token,
+        playground_url=playground_url,
+        call_id=call_id,
     )
 
 
