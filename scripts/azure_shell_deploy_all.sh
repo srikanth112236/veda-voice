@@ -55,10 +55,15 @@ echo "RG:           $RESOURCE_GROUP"
 echo "GitHub Repo:  $GITHUB_REPO"
 echo "------------------------------------------------------------------"
 
-# 3. Create Resource Group
-echo "--> [1/8] Ensuring Resource Group '$RESOURCE_GROUP' exists in '$LOCATION'..."
-az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
-echo "    [DONE] Resource Group ready."
+# 3. Create Resource Group if not exists
+echo "--> [1/8] Ensuring Resource Group '$RESOURCE_GROUP' exists..."
+EXISTING_RG_LOC=$(az group show --name "$RESOURCE_GROUP" --query "location" -o tsv 2>/dev/null || true)
+if [ -z "$EXISTING_RG_LOC" ]; then
+    az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
+    echo "    [DONE] Resource Group created in '$LOCATION'."
+else
+    echo "    [DONE] Resource Group exists (metadata location: '$EXISTING_RG_LOC'). Workload resources will be deployed to '$LOCATION'."
+fi
 
 # 4. Create Azure AD App & GitHub Actions OIDC Federated Credential
 echo "--> [2/8] Setting up GitHub OIDC Federated Service Principal..."
