@@ -136,8 +136,8 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
         }
       ]
       scale: {
-        minReplicas: 2
-        maxReplicas: 6
+        minReplicas: 1
+        maxReplicas: 4
         rules: [
           {
             name: 'http-scaling'
@@ -186,8 +186,8 @@ resource dashboardApp 'Microsoft.App/containerApps@2023-05-01' = {
           name: 'dashboard'
           image: dashboardImage
           resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
+            cpu: json('0.25')
+            memory: '0.5Gi'
           }
           env: [
             {
@@ -244,8 +244,8 @@ resource dialerApp 'Microsoft.App/containerApps@2023-05-01' = {
           image: apiImage
           command: ['python', '-m', 'agent.outbound.dialer']
           resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
+            cpu: json('0.25')
+            memory: '0.5Gi'
           }
           env: [
             {
@@ -356,8 +356,8 @@ resource migrationJob 'Microsoft.App/jobs@2023-05-01' = {
           image: apiImage
           command: ['alembic', '-c', 'api/alembic.ini', 'upgrade', 'head']
           resources: {
-            cpu: json('0.5')
-            memory: '1.0Gi'
+            cpu: json('0.25')
+            memory: '0.5Gi'
           }
           env: [
             {

@@ -106,54 +106,78 @@ EOF
 az ad app federated-credential create --id "$APP_ID" --parameters "$FED_BODY" --output none 2>/dev/null || true
 echo "    [DONE] GitHub OIDC configured."
 
-# 5. Provision PostgreSQL 16 Flexible Server (SRS Section 15.4)
-echo "--> [3/8] Provisioning PostgreSQL 16 Flexible Server..."
+# 5. Provision or Auto-Adapt PostgreSQL 16 Flexible Server (Cost-Optimized)
+echo "--> [3/8] Configuring PostgreSQL 16 Flexible Server..."
 
-# Clean up any existing failed server if present
-FAILED_SERVERS=$(az postgres flexible-server list -g "$RESOURCE_GROUP" --query "[?provisioningState=='Failed'].name" -o tsv 2>/dev/null || true)
-for s in $FAILED_SERVERS; do
-    echo "    Cleaning up failed server: $s..."
-    az postgres flexible-server delete --name "$s" --resource-group "$RESOURCE_GROUP" --yes --output none 2>/dev/null || true
-done
+# 1. Check if an active/creating server already exists in the resource group
+EXISTING_ACTIVE_PG=$(az postgres flexible-server list -g "$RESOURCE_GROUP" --query "[?provisioningState!='Failed'].name" -o tsv 2>/dev/null | head -n 1 || true)
 
-# Test locations (starting with requested, then centralus as recommended in SRS 15.1, southcentralus, westus2)
-CANDIDATE_LOCATIONS=("$LOCATION" "centralus" "southcentralus" "westus2" "eastus")
-PG_SUCCESS="false"
-POSTGRES_SERVER_NAME=""
-DEPLOY_LOCATION="$LOCATION"
+if [ -n "$EXISTING_ACTIVE_PG" ]; then
+    echo "    Detected active server: '$EXISTING_ACTIVE_PG'."
+    POSTGRES_SERVER_NAME="$EXISTING_ACTIVE_PG"
+    PG_SUCCESS="true"
 
-for loc in "${CANDIDATE_LOCATIONS[@]}"; do
-    PG_SUFFIX=$(date +%s | tail -c 5)
-    CANDIDATE_NAME="pg-${APP_NAME}-${ENVIRONMENT}-${PG_SUFFIX}"
-    echo "    Attempting to provision in '$loc' (server: $CANDIDATE_NAME)..."
-    
-    if az postgres flexible-server create \
-        --resource-group "$RESOURCE_GROUP" \
-        --name "$CANDIDATE_NAME" \
-        --location "$loc" \
-        --tier "GeneralPurpose" \
-        --sku-name "Standard_D2s_v5" \
-        --version "16" \
-        --storage-size 64 \
-        --admin-user "vaadmin" \
-        --admin-password "$POSTGRES_PASSWORD" \
-        --yes; then
-        PG_SUCCESS="true"
-        POSTGRES_SERVER_NAME="$CANDIDATE_NAME"
-        DEPLOY_LOCATION="$loc"
-        echo "    [SUCCESS] PostgreSQL created successfully in '$DEPLOY_LOCATION'!"
-        break
-    else
-        echo "    Notice: Location '$loc' is capacity-restricted on this subscription. Trying next region..."
+    echo "    Waiting for server '$POSTGRES_SERVER_NAME' to finish provisioning..."
+    az postgres flexible-server wait --name "$POSTGRES_SERVER_NAME" --resource-group "$RESOURCE_GROUP" --created --timeout 300 2>/dev/null || true
+
+    # Auto-adapt to 80% lower cost tier (Standard_B2s Burstable) if currently GeneralPurpose
+    CURRENT_TIER=$(az postgres flexible-server show -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" --query "sku.tier" -o tsv 2>/dev/null || true)
+    if [ "$CURRENT_TIER" = "GeneralPurpose" ]; then
+        echo "    Auto-adapting server '$POSTGRES_SERVER_NAME' to cost-optimized Burstable Standard_B2s (saves 80%)..."
+        az postgres flexible-server update \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$POSTGRES_SERVER_NAME" \
+            --tier "Burstable" \
+            --sku-name "Standard_B2s" \
+            --output none 2>/dev/null || true
     fi
-done
+else
+    # Clean up any failed server stubs
+    FAILED_SERVERS=$(az postgres flexible-server list -g "$RESOURCE_GROUP" --query "[?provisioningState=='Failed'].name" -o tsv 2>/dev/null || true)
+    for s in $FAILED_SERVERS; do
+        echo "    Cleaning up failed server stub: $s..."
+        az postgres flexible-server delete --name "$s" --resource-group "$RESOURCE_GROUP" --yes --output none 2>/dev/null || true
+    done
 
-if [ "$PG_SUCCESS" != "true" ]; then
-    echo "ERROR: All candidate locations were restricted for PostgreSQL Flexible Server."
-    exit 1
+    # Provision cost-optimized Burstable server (~$28/mo)
+    CANDIDATE_LOCATIONS=("$LOCATION" "centralus" "southcentralus" "westus2" "eastus")
+    PG_SUCCESS="false"
+    POSTGRES_SERVER_NAME=""
+    DEPLOY_LOCATION="$LOCATION"
+
+    for loc in "${CANDIDATE_LOCATIONS[@]}"; do
+        PG_SUFFIX=$(date +%s | tail -c 5)
+        CANDIDATE_NAME="pg-${APP_NAME}-${ENVIRONMENT}-${PG_SUFFIX}"
+        echo "    Attempting creation in '$loc' (server: $CANDIDATE_NAME, Burstable Standard_B2s)..."
+        
+        if az postgres flexible-server create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$CANDIDATE_NAME" \
+            --location "$loc" \
+            --tier "Burstable" \
+            --sku-name "Standard_B2s" \
+            --version "16" \
+            --storage-size 32 \
+            --admin-user "vaadmin" \
+            --admin-password "$POSTGRES_PASSWORD" \
+            --yes; then
+            PG_SUCCESS="true"
+            POSTGRES_SERVER_NAME="$CANDIDATE_NAME"
+            DEPLOY_LOCATION="$loc"
+            echo "    [SUCCESS] PostgreSQL created in '$DEPLOY_LOCATION' on Burstable Standard_B2s (~$28/mo)!"
+            break
+        else
+            echo "    Notice: Location '$loc' is capacity-restricted. Trying next region..."
+        fi
+    done
+
+    if [ "$PG_SUCCESS" != "true" ]; then
+        echo "ERROR: All candidate locations were restricted for PostgreSQL Flexible Server."
+        exit 1
+    fi
+
+    LOCATION="$DEPLOY_LOCATION"
 fi
-
-LOCATION="$DEPLOY_LOCATION"
 
 echo "    Creating database 'vedavoice' on $POSTGRES_SERVER_NAME..."
 az postgres flexible-server db create \
