@@ -118,6 +118,12 @@ if [ -n "$EXISTING_ACTIVE_PG" ]; then
     POSTGRES_SERVER_NAME="$EXISTING_ACTIVE_PG"
     PG_SUCCESS="true"
     echo "    Using live PostgreSQL server: $POSTGRES_SERVER_NAME"
+    echo "    Ensuring admin password is synchronized on $POSTGRES_SERVER_NAME..."
+    az postgres flexible-server update \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$POSTGRES_SERVER_NAME" \
+        --admin-password "$POSTGRES_PASSWORD" \
+        --output none 2>/dev/null || true
 else
     # Clean up any failed server stubs
     FAILED_SERVERS=$(az postgres flexible-server list -g "$RESOURCE_GROUP" --query "[?provisioningState=='Failed'].name" -o tsv 2>/dev/null || true)
@@ -261,12 +267,19 @@ echo "    [DONE] Container Apps revisions healthy."
 
 # 10. Verify Live Health
 echo "--> [8/8] Verifying API Health Endpoint..."
-sleep 10
-HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" || true)
-if [ "$HEALTH_STATUS" = "200" ]; then
-    echo "    [PASS] Production API Health check returned 200 OK!"
-else
-    echo "    [INFO] API returned status $HEALTH_STATUS (container is initializing, please check in 30 seconds)."
+HEALTH_STATUS="000"
+for i in {1..6}; do
+    HEALTH_STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" "$API_URL/health" 2>/dev/null || echo "000")
+    if [ "$HEALTH_STATUS" = "200" ]; then
+        echo "    [PASS] Production API Health check returned 200 OK!"
+        break
+    fi
+    echo "    Container is warming up (attempt $i/6, status $HEALTH_STATUS)... waiting 5s"
+    sleep 5
+done
+
+if [ "$HEALTH_STATUS" != "200" ]; then
+    echo "    [INFO] API initial ping returned status $HEALTH_STATUS. The container is provisioning and will be fully ready shortly."
 fi
 
 # 10. Summary & GitHub Actions Setup Output

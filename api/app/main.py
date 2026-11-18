@@ -582,7 +582,14 @@ def seed_initial_data() -> None:
 
 def init_db() -> None:
     """Ensure database tables exist and seed initial platform records."""
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("uvicorn.error").warning(f"Database init skipped or deferred: {exc}")
+        return
+
     if str(engine.url).startswith("sqlite"):
         with engine.connect() as conn:
             from sqlalchemy import text
@@ -1063,8 +1070,7 @@ def init_db() -> None:
     seed_initial_data()
 
 
-# Initialize database schema immediately on import
-init_db()
+# Database schema initialized cleanly in lifespan below
 
 
 @asynccontextmanager

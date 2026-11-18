@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import bcrypt
 import jwt
@@ -63,15 +63,18 @@ def encrypt_token(token_data: dict[str, Any] | str) -> str:
     cipher = _get_encryption_cipher()
     raw_str = json.dumps(token_data) if isinstance(token_data, dict) else str(token_data)
     encrypted = cipher.encrypt(raw_str.encode("utf-8"))
-    return cast(str, encrypted.decode("utf-8"))
+    return str(encrypted.decode("utf-8"))
 
 
 def decrypt_token(ciphertext: str) -> dict[str, Any] | str:
     """Decrypt OAuth token ciphertext."""
     cipher = _get_encryption_cipher()
     decrypted_bytes = cipher.decrypt(ciphertext.encode("utf-8"))
-    decrypted_str = decrypted_bytes.decode("utf-8")
+    decrypted_str = str(decrypted_bytes.decode("utf-8"))
     try:
-        return cast(dict[str, Any], json.loads(decrypted_str))
+        parsed = json.loads(decrypted_str)
+        if isinstance(parsed, dict):
+            return parsed
+        return decrypted_str
     except json.JSONDecodeError:
         return decrypted_str

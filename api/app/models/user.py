@@ -40,6 +40,7 @@ class User(Base):
     tenant: Mapped["Tenant | None"] = relationship("Tenant", back_populates="users")
 
     # Transient runtime attributes for agency impersonation sessions
+    __allow_unmapped__ = True
     is_impersonated: bool = False
     impersonator_id: str | None = None
     impersonator_email: str | None = None
