@@ -108,10 +108,10 @@ module containerAppsModule 'modules/containerapps.bicep' = {
     environmentName: containerAppEnvName
     location: location
     logAnalyticsCustomerId: monitoringModule.outputs.logAnalyticsCustomerId
-    logAnalyticsSharedKey: listKeys(monitoringModule.outputs.logAnalyticsId, '2022-10-01').primarySharedKey
+    logAnalyticsSharedKey: monitoringModule.outputs.logAnalyticsSharedKey
     acrLoginServer: acrModule.outputs.acrLoginServer
     acrUsername: acrModule.outputs.acrName
-    acrPassword: listCredentials(acrModule.outputs.acrId, '2023-07-01').passwords[0].value
+    acrPassword: acrModule.outputs.acrAdminPassword
     apiImage: empty(apiImage) ? '${acrModule.outputs.acrLoginServer}/api:latest' : apiImage
     dashboardImage: empty(dashboardImage) ? '${acrModule.outputs.acrLoginServer}/dashboard:latest' : dashboardImage
     databaseUrl: databaseUrl

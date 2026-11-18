@@ -31,6 +31,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 
 output logAnalyticsId string = logAnalytics.id
 output logAnalyticsCustomerId string = logAnalytics.properties.customerId
+output logAnalyticsSharedKey string = logAnalytics.listKeys().primarySharedKey
 output appInsightsId string = appInsights.id
 output appInsightsInstrumentationKey string = appInsights.properties.InstrumentationKey
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
