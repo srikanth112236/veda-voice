@@ -472,14 +472,14 @@ export default function TenantDashboard() {
               <input
                 type="text"
                 readOnly
-                value={`http://localhost:8000/api/v1/leads/webhook/${stats?.tenant_name?.toLowerCase().replace(/\s+/g, "-") || "apex-plumbing"}`}
+                value={`${typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/${stats?.tenant_name?.toLowerCase().replace(/\s+/g, "-") || "apex-plumbing"}`}
                 className="flex-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none select-all"
               />
               <button
                 type="button"
                 onClick={() =>
                   copyText(
-                    `http://localhost:8000/api/v1/leads/webhook/${stats?.tenant_name?.toLowerCase().replace(/\s+/g, "-") || "apex-plumbing"}`,
+                    `${typeof window !== "undefined" ? window.location.origin : ""}/api/v1/leads/webhook/${stats?.tenant_name?.toLowerCase().replace(/\s+/g, "-") || "apex-plumbing"}`,
                     setCopiedWebhook
                   )
                 }
