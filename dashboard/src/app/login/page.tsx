@@ -35,14 +35,10 @@ export default function LoginPage() {
 
     try {
       const u = await login(email, password);
-      if (u.role === "platform_admin") {
-        router.push("/admin/dashboard");
-      } else {
-        router.push("/portal/dashboard");
-      }
+      const target = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
+      window.location.href = target;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Authentication failed");
-    } finally {
       setSubmitting(false);
     }
   };
@@ -54,14 +50,10 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const u = await login(demoEmail, demoPass);
-      if (u.role === "platform_admin") {
-        router.push("/admin/dashboard");
-      } else {
-        router.push("/portal/dashboard");
-      }
+      const target = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
+      window.location.href = target;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Quick login failed");
-    } finally {
       setSubmitting(false);
     }
   };

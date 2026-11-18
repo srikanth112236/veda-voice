@@ -123,7 +123,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     if (!loading) {
       if (!user) {
-        router.replace("/login");
+        const hasToken = typeof window !== "undefined" && !!localStorage.getItem("vedavoice_token");
+        if (!hasToken) {
+          router.replace("/login");
+        }
       } else if (user.role !== "platform_admin") {
         router.replace("/portal/dashboard");
       }
