@@ -29,6 +29,12 @@ param internalSigningKey string
 @description('Action Group resource ID for alerts (optional)')
 param alertActionGroupId string = ''
 
+@description('Optional initial API container image')
+param apiImage string = ''
+
+@description('Optional initial Dashboard container image')
+param dashboardImage string = ''
+
 // Variables
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var acrName = 'acr${appName}${environment}${take(uniqueSuffix, 5)}'
@@ -106,8 +112,8 @@ module containerAppsModule 'modules/containerapps.bicep' = {
     acrLoginServer: acrModule.outputs.acrLoginServer
     acrUsername: acrModule.outputs.acrName
     acrPassword: listCredentials(acrModule.outputs.acrId, '2023-07-01').passwords[0].value
-    apiImage: '${acrModule.outputs.acrLoginServer}/api:latest'
-    dashboardImage: '${acrModule.outputs.acrLoginServer}/dashboard:latest'
+    apiImage: empty(apiImage) ? '${acrModule.outputs.acrLoginServer}/api:latest' : apiImage
+    dashboardImage: empty(dashboardImage) ? '${acrModule.outputs.acrLoginServer}/dashboard:latest' : dashboardImage
     databaseUrl: databaseUrl
     jwtSecret: jwtSecret
     internalSigningKey: internalSigningKey
