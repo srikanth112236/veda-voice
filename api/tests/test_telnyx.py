@@ -1,8 +1,15 @@
-"""Unit tests for Telnyx Carrier Telephony and SMS Service."""
+"""Unit and API integration tests for Telnyx Carrier Telephony and SMS Service."""
+
+import uuid
 
 import pytest
+from fastapi.testclient import TestClient
 
+from api.app.core.config import settings
+from api.app.main import app
 from api.app.services.telnyx import TelnyxCarrierService
+
+client = TestClient(app)
 
 
 @pytest.mark.asyncio
@@ -64,3 +71,62 @@ def test_telnyx_webhook_signature_verification_fallback():
         timestamp_str="1795000000",
     )
     assert verified is True
+
+
+def test_telnyx_api_endpoints_end_to_end():
+    """Verify FastAPI endpoints: carrier search, 1-click ordering, and outbound SMS dispatch."""
+    # 1. Login as Platform Admin
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": settings.PLATFORM_ADMIN_EMAIL,
+            "password": settings.PLATFORM_ADMIN_PASSWORD,
+        },
+    )
+    assert admin_login.status_code == 200
+    token = admin_login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Test Carrier Search Endpoint
+    search_res = client.get(
+        "/api/v1/numbers/carrier/telnyx/search?area_code=312&limit=4",
+        headers=headers,
+    )
+    assert search_res.status_code == 200
+    data = search_res.json()
+    assert len(data) == 4
+    assert data[0]["phone_number"].startswith("+1312")
+    assert data[0]["cost_monthly_usd"] == 1.00
+
+    # 3. Test 1-Click Order Endpoint
+    test_number = f"+1312555{uuid.uuid4().hex[:4]}"
+    order_res = client.post(
+        "/api/v1/numbers/carrier/telnyx/order",
+        json={
+            "phone_number": test_number,
+            "label": "Downtown Dispatch Line",
+            "locality": "Chicago, IL",
+            "region": "IL",
+        },
+        headers=headers,
+    )
+    assert order_res.status_code == 200
+    order_data = order_res.json()
+    assert order_data["e164"] == test_number
+    assert order_data["provider"] == "Telnyx SIP Carrier"
+    assert order_data["monthly_cost_usd"] == 1.00
+
+    # 4. Test Outbound SMS Endpoint
+    sms_res = client.post(
+        "/api/v1/numbers/carrier/telnyx/sms",
+        json={
+            "from_number": test_number,
+            "to_number": "+18005550199",
+            "text": "Your dispatch technician has been assigned.",
+        },
+        headers=headers,
+    )
+    assert sms_res.status_code == 200
+    sms_data = sms_res.json()
+    assert sms_data["status"] == "delivered"
+    assert sms_data["from_number"] == test_number

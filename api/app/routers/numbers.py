@@ -14,6 +14,11 @@ from api.app.core.deps import get_current_user
 from api.app.db.session import get_db
 from api.app.models.tenant import PhoneNumber, Tenant
 from api.app.models.user import User
+from api.app.services.telnyx import (
+    TelnyxNumberSearchResult,
+    TelnyxSMSResult,
+    telnyx_service,
+)
 
 router = APIRouter(prefix="/numbers", tags=["numbers"])
 
@@ -553,4 +558,104 @@ def sync_sip_trunk_dispatch_rules(
         total_numbers_bound=len(active_numbers),
         bindings=list(active_numbers),
         message=f"Successfully synchronized {len(active_numbers)} active numbers to LiveKit SIP Inbound Trunk ({settings.LIVEKIT_SIP_INBOUND_TRUNK_ID})",
+    )
+
+
+# ==============================================================================
+# TELNYX CARRIER NATIVE DID ORDERING & TWO-WAY SMS ENDPOINTS
+# ==============================================================================
+
+
+class TelnyxOrderRequest(BaseModel):
+    phone_number: str
+    tenant_id: str | None = None
+    label: str = "Telnyx Main Voice Line"
+    locality: str = ""
+    region: str = "US"
+
+
+class TelnyxSMSRequest(BaseModel):
+    from_number: str
+    to_number: str
+    text: str
+
+
+@router.get("/carrier/telnyx/search", response_model=list[TelnyxNumberSearchResult])
+async def search_telnyx_carrier_numbers(
+    area_code: str = Query(default="", description="3-digit area code"),
+    locality: str = Query(default="", description="City or locality"),
+    country_code: str = Query(default="US", description="2-letter ISO country code"),
+    limit: int = Query(default=8, ge=1, le=30),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Search live available Telnyx DIDs for Voice and SMS."""
+    return await telnyx_service.search_numbers(
+        country_code=country_code,
+        area_code=area_code or None,
+        locality=locality or None,
+        limit=limit,
+    )
+
+
+@router.post("/carrier/telnyx/order", response_model=PhoneNumberResponse)
+async def order_telnyx_carrier_number(
+    req: TelnyxOrderRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Purchase a Telnyx DID, auto-bind to LiveKit SIP Connection, and attach to tenant."""
+    if current_user.role == "platform_admin":
+        target_tenant_id = req.tenant_id
+    else:
+        target_tenant_id = current_user.tenant_id
+
+    # Execute Telnyx order (binds to LiveKit SIP Connection)
+    await telnyx_service.order_number(phone_number=req.phone_number)
+
+    new_id = f"num_{uuid.uuid4().hex[:12]}"
+    phone = PhoneNumber(
+        id=new_id,
+        tenant_id=target_tenant_id,
+        e164=req.phone_number,
+        provider="telnyx",
+        purpose="inbound_outbound",
+        label=req.label,
+        locality=req.locality or "US Metro",
+        region=req.region or "US",
+        trunk_id=settings.LIVEKIT_SIP_INBOUND_TRUNK_ID,
+        status="active" if target_tenant_id else "pool",
+    )
+    db.add(phone)
+    db.commit()
+    db.refresh(phone)
+
+    tenant_name = phone.tenant.name if phone.tenant else "Agency Shared Pool"
+    return PhoneNumberResponse(
+        id=phone.id,
+        tenant_id=phone.tenant_id,
+        tenant_name=tenant_name,
+        e164=phone.e164,
+        formatted=format_e164(phone.e164),
+        provider="Telnyx SIP Carrier",
+        purpose=phone.purpose or "inbound_outbound",
+        label=phone.label or req.label,
+        locality=phone.locality or "US Metro",
+        region=phone.region or "US",
+        trunk_id=phone.trunk_id or settings.LIVEKIT_SIP_INBOUND_TRUNK_ID,
+        status=phone.status,
+        monthly_cost_usd=1.00,
+        created_at=phone.created_at,
+    )
+
+
+@router.post("/carrier/telnyx/sms", response_model=TelnyxSMSResult)
+async def send_telnyx_sms(
+    req: TelnyxSMSRequest,
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Send an outbound SMS message via Telnyx Messaging API."""
+    return await telnyx_service.send_sms(
+        from_number=req.from_number,
+        to_number=req.to_number,
+        text=req.text,
     )
