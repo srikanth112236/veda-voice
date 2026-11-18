@@ -53,7 +53,7 @@ var logAnalyticsName = 'log-${appName}-${environment}'
 var appInsightsName = 'appi-${appName}-${environment}'
 var storageAccountName = 'st${appName}${environment}${take(uniqueSuffix, 5)}'
 var keyVaultName = 'kv-${appName}-${environment}-${take(uniqueSuffix, 4)}'
-var postgresServerName = 'pg-${appName}-${environment}'
+var postgresServerName = 'pg-${appName}-${environment}-${take(uniqueSuffix, 4)}'
 var containerAppEnvName = 'cae-${appName}-${environment}'
 
 // 1. Container Registry

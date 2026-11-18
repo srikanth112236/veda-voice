@@ -99,6 +99,7 @@ Write-Host "    [DONE] GitHub OIDC configured." -ForegroundColor Green
 
 # 5. Provision Infrastructure with Bicep
 Write-Host "`n--> [3/8] Provisioning Azure Infrastructure via Bicep..." -ForegroundColor Yellow
+az postgres flexible-server delete --name "pg-vagency-prod" --resource-group $ResourceGroupName --yes --output none 2>$null
 $deployJson = az deployment group create `
     --resource-group $ResourceGroupName `
     --template-file infra/bicep/main.bicep `

@@ -103,6 +103,8 @@ echo "    [DONE] GitHub OIDC configured."
 
 # 5. Provision Infrastructure with Bicep
 echo "--> [3/8] Provisioning Azure Infrastructure via Bicep (ACR, Postgres 16, Key Vault, Container Apps)..."
+# Clean up any previously failed server stub if present
+az postgres flexible-server delete --name "pg-vagency-prod" --resource-group "$RESOURCE_GROUP" --yes --output none 2>/dev/null || true
 DEPLOY_OUTPUT=$(az deployment group create \
     --resource-group "$RESOURCE_GROUP" \
     --template-file infra/bicep/main.bicep \
