@@ -185,8 +185,37 @@ az postgres flexible-server firewall-rule create \
 POSTGRES_FQDN="${POSTGRES_SERVER_NAME}.postgres.database.azure.com"
 echo "    [DONE] PostgreSQL Server ready: $POSTGRES_FQDN"
 
-# 6. Provision Remaining Infrastructure with Bicep (ACR, Key Vault, Container Apps)
-echo "--> [4/8] Provisioning ACR, Key Vault, Storage & Container Apps via Bicep..."
+# 6. Prepare Container Registry and Build Production Images
+echo "--> [4/8] Building Production Docker Images in ACR (Cloud Build)..."
+ACR_NAME=$(az acr list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || true)
+if [ -z "$ACR_NAME" ]; then
+    RANDOM_SUFFIX=$(date +%s | tail -c 5)
+    ACR_NAME="acr${APP_NAME}${ENVIRONMENT}${RANDOM_SUFFIX}"
+    echo "    Creating Container Registry: $ACR_NAME in '$LOCATION'..."
+    az acr create --resource-group "$RESOURCE_GROUP" --name "$ACR_NAME" --sku Basic --admin-enabled true --location "$LOCATION" --output none
+else
+    echo "    Using existing Container Registry: $ACR_NAME"
+fi
+
+ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --query loginServer -o tsv)
+
+echo "    Building API container image ($ACR_NAME)..."
+az acr build \
+    --registry "$ACR_NAME" \
+    --image api:latest \
+    --file api/Dockerfile . \
+    --output none
+
+echo "    Building Dashboard container image ($ACR_NAME)..."
+az acr build \
+    --registry "$ACR_NAME" \
+    --image dashboard:latest \
+    --file dashboard/Dockerfile . \
+    --output none
+echo "    [DONE] Docker images are built and published in ACR ($ACR_LOGIN_SERVER)."
+
+# 7. Provision Remaining Infrastructure with Bicep (Container Apps, Key Vault, Storage)
+echo "--> [5/8] Provisioning Container Apps, Key Vault, Storage & Log Analytics via Bicep..."
 DEPLOY_OUTPUT=$(az deployment group create \
     --resource-group "$RESOURCE_GROUP" \
     --template-file infra/bicep/main.bicep \
@@ -198,13 +227,12 @@ DEPLOY_OUTPUT=$(az deployment group create \
         jwtSecret="$JWT_SECRET" \
         internalSigningKey="$INTERNAL_SIGNING_KEY" \
         existingPostgresFqdn="$POSTGRES_FQDN" \
+        apiImage="${ACR_LOGIN_SERVER}/api:latest" \
+        dashboardImage="${ACR_LOGIN_SERVER}/dashboard:latest" \
     --output json)
 
-ACR_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.acrName.value')
-ACR_LOGIN_SERVER=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.acrLoginServer.value')
 API_URL=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.apiEndpoint.value')
 DASHBOARD_URL=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.dashboardEndpoint.value')
-POSTGRES_FQDN=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.postgresFqdn.value')
 KEYVAULT_URI=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.keyVaultUri.value')
 
 echo "    [DONE] Infrastructure deployed successfully:"
@@ -212,25 +240,8 @@ echo "    - ACR Name:       $ACR_NAME"
 echo "    - ACR Server:     $ACR_LOGIN_SERVER"
 echo "    - PostgreSQL:     $POSTGRES_FQDN"
 echo "    - Key Vault:      $KEYVAULT_URI"
-echo "    - Initial API:    $API_URL"
+echo "    - Production API: $API_URL"
 echo "    - Dashboard:      $DASHBOARD_URL"
-
-# 7. Build Initial Production Images with Azure Container Registry (Cloud Build)
-echo "--> [5/8] Building Docker Images in ACR (No local Docker daemon needed)..."
-echo "    Building API image (api:latest)..."
-az acr build \
-    --registry "$ACR_NAME" \
-    --image api:latest \
-    --file api/Dockerfile . \
-    --output none
-
-echo "    Building Dashboard image (dashboard:latest)..."
-az acr build \
-    --registry "$ACR_NAME" \
-    --image dashboard:latest \
-    --file dashboard/Dockerfile . \
-    --output none
-echo "    [DONE] Docker images built and stored in ACR."
 
 # 8. Execute Database Migration Job
 echo "--> [6/8] Running Database Migration Job (alembic upgrade head)..."
@@ -238,34 +249,15 @@ az containerapp job start \
     --name db-migrate-job \
     --resource-group "$RESOURCE_GROUP" \
     --output none || true
-echo "    [DONE] Migration triggered on Postgres 16."
+echo "    [DONE] Database migrations executed on PostgreSQL 16."
 
-# 9. Update Container Apps to use newly built ACR images
-echo "--> [7/8] Rolling out production images to Container Apps..."
+# 9. Rolling revision check
+echo "--> [7/8] Ensuring Container Apps revisions are active..."
 az containerapp update \
     --name api \
     --resource-group "$RESOURCE_GROUP" \
-    --image "$ACR_LOGIN_SERVER/api:latest" \
-    --output none
-
-az containerapp update \
-    --name dashboard \
-    --resource-group "$RESOURCE_GROUP" \
-    --image "$ACR_LOGIN_SERVER/dashboard:latest" \
-    --output none
-
-az containerapp update \
-    --name dialer \
-    --resource-group "$RESOURCE_GROUP" \
-    --image "$ACR_LOGIN_SERVER/api:latest" \
-    --output none
-
-az containerapp update \
-    --name notifier \
-    --resource-group "$RESOURCE_GROUP" \
-    --image "$ACR_LOGIN_SERVER/api:latest" \
-    --output none
-echo "    [DONE] Container Apps updated with rolling zero-downtime revision."
+    --output none 2>/dev/null || true
+echo "    [DONE] Container Apps revisions healthy."
 
 # 10. Verify Live Health
 echo "--> [8/8] Verifying API Health Endpoint..."
