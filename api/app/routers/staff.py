@@ -135,7 +135,9 @@ def list_staff_members(
         )
         .group_by(Booking.staff_id)
     )
-    counts_map = dict(db.execute(counts_query).all())
+    counts_map: dict[str, int] = {
+        row[0]: row[1] for row in db.execute(counts_query).all() if row[0] is not None
+    }
 
     results: list[StaffMemberResponse] = []
     for s in staff_records:

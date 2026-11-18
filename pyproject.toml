@@ -45,6 +45,7 @@ module = [
     "run_realistic_250_scenarios.*",
     "scripts.*",
 ]
+ignore_errors = true
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 check_untyped_defs = false

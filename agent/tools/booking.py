@@ -79,21 +79,21 @@ def _call_internal_calendar_api(
                         authorization=auth_hdr,
                         db=db,
                     )
-                    return cast(dict[str, Any], res_hold)
+                    return dict(res_hold)
                 if endpoint_path == "book":
                     res_book = confirm_appointment_booking(
                         payload=BookSlotRequest(**payload),
                         authorization=auth_hdr,
                         db=db,
                     )
-                    return cast(dict[str, Any], res_book)
+                    return dict(res_book)
                 if endpoint_path == "cancel":
                     res_cancel = cancel_appointment_booking(
                         payload=CancelBookingRequest(**payload),
                         authorization=auth_hdr,
                         db=db,
                     )
-                    return cast(dict[str, Any], res_cancel)
+                    return dict(res_cancel)
         except Exception as inner_e:
             logger.error("In-process internal calendar execution failed: %s", inner_e)
             raise inner_e

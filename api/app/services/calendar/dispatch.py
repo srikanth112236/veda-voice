@@ -135,7 +135,9 @@ def assign_technician_round_robin(
             )
             .group_by(Booking.staff_id)
         )
-        counts_dict = dict(db.execute(counts_query).all())
+        counts_dict: dict[str, int] = {
+            row[0]: row[1] for row in db.execute(counts_query).all() if row[0] is not None
+        }
 
         # Sort by lowest active jobs today, tiebreak by last_assigned_at
         available_staff.sort(

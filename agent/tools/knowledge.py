@@ -12,7 +12,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from livekit.agents import FunctionTool, function_tool
 
@@ -65,8 +65,11 @@ def _call_internal_knowledge_api(
                     db=db,
                 )
                 if hasattr(res, "model_dump"):
-                    return cast(dict[str, Any], res.model_dump())
-                return cast(dict[str, Any], res)
+                    dumped: dict[str, Any] = res.model_dump()
+                    return dumped
+                if isinstance(res, dict):
+                    return res
+                return dict(res)
             finally:
                 db.close()
         except Exception as in_proc_err:

@@ -154,7 +154,7 @@ async def entrypoint(ctx: JobContext) -> None:
         try:
             # Connect briefly to speak the busy callback notice before terminating call
             await ctx.connect()
-            busy_session = AgentSession(tts=settings.tts_model)
+            busy_session: AgentSession = AgentSession(tts=settings.tts_model)
             await busy_session.start(room=ctx.room, agent=Agent(instructions=""))
             await busy_session.say(rejection_msg, allow_interruptions=False)
             await asyncio.sleep(0.5)
