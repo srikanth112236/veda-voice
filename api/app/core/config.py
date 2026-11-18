@@ -90,5 +90,13 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_FROM_NUMBER: str = ""
 
+    # Telnyx Carrier Telephony & Messaging (Cost-Optimization & 1-Click DID Orders)
+    TELNYX_API_KEY: str = ""
+    TELNYX_SIP_CONNECTION_ID: str = ""
+    TELNYX_MESSAGING_PROFILE_ID: str = ""
+    TELNYX_PUBLIC_KEY: str = ""
+    TELNYX_AUTO_ASSIGN_SIP: bool = True
+    TELNYX_DEFAULT_COUNTRY_CODE: str = "US"
+
 
 settings = Settings()
