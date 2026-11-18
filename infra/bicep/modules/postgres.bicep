@@ -28,7 +28,7 @@ param storageSizeGB int = 32
 @description('Backup retention days')
 param backupRetentionDays int = 14
 
-resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-03-01-preview' = {
+resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-30' = {
   name: serverName
   location: location
   sku: {
@@ -54,7 +54,7 @@ resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-03-01-pr
 }
 
 // Enable pg_trgm extension for fast contact / lead substring searches
-resource configExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-03-01-preview' = {
+resource configExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-30' = {
   parent: postgresServer
   name: 'azure.extensions'
   properties: {
@@ -64,7 +64,7 @@ resource configExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurati
 }
 
 // Enable connection pooling via built-in PgBouncer
-resource configPgBouncer 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-03-01-preview' = {
+resource configPgBouncer 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-12-30' = {
   parent: postgresServer
   name: 'pgbouncer.enabled'
   properties: {
@@ -74,7 +74,7 @@ resource configPgBouncer 'Microsoft.DBforPostgreSQL/flexibleServers/configuratio
 }
 
 // Allow Azure internal services and Container Apps to connect
-resource allowAzureIps 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-03-01-preview' = {
+resource allowAzureIps 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-30' = {
   parent: postgresServer
   name: 'AllowAllAzureServicesAndResources'
   properties: {
@@ -84,7 +84,7 @@ resource allowAzureIps 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@
 }
 
 // Create default application database
-resource appDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-03-01-preview' = {
+resource appDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-30' = {
   parent: postgresServer
   name: 'vedavoice'
   properties: {

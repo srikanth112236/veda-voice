@@ -35,6 +35,17 @@ param apiImage string = ''
 @description('Optional initial Dashboard container image')
 param dashboardImage string = ''
 
+@description('PostgreSQL SKU name')
+param postgresSkuName string = 'Standard_B2s'
+
+@description('PostgreSQL SKU tier')
+@allowed([
+  'Burstable'
+  'GeneralPurpose'
+  'MemoryOptimized'
+])
+param postgresSkuTier string = 'Burstable'
+
 // Variables
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var acrName = 'acr${appName}${environment}${take(uniqueSuffix, 5)}'
@@ -92,8 +103,8 @@ module postgresModule 'modules/postgres.bicep' = {
     location: location
     adminLogin: 'vaadmin'
     adminPassword: postgresAdminPassword
-    skuName: environment == 'prod' ? 'Standard_D2ds_v5' : 'Standard_B2s'
-    skuTier: environment == 'prod' ? 'GeneralPurpose' : 'Burstable'
+    skuName: postgresSkuName
+    skuTier: postgresSkuTier
     storageSizeGB: environment == 'prod' ? 64 : 32
     backupRetentionDays: environment == 'prod' ? 30 : 7
   }
