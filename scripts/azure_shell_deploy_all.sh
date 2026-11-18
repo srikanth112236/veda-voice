@@ -116,21 +116,7 @@ if [ -n "$EXISTING_ACTIVE_PG" ]; then
     echo "    Detected active server: '$EXISTING_ACTIVE_PG'."
     POSTGRES_SERVER_NAME="$EXISTING_ACTIVE_PG"
     PG_SUCCESS="true"
-
-    echo "    Waiting for server '$POSTGRES_SERVER_NAME' to finish provisioning..."
-    az postgres flexible-server wait --name "$POSTGRES_SERVER_NAME" --resource-group "$RESOURCE_GROUP" --created --timeout 300 2>/dev/null || true
-
-    # Auto-adapt to 80% lower cost tier (Standard_B2s Burstable) if currently GeneralPurpose
-    CURRENT_TIER=$(az postgres flexible-server show -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" --query "sku.tier" -o tsv 2>/dev/null || true)
-    if [ "$CURRENT_TIER" = "GeneralPurpose" ]; then
-        echo "    Auto-adapting server '$POSTGRES_SERVER_NAME' to cost-optimized Burstable Standard_B2s (saves 80%)..."
-        az postgres flexible-server update \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$POSTGRES_SERVER_NAME" \
-            --tier "Burstable" \
-            --sku-name "Standard_B2s" \
-            --output none 2>/dev/null || true
-    fi
+    echo "    Using live PostgreSQL server: $POSTGRES_SERVER_NAME"
 else
     # Clean up any failed server stubs
     FAILED_SERVERS=$(az postgres flexible-server list -g "$RESOURCE_GROUP" --query "[?provisioningState=='Failed'].name" -o tsv 2>/dev/null || true)
