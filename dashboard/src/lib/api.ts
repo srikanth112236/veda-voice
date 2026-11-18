@@ -274,6 +274,18 @@ export interface AvailableNumberItem {
   source: "carrier_api" | "agency_pool";
 }
 
+export interface TelnyxNumberItem {
+  phone_number: string;
+  national_format: string;
+  region_information: string;
+  locality: string;
+  country_code: string;
+  cost_monthly_usd: number;
+  cost_upfront_usd: number;
+  features: string[];
+  provider: string;
+}
+
 export interface CarrierTrunkHealth {
   provider: string;
   status: string;
@@ -656,6 +668,36 @@ export const api = {
     const queryStr = q.toString() ? `?${q.toString()}` : "";
     return request<AvailableNumberItem[]>(`/api/v1/numbers/search${queryStr}`);
   },
+
+  searchTelnyxNumbers: (areaCode?: string, locality?: string, countryCode = "US", limit = 8) => {
+    const q = new URLSearchParams();
+    if (areaCode) q.append("area_code", areaCode);
+    if (locality) q.append("locality", locality);
+    q.append("country_code", countryCode);
+    q.append("limit", limit.toString());
+    return request<TelnyxNumberItem[]>(`/api/v1/numbers/carrier/telnyx/search?${q.toString()}`);
+  },
+
+  orderTelnyxNumber: (data: {
+    phone_number: string;
+    tenant_id?: string;
+    label?: string;
+    locality?: string;
+    region?: string;
+  }) =>
+    request<PhoneNumberRecord>("/api/v1/numbers/carrier/telnyx/order", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  sendTelnyxSMS: (data: { from_number: string; to_number: string; text: string }) =>
+    request<{ message_id: string; status: string; parts: number; cost_usd: number }>(
+      "/api/v1/numbers/carrier/telnyx/sms",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    ),
 
   createAdminTenant: (data: {
     name: string;

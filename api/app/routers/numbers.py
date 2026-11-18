@@ -657,14 +657,61 @@ async def order_telnyx_carrier_number(
 @router.post("/carrier/telnyx/sms", response_model=TelnyxSMSResult)
 async def send_telnyx_sms(
     req: TelnyxSMSRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Send an outbound SMS message via Telnyx Messaging API."""
-    return await telnyx_service.send_sms(
-        from_number=req.from_number,
+    from_num = req.from_number.strip() if req.from_number else ""
+    tenant_id = current_user.tenant_id
+
+    # If caller didn't provide a specific valid from_number, pick the tenant's registered phone
+    if not from_num and tenant_id:
+        tenant_phone = db.scalar(select(PhoneNumber).where(PhoneNumber.tenant_id == tenant_id))
+        if tenant_phone:
+            from_num = tenant_phone.e164
+
+    if not from_num:
+        from_num = "+14155550199"
+
+    result = await telnyx_service.send_sms(
+        from_number=from_num,
         to_number=req.to_number,
         text=req.text,
     )
+
+    if not tenant_id:
+        phone_record = db.scalar(select(PhoneNumber).where(PhoneNumber.e164 == from_num))
+        if phone_record and phone_record.tenant_id:
+            tenant_id = phone_record.tenant_id
+
+    if tenant_id:
+        contact = db.scalar(
+            select(Contact).where(
+                Contact.tenant_id == tenant_id,
+                Contact.phone == req.to_number,
+            )
+        )
+        if contact:
+            timeline_event = ContactTimelineEvent(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                contact_id=contact.id,
+                event_type="sms_sent",
+                title="Outbound SMS Sent",
+                description=req.text,
+                payload={
+                    "direction": "outbound",
+                    "from": from_num,
+                    "to": req.to_number,
+                    "text": req.text,
+                    "message_id": result.message_id,
+                },
+            )
+            db.add(timeline_event)
+            contact.last_contact_at = datetime.now(UTC)
+            db.commit()
+
+    return result
 
 
 @router.post("/carrier/telnyx/webhook")

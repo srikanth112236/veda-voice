@@ -11,6 +11,7 @@ import {
   SipTrunkTelemetry,
   AgencySubAccount,
   AgencyAuditLog,
+  TelnyxNumberItem,
 } from "@/lib/api";
 import { InfoTrigger } from "@/context/info-modal-context";
 import {
@@ -49,6 +50,9 @@ import {
   History,
   ExternalLink,
   ShieldAlert,
+  Search,
+  Loader2,
+  MessageSquare,
 } from "lucide-react";
 
 function AdminDashboardContent() {
@@ -128,6 +132,51 @@ function AdminDashboardContent() {
   const [subCustomMinutes, setSubCustomMinutes] = useState<number | "">("");
   const [subResetUsage, setSubResetUsage] = useState<boolean>(false);
   const [updatingSub, setUpdatingSub] = useState(false);
+
+  // Telnyx 1-Click DID Order & SMS state (Phase 4)
+  const [showTelnyxModal, setShowTelnyxModal] = useState(false);
+  const [telnyxAreaCode, setTelnyxAreaCode] = useState("415");
+  const [telnyxLocality, setTelnyxLocality] = useState("");
+  const [telnyxTargetTenantId, setTelnyxTargetTenantId] = useState("");
+  const [searchingTelnyx, setSearchingTelnyx] = useState(false);
+  const [telnyxSearchResults, setTelnyxSearchResults] = useState<TelnyxNumberItem[]>([]);
+  const [orderingTelnyxNumber, setOrderingTelnyxNumber] = useState<string | null>(null);
+  const [telnyxSuccessMsg, setTelnyxSuccessMsg] = useState<string | null>(null);
+
+  const handleSearchTelnyxNumbers = async () => {
+    setSearchingTelnyx(true);
+    setTelnyxSuccessMsg(null);
+    try {
+      const results = await api.searchTelnyxNumbers(telnyxAreaCode, telnyxLocality);
+      setTelnyxSearchResults(results);
+    } catch (err: any) {
+      console.error("Failed to search Telnyx numbers", err);
+    } finally {
+      setSearchingTelnyx(false);
+    }
+  };
+
+  const handleOrderTelnyxNumber = async (numItem: TelnyxNumberItem) => {
+    setOrderingTelnyxNumber(numItem.phone_number);
+    setTelnyxSuccessMsg(null);
+    try {
+      const ordered = await api.orderTelnyxNumber({
+        phone_number: numItem.phone_number,
+        tenant_id: telnyxTargetTenantId || undefined,
+        locality: numItem.locality,
+        region: numItem.region_information,
+        label: "Telnyx Carrier Line",
+      });
+      setNumbers((prev) => [ordered, ...prev]);
+      setTelnyxSuccessMsg(`Ordered ${numItem.phone_number} on Telnyx ($1/mo) and auto-bound to LiveKit SIP!`);
+      setTelnyxSearchResults((prev) => prev.filter((n) => n.phone_number !== numItem.phone_number));
+    } catch (err: any) {
+      console.error("Failed to order Telnyx number", err);
+      alert(`Error ordering Telnyx number: ${err?.message || err}`);
+    } finally {
+      setOrderingTelnyxNumber(null);
+    }
+  };
 
   const loadData = () => {
     setRefreshing(true);
@@ -910,6 +959,21 @@ function AdminDashboardContent() {
 
             <button
               type="button"
+              onClick={() => {
+                setShowTelnyxModal(true);
+                if (telnyxSearchResults.length === 0) {
+                  handleSearchTelnyxNumbers();
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+              title="Search live available numbers on Telnyx ($1/mo) and auto-bind to LiveKit SIP trunk"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300" />
+              <span>1-Click Order Telnyx DID ($1/mo)</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowProvisionModal(true)}
               className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
             >
@@ -1242,6 +1306,206 @@ function AdminDashboardContent() {
                     Attach Number
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Telnyx 1-Click Order Modal (Phase 4) */}
+        {showTelnyxModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl max-w-2xl w-full border border-zinc-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="p-6 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-white/20 backdrop-blur-md">
+                      <Zap className="w-5 h-5 text-amber-300" />
+                    </span>
+                    <h3 className="text-lg font-bold">Telnyx 1-Click Carrier Hub</h3>
+                  </div>
+                  <p className="text-xs text-emerald-100 mt-1">
+                    Live Telnyx API &bull; Search wholesale inventory, order DIDs at $1.00/mo, and auto-dispatch to LiveKit SIP trunk.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTelnyxModal(false)}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                {/* Search & Filter Controls */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-zinc-50 border border-zinc-200">
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                      Area Code
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={3}
+                      value={telnyxAreaCode}
+                      onChange={(e) => setTelnyxAreaCode(e.target.value)}
+                      placeholder="e.g. 415, 212, 312"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-200 text-sm font-mono font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                      City / Locality (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={telnyxLocality}
+                      onChange={(e) => setTelnyxLocality(e.target.value)}
+                      placeholder="e.g. San Francisco"
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-200 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      disabled={searchingTelnyx}
+                      onClick={handleSearchTelnyxNumbers}
+                      className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-all"
+                    >
+                      {searchingTelnyx ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Searching...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Search className="w-4 h-4" />
+                          <span>Find Numbers</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Target Tenant Binding Selector */}
+                <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-zinc-900">Auto-Assign to Tenant on Purchase</div>
+                    <div className="text-[11px] text-zinc-500">
+                      Purchased number will be immediately provisioned with RLS and LiveKit SIP routing.
+                    </div>
+                  </div>
+                  <select
+                    value={telnyxTargetTenantId}
+                    onChange={(e) => setTelnyxTargetTenantId(e.target.value)}
+                    className="px-3 py-2 rounded-xl bg-white border border-zinc-200 text-xs font-semibold text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">-- Keep in Agency Pool (Unassigned) --</option>
+                    {tenants.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Success alert message */}
+                {telnyxSuccessMsg && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>{telnyxSuccessMsg}</span>
+                  </div>
+                )}
+
+                {/* Results List */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-bold text-zinc-700 uppercase tracking-wider font-mono">
+                      Available Carrier DIDs ({telnyxSearchResults.length})
+                    </h4>
+                    <span className="text-[11px] text-zinc-400">
+                      Wholesale Rate: $1.00/mo &bull; LiveKit SIP Inbound
+                    </span>
+                  </div>
+
+                  {telnyxSearchResults.length === 0 && !searchingTelnyx && (
+                    <div className="p-8 text-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/50">
+                      <Phone className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                      <div className="text-xs font-semibold text-zinc-600">No numbers found</div>
+                      <div className="text-[11px] text-zinc-400 mt-1">
+                        Try searching a different area code or clearing the locality filter.
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2.5">
+                    {telnyxSearchResults.map((num) => (
+                      <div
+                        key={num.phone_number}
+                        className="p-3.5 rounded-2xl border border-zinc-200 bg-white hover:border-emerald-300 hover:shadow-sm transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700">
+                            <Phone className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-sm text-zinc-900">
+                                {num.phone_number}
+                              </span>
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                ${num.cost_monthly_usd.toFixed(2)}/mo
+                              </span>
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
+                                Setup: ${num.cost_upfront_usd.toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-zinc-500 mt-0.5 flex items-center gap-2">
+                              <span>{num.locality ? `${num.locality}, ${num.region_information}` : num.region_information || "United States"}</span>
+                              <span>&bull;</span>
+                              <span className="text-emerald-600 font-medium">{num.features?.join(", ") || "voice, sms"}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={orderingTelnyxNumber === num.phone_number}
+                          onClick={() => handleOrderTelnyxNumber(num)}
+                          className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors disabled:opacity-50"
+                        >
+                          {orderingTelnyxNumber === num.phone_number ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Ordering...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-3.5 h-3.5 text-amber-300" />
+                              <span>Order &amp; Bind ($1)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-zinc-50 border-t border-zinc-200 flex items-center justify-between text-xs text-zinc-500">
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Zero Carrier Markup &bull; Direct Telnyx SIP Connection</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowTelnyxModal(false)}
+                  className="px-4 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700 font-semibold transition-colors"
+                >
+                  Done
+                </button>
               </div>
             </div>
           </div>

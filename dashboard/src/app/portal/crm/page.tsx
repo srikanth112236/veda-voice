@@ -34,6 +34,8 @@ import {
   Edit3,
   Calendar,
   Sparkles,
+  MessageSquare,
+  Send,
 } from "lucide-react";
 
 const FALLBACK_STAGES = [
@@ -71,6 +73,32 @@ export default function CRMPipelinePage() {
   const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
   const [showStagesModal, setShowStagesModal] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Telnyx Two-Way SMS State
+  const [smsText, setSmsText] = useState("");
+  const [sendingSms, setSendingSms] = useState(false);
+  const [smsStatusMsg, setSmsStatusMsg] = useState<string | null>(null);
+
+  const handleSendSms = async () => {
+    if (!contactDetail || !smsText.trim()) return;
+    setSendingSms(true);
+    setSmsStatusMsg(null);
+    try {
+      await api.sendTelnyxSMS({
+        from_number: "", // Backend auto-selects tenant's registered DID
+        to_number: contactDetail.phone,
+        text: smsText.trim(),
+      });
+      setSmsStatusMsg("Dispatched via Telnyx!");
+      setSmsText("");
+      const updated = await api.getCRMContactDetail(contactDetail.id);
+      setContactDetail(updated);
+    } catch (err: any) {
+      setSmsStatusMsg(`Send failed: ${err?.message || err}`);
+    } finally {
+      setSendingSms(false);
+    }
+  };
 
   // New Custom Stage Form
   const [newStage, setNewStage] = useState({
@@ -931,6 +959,55 @@ export default function CRMPipelinePage() {
                         <div className="pt-2 border-t border-zinc-200 text-xs text-zinc-600">
                           <span className="text-zinc-400 text-[10px] uppercase font-mono block">Notes</span>
                           {contactDetail.notes}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Two-Way SMS Quick Dispatcher (Telnyx) */}
+                    <div className="bg-emerald-50/60 rounded-2xl p-4 border border-emerald-200/90 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <MessageSquare className="w-4 h-4 text-emerald-700" />
+                          <span className="text-xs font-bold text-emerald-950 font-mono uppercase tracking-wide">
+                            Direct SMS (Telnyx Carrier)
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                          $0.004/msg &bull; 2-Way Active
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={smsText}
+                          onChange={(e) => setSmsText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendSms();
+                            }
+                          }}
+                          placeholder={`Text ${contactDetail.name || contactDetail.phone}...`}
+                          className="flex-1 px-3 py-2 text-xs bg-white border border-emerald-200 rounded-xl text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder:text-zinc-400"
+                        />
+                        <button
+                          type="button"
+                          disabled={sendingSms || !smsText.trim()}
+                          onClick={handleSendSms}
+                          className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
+                        >
+                          {sendingSms ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Send className="w-3.5 h-3.5" />
+                          )}
+                          <span>Send</span>
+                        </button>
+                      </div>
+                      {smsStatusMsg && (
+                        <div className="text-[11px] font-medium text-emerald-800 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                          <span>{smsStatusMsg}</span>
                         </div>
                       )}
                     </div>
