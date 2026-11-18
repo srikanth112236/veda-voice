@@ -194,6 +194,10 @@ resource dashboardApp 'Microsoft.App/containerApps@2023-05-01' = {
               name: 'NEXT_PUBLIC_API_URL'
               value: 'https://${apiApp.properties.configuration.ingress.fqdn}'
             }
+            {
+              name: 'INTERNAL_API_URL'
+              value: 'https://${apiApp.properties.configuration.ingress.fqdn}'
+            }
           ]
         }
       ]
