@@ -20,20 +20,22 @@ jobs:
       - name: Azure OIDC Login
         uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID || vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID || vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID || vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set Image Tags
         id: vars
         run: |
           echo "SHA_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "ACR_SERVER=${{ vars.ACR_NAME }}.azurecr.io" >> $GITHUB_OUTPUT
+          echo "ACR_NAME=${{ secrets.ACR_NAME || vars.ACR_NAME }}" >> $GITHUB_OUTPUT
+          echo "ACR_SERVER=${{ secrets.ACR_NAME || vars.ACR_NAME }}.azurecr.io" >> $GITHUB_OUTPUT
+          echo "AZURE_RG=${{ secrets.AZURE_RG || vars.AZURE_RG }}" >> $GITHUB_OUTPUT
 
       - name: Build & Push API Image to ACR
         run: |
           az acr build \
-            --registry ${{ vars.ACR_NAME }} \
+            --registry ${{ steps.vars.outputs.ACR_NAME }} \
             --image api:${{ steps.vars.outputs.SHA_SHORT }} \
             --image api:latest \
             --file api/Dockerfile .
@@ -41,7 +43,7 @@ jobs:
       - name: Build & Push Dashboard Image to ACR
         run: |
           az acr build \
-            --registry ${{ vars.ACR_NAME }} \
+            --registry ${{ steps.vars.outputs.ACR_NAME }} \
             --image dashboard:${{ steps.vars.outputs.SHA_SHORT }} \
             --image dashboard:latest \
             --file dashboard/Dockerfile .
@@ -51,34 +53,34 @@ jobs:
           echo "Triggering database migration job in Container Apps..."
           az containerapp job start \
             --name db-migrate-job \
-            --resource-group ${{ vars.AZURE_RG }}
+            --resource-group ${{ steps.vars.outputs.AZURE_RG }}
 
       - name: Update Container App: API
         run: |
           az containerapp update \
             --name api \
-            --resource-group ${{ vars.AZURE_RG }} \
+            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }}
 
       - name: Update Container App: Dashboard
         run: |
           az containerapp update \
             --name dashboard \
-            --resource-group ${{ vars.AZURE_RG }} \
+            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image ${{ steps.vars.outputs.ACR_SERVER }}/dashboard:${{ steps.vars.outputs.SHA_SHORT }}
 
       - name: Update Container App: Dialer Worker
         run: |
           az containerapp update \
             --name dialer \
-            --resource-group ${{ vars.AZURE_RG }} \
+            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }}
 
       - name: Update Container App: Notifier Worker
         run: |
           az containerapp update \
             --name notifier \
-            --resource-group ${{ vars.AZURE_RG }} \
+            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }}
 
       - name: Deploy Voice Agent to LiveKit Cloud
@@ -92,8 +94,9 @@ jobs:
           lk agent deploy
 
       - name: Run Production Smoke Tests
+        if: ${{ (secrets.PROD_API_URL != '') || (vars.PROD_API_URL != '') }}
         env:
-          PROD_API_URL: ${{ vars.PROD_API_URL }}
+          PROD_API_URL: ${{ secrets.PROD_API_URL || vars.PROD_API_URL }}
         run: |
           python -m pip install httpx pytest
-          python scripts/smoke_test_prod.py --base-url "${{ vars.PROD_API_URL }}"
+          python scripts/smoke_test_prod.py --base-url "${{ secrets.PROD_API_URL || vars.PROD_API_URL }}"
