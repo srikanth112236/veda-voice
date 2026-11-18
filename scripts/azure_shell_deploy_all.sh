@@ -101,10 +101,54 @@ EOF
 az ad app federated-credential create --id "$APP_ID" --parameters "$FED_BODY" --output none 2>/dev/null || true
 echo "    [DONE] GitHub OIDC configured."
 
-# 5. Provision Infrastructure with Bicep
-echo "--> [3/8] Provisioning Azure Infrastructure via Bicep (ACR, Postgres 16, Key Vault, Container Apps)..."
-# Clean up any previously failed server stub if present
-az postgres flexible-server delete --name "pg-vagency-prod" --resource-group "$RESOURCE_GROUP" --yes --output none 2>/dev/null || true
+# 5. Provision PostgreSQL 16 Flexible Server (SRS Section 15.4)
+echo "--> [3/8] Provisioning PostgreSQL 16 Flexible Server in $LOCATION..."
+
+# Clean up any existing failed server if present
+FAILED_SERVERS=$(az postgres flexible-server list -g "$RESOURCE_GROUP" --query "[?provisioningState=='Failed'].name" -o tsv 2>/dev/null || true)
+for s in $FAILED_SERVERS; do
+    echo "    Cleaning up failed server: $s..."
+    az postgres flexible-server delete --name "$s" --resource-group "$RESOURCE_GROUP" --yes --output none 2>/dev/null || true
+done
+
+PG_SUFFIX=$(date +%s | tail -c 5)
+POSTGRES_SERVER_NAME="pg-${APP_NAME}-${ENVIRONMENT}-${PG_SUFFIX}"
+
+echo "    Creating server '$POSTGRES_SERVER_NAME' (GeneralPurpose Standard_D2s_v5, PostgreSQL 16)..."
+az postgres flexible-server create \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$POSTGRES_SERVER_NAME" \
+    --location "$LOCATION" \
+    --tier "GeneralPurpose" \
+    --sku-name "Standard_D2s_v5" \
+    --version "16" \
+    --storage-size 64 \
+    --admin-user "vaadmin" \
+    --admin-password "$POSTGRES_PASSWORD" \
+    --yes \
+    --output none
+
+echo "    Creating database 'vedavoice'..."
+az postgres flexible-server db create \
+    --resource-group "$RESOURCE_GROUP" \
+    --server-name "$POSTGRES_SERVER_NAME" \
+    --database-name "vedavoice" \
+    --output none 2>/dev/null || true
+
+echo "    Enabling Azure internal services firewall rule..."
+az postgres flexible-server firewall-rule create \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$POSTGRES_SERVER_NAME" \
+    --rule-name "AllowAllAzureServices" \
+    --start-ip-address "0.0.0.0" \
+    --end-ip-address "0.0.0.0" \
+    --output none 2>/dev/null || true
+
+POSTGRES_FQDN="${POSTGRES_SERVER_NAME}.postgres.database.azure.com"
+echo "    [DONE] PostgreSQL Server ready: $POSTGRES_FQDN"
+
+# 6. Provision Remaining Infrastructure with Bicep (ACR, Key Vault, Container Apps)
+echo "--> [4/8] Provisioning ACR, Key Vault, Storage & Container Apps via Bicep..."
 DEPLOY_OUTPUT=$(az deployment group create \
     --resource-group "$RESOURCE_GROUP" \
     --template-file infra/bicep/main.bicep \
@@ -115,6 +159,7 @@ DEPLOY_OUTPUT=$(az deployment group create \
         postgresAdminPassword="$POSTGRES_PASSWORD" \
         jwtSecret="$JWT_SECRET" \
         internalSigningKey="$INTERNAL_SIGNING_KEY" \
+        existingPostgresFqdn="$POSTGRES_FQDN" \
     --output json)
 
 ACR_NAME=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.acrName.value')
@@ -132,8 +177,8 @@ echo "    - Key Vault:      $KEYVAULT_URI"
 echo "    - Initial API:    $API_URL"
 echo "    - Dashboard:      $DASHBOARD_URL"
 
-# 6. Build Initial Production Images with Azure Container Registry (Cloud Build)
-echo "--> [4/8] Building Docker Images in ACR (No local Docker daemon needed)..."
+# 7. Build Initial Production Images with Azure Container Registry (Cloud Build)
+echo "--> [5/8] Building Docker Images in ACR (No local Docker daemon needed)..."
 echo "    Building API image (api:latest)..."
 az acr build \
     --registry "$ACR_NAME" \
@@ -149,16 +194,16 @@ az acr build \
     --output none
 echo "    [DONE] Docker images built and stored in ACR."
 
-# 7. Execute Database Migration Job
-echo "--> [5/8] Running Database Migration Job (alembic upgrade head)..."
+# 8. Execute Database Migration Job
+echo "--> [6/8] Running Database Migration Job (alembic upgrade head)..."
 az containerapp job start \
     --name db-migrate-job \
     --resource-group "$RESOURCE_GROUP" \
     --output none || true
 echo "    [DONE] Migration triggered on Postgres 16."
 
-# 8. Update Container Apps to use newly built ACR images
-echo "--> [6/8] Rolling out production images to Container Apps..."
+# 9. Update Container Apps to use newly built ACR images
+echo "--> [7/8] Rolling out production images to Container Apps..."
 az containerapp update \
     --name api \
     --resource-group "$RESOURCE_GROUP" \
@@ -184,8 +229,8 @@ az containerapp update \
     --output none
 echo "    [DONE] Container Apps updated with rolling zero-downtime revision."
 
-# 9. Verify Live Health
-echo "--> [7/8] Verifying API Health Endpoint..."
+# 10. Verify Live Health
+echo "--> [8/8] Verifying API Health Endpoint..."
 sleep 10
 HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" || true)
 if [ "$HEALTH_STATUS" = "200" ]; then

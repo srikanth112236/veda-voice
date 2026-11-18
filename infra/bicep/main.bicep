@@ -35,6 +35,9 @@ param apiImage string = ''
 @description('Optional initial Dashboard container image')
 param dashboardImage string = ''
 
+@description('Optional pre-provisioned PostgreSQL Server FQDN')
+param existingPostgresFqdn string = ''
+
 @description('PostgreSQL SKU name')
 param postgresSkuName string = 'Standard_B2s'
 
@@ -96,8 +99,8 @@ module keyVaultModule 'modules/keyvault.bicep' = {
 }
 
 // 5. PostgreSQL Flexible Server
-module postgresModule 'modules/postgres.bicep' = {
-  name: 'postgresDeployment'
+module postgresModule 'modules/postgres.bicep' = if (empty(existingPostgresFqdn)) {
+  name: 'postgresDeployment-${take(uniqueSuffix, 4)}'
   params: {
     serverName: postgresServerName
     location: location
@@ -110,7 +113,8 @@ module postgresModule 'modules/postgres.bicep' = {
   }
 }
 
-var databaseUrl = 'postgresql+psycopg://vaadmin:${postgresAdminPassword}@${postgresModule.outputs.postgresServerFqdn}:5432/${postgresModule.outputs.databaseName}?sslmode=require'
+var effectivePostgresFqdn = empty(existingPostgresFqdn) ? (empty(postgresModule) ? '' : postgresModule.outputs.postgresServerFqdn) : existingPostgresFqdn
+var databaseUrl = 'postgresql+psycopg://vaadmin:${postgresAdminPassword}@${effectivePostgresFqdn}:5432/vedavoice?sslmode=require'
 
 // 6. Container Apps & Workers
 module containerAppsModule 'modules/containerapps.bicep' = {
@@ -132,11 +136,11 @@ module containerAppsModule 'modules/containerapps.bicep' = {
 }
 
 // 7. Azure Monitor Metric Alerts
-module alertsModule 'modules/alerts.bicep' = {
+module alertsModule 'modules/alerts.bicep' = if (empty(existingPostgresFqdn)) {
   name: 'alertsDeployment'
   params: {
     apiContainerAppId: resourceId('Microsoft.App/containerApps', 'api')
-    postgresServerId: postgresModule.outputs.postgresServerId
+    postgresServerId: empty(existingPostgresFqdn) ? postgresModule.outputs.postgresServerId : ''
     actionGroupId: alertActionGroupId
   }
   dependsOn: [
@@ -149,6 +153,6 @@ output acrLoginServer string = acrModule.outputs.acrLoginServer
 output acrName string = acrModule.outputs.acrName
 output apiEndpoint string = 'https://${containerAppsModule.outputs.apiFqdn}'
 output dashboardEndpoint string = 'https://${containerAppsModule.outputs.dashboardFqdn}'
-output postgresFqdn string = postgresModule.outputs.postgresServerFqdn
+output postgresFqdn string = effectivePostgresFqdn
 output keyVaultUri string = keyVaultModule.outputs.keyVaultUri
 output storageAccountName string = storageModule.outputs.storageAccountName
