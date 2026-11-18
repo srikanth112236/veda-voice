@@ -292,6 +292,61 @@ class ConsoleSmsDispatcher:
         return True
 
 
+class TelnyxSmsDispatcher:
+    """Delivers emergency & confirmation SMS notifications via Telnyx v2 Messaging API."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        from_number: str | None = None,
+        messaging_profile_id: str | None = None,
+    ) -> None:
+        self.api_key = api_key or settings.TELNYX_API_KEY
+        self.from_number = from_number or settings.TWILIO_FROM_NUMBER or "+18005550199"
+        self.messaging_profile_id = messaging_profile_id or settings.TELNYX_MESSAGING_PROFILE_ID
+
+    def send(self, to_phone: str, body: str) -> bool:
+        if not self.api_key or not self.api_key.startswith("KEY"):
+            # Fall back to Twilio if configured, else console logger
+            if settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN:
+                return TwilioSmsDispatcher().send(to_phone, body)
+            return ConsoleSmsDispatcher().send(to_phone, body)
+
+        url = "https://api.telnyx.com/v2/messages"
+        payload_dict: dict[str, Any] = {
+            "from": self.from_number,
+            "to": to_phone,
+            "text": body,
+        }
+        if self.messaging_profile_id and self.messaging_profile_id.strip():
+            payload_dict["messaging_profile_id"] = self.messaging_profile_id.strip()
+
+        data = json.dumps(payload_dict).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=8.0) as resp:
+                if 200 <= resp.status < 300:
+                    logger.info("Delivered post-call SMS via Telnyx to %s", to_phone)
+                    return True
+                logger.error("Telnyx API returned HTTP %s", resp.status)
+                return False
+        except urllib.error.HTTPError as e:
+            logger.error("Telnyx HTTP error %s: %s", e.code, e.read().decode("utf-8", "replace"))
+            return False
+        except Exception as e:
+            logger.error("Failed to deliver SMS via Telnyx: %s", e)
+            return False
+
+
 class TwilioSmsDispatcher:
     """Delivers emergency SMS notifications via Twilio REST API."""
 
@@ -475,7 +530,7 @@ def dispatch_call_notifications(
         notify_sms_emerg = getattr(profile, "notify_sms_on_emergency", True) if profile else True
 
         email_worker = email_dispatcher or ResendEmailDispatcher()
-        sms_worker = sms_dispatcher or TwilioSmsDispatcher()
+        sms_worker = sms_dispatcher or TelnyxSmsDispatcher()
 
         email_sent = False
         sms_sent = False

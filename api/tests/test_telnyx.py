@@ -130,3 +130,83 @@ def test_telnyx_api_endpoints_end_to_end():
     sms_data = sms_res.json()
     assert sms_data["status"] == "delivered"
     assert sms_data["from_number"] == test_number
+
+
+def test_telnyx_notifier_dispatcher():
+    """Verify TelnyxSmsDispatcher integrates with notification pipeline."""
+    from api.app.services.notifier import TelnyxSmsDispatcher
+
+    dispatcher = TelnyxSmsDispatcher(api_key="")
+    success = dispatcher.send(
+        to_phone="+18005550199",
+        body="Emergency alert: water shutoff requested at 123 Main St.",
+    )
+    assert success is True
+
+
+def test_telnyx_inbound_webhook_crm_and_opt_out():
+    """Verify inbound SMS creates CRM contact/timeline and handles TCPA STOP opt-out."""
+    # 1. Login as Admin
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": settings.PLATFORM_ADMIN_EMAIL,
+            "password": settings.PLATFORM_ADMIN_PASSWORD,
+        },
+    )
+    token = admin_login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 2. Order a test number assigned to Apex Plumbing
+    tenant_res = client.get("/api/v1/admin/tenants", headers=headers)
+    apex_tenant_id = tenant_res.json()[0]["id"]
+
+    assigned_did = f"+1415555{uuid.uuid4().hex[:4]}"
+    client.post(
+        "/api/v1/numbers/carrier/telnyx/order",
+        json={
+            "phone_number": assigned_did,
+            "tenant_id": apex_tenant_id,
+            "label": "Apex Test Line",
+        },
+        headers=headers,
+    )
+
+    # 3. Simulate Inbound Customer SMS
+    customer_phone = f"+1415333{uuid.uuid4().hex[:4]}"
+    webhook_payload = {
+        "data": {
+            "event_type": "message.received",
+            "payload": {
+                "from": {"phone_number": customer_phone},
+                "to": [{"phone_number": assigned_did}],
+                "text": "Hello, I need an emergency pipe repair quote.",
+            },
+        }
+    }
+
+    inbound_res = client.post(
+        "/api/v1/numbers/carrier/telnyx/webhook",
+        json=webhook_payload,
+    )
+    assert inbound_res.status_code == 200
+    assert inbound_res.json()["action"] == "timeline_event_created"
+
+    # 4. Simulate TCPA STOP Opt-Out
+    opt_out_payload = {
+        "data": {
+            "event_type": "message.received",
+            "payload": {
+                "from": {"phone_number": customer_phone},
+                "to": [{"phone_number": assigned_did}],
+                "text": "STOP",
+            },
+        }
+    }
+
+    opt_out_res = client.post(
+        "/api/v1/numbers/carrier/telnyx/webhook",
+        json=opt_out_payload,
+    )
+    assert opt_out_res.status_code == 200
+    assert opt_out_res.json()["action"] == "opt_out_recorded"

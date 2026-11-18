@@ -1,10 +1,12 @@
 """Phone Number Inventory, Carrier Provisioning, and SIP Trunk Binding endpoints."""
 
+import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -12,6 +14,8 @@ from sqlalchemy.orm import Session
 from api.app.core.config import settings
 from api.app.core.deps import get_current_user
 from api.app.db.session import get_db
+from api.app.models.crm import Contact, ContactTimelineEvent
+from api.app.models.outbound import SuppressionRecord
 from api.app.models.tenant import PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.services.telnyx import (
@@ -19,6 +23,8 @@ from api.app.services.telnyx import (
     TelnyxSMSResult,
     telnyx_service,
 )
+
+logger = logging.getLogger("vedavoice.numbers")
 
 router = APIRouter(prefix="/numbers", tags=["numbers"])
 
@@ -659,3 +665,122 @@ async def send_telnyx_sms(
         to_number=req.to_number,
         text=req.text,
     )
+
+
+@router.post("/carrier/telnyx/webhook")
+async def handle_telnyx_inbound_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Handle incoming SMS messages, TCPA opt-outs, and delivery receipts from Telnyx."""
+    body_bytes = await request.body()
+    sig = request.headers.get("telnyx-signature-ed25519", "")
+    ts = request.headers.get("telnyx-timestamp", "")
+
+    # Signature verification
+    if not telnyx_service.verify_webhook_signature(body_bytes, sig, ts):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Telnyx webhook signature",
+        )
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8"))
+    except Exception:
+        return {"status": "ignored", "reason": "invalid_json"}
+
+    data = payload.get("data", {})
+    event_type = data.get("event_type", "")
+
+    if event_type == "message.received":
+        msg_payload = data.get("payload", {})
+        from_phone = msg_payload.get("from", {}).get("phone_number", "")
+        to_phone = msg_payload.get("to", [{}])[0].get("phone_number", "")
+        text = msg_payload.get("text", "").strip()
+
+        # Resolve which tenant owns the 'to' phone number
+        phone_record = db.scalar(select(PhoneNumber).where(PhoneNumber.e164 == to_phone))
+        if not phone_record or not phone_record.tenant_id:
+            logger.info("Inbound Telnyx SMS to unassigned/pool number %s: %s", to_phone, text)
+            return {"status": "ok", "action": "unassigned_number"}
+
+        tenant_id = phone_record.tenant_id
+
+        # TCPA Opt-out detection (STOP / UNSUBSCRIBE)
+        if text.upper() in ("STOP", "UNSUBSCRIBE", "CANCEL", "QUIT", "END"):
+            existing_suppression = db.scalar(
+                select(SuppressionRecord).where(
+                    SuppressionRecord.tenant_id == tenant_id,
+                    SuppressionRecord.phone_number == from_phone,
+                )
+            )
+            if not existing_suppression:
+                supp = SuppressionRecord(
+                    id=str(uuid.uuid4()),
+                    tenant_id=tenant_id,
+                    phone_number=from_phone,
+                    reason="opt_out",
+                    notes="Automated inbound SMS opt-out (STOP)",
+                )
+                db.add(supp)
+
+            contact = db.scalar(
+                select(Contact).where(
+                    Contact.tenant_id == tenant_id,
+                    Contact.phone == from_phone,
+                )
+            )
+            if contact:
+                contact.is_callable = False
+
+            db.commit()
+
+            # Auto-reply opt-out confirmation
+            try:
+                await telnyx_service.send_sms(
+                    from_number=to_phone,
+                    to_number=from_phone,
+                    text="You have been unsubscribed and will receive no further messages. Reply START to resubscribe.",
+                )
+            except Exception as e:
+                logger.error("Failed to send opt-out auto-reply: %s", e)
+
+            return {"status": "ok", "action": "opt_out_recorded"}
+
+        # Normal Customer SMS -> Log in Native CRM
+        contact = db.scalar(
+            select(Contact).where(
+                Contact.tenant_id == tenant_id,
+                Contact.phone == from_phone,
+            )
+        )
+        if not contact:
+            contact = Contact(
+                id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                name="SMS Inbound Contact",
+                phone=from_phone,
+                source="sms_inbound",
+                stage="new_lead",
+                notes=f"Initial SMS: {text}",
+            )
+            db.add(contact)
+            db.flush()
+
+        # Append to Contact Activity Timeline
+        timeline_event = ContactTimelineEvent(
+            id=str(uuid.uuid4()),
+            tenant_id=tenant_id,
+            contact_id=contact.id,
+            event_type="sms_received",
+            title="Inbound Customer SMS",
+            description=text,
+            payload={"direction": "inbound", "from": from_phone, "to": to_phone, "text": text},
+        )
+        db.add(timeline_event)
+        contact.last_contact_at = datetime.now(UTC)
+        db.commit()
+
+        return {"status": "ok", "action": "timeline_event_created", "contact_id": contact.id}
+
+    return {"status": "ok", "event_type": event_type}
