@@ -1126,7 +1126,9 @@ app.include_router(locations_router, prefix="/api/v1")
 app.include_router(locations_router)
 
 
+@app.get("/", tags=["system"])
 @app.get("/health", tags=["system"])
+@app.get("/api/health", tags=["system"])
 async def health_check() -> JSONResponse:
     """System health check endpoint."""
     return JSONResponse(
