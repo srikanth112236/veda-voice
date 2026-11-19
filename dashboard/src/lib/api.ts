@@ -1190,13 +1190,14 @@ export const api = {
       method: "POST",
     }),
 
-  bargeInCall: (callId: string) =>
+  bargeInCall: (callId: string, active?: boolean) =>
     request<{
       status: string;
       action: string;
       data: any;
     }>(`/api/v1/portal/calls/${callId}/barge-in`, {
       method: "POST",
+      body: JSON.stringify(active !== undefined ? { active } : {}),
     }),
 
   takeoverCall: (callId: string) =>

@@ -119,14 +119,16 @@ def handle_supervisor_action(
         return {"status": "success", "action": "whisper", "data": event}
 
     elif norm_action == "barge_in":
-        call.barge_in_active = True
+        desired_state = payload.get("active") if "active" in payload else (not call.barge_in_active)
+        call.barge_in_active = bool(desired_state)
         db.commit()
 
         event = {
-            "event": "barge_in_activated",
+            "event": "barge_in_activated" if call.barge_in_active else "barge_in_deactivated",
             "call_id": call.call_id,
             "supervisor_id": user.id,
             "supervisor_email": user.email,
+            "barge_in_active": call.barge_in_active,
             "timestamp": now.isoformat(),
         }
         return {"status": "success", "action": "barge_in", "data": event}

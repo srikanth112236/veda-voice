@@ -275,7 +275,7 @@ def create_test_call_session(
     """Generate a browser WebRTC test session token and room to audition the LiveKit voice agent."""
     session_id = uuid.uuid4().hex[:8]
     room_name = f"in-portal-{session_id}"
-    call_id = f"test-web-{session_id}"
+    call_id = room_name
 
     lk_url: str = str(
         os.getenv("LIVEKIT_URL")
@@ -717,7 +717,7 @@ async def get_live_active_calls(
 ) -> list[LiveActiveCallItem]:
     """Retrieve currently active/in-progress calls for tenant real-time supervisor monitoring."""
     now = datetime.now(UTC)
-    active_cutoff = now - timedelta(minutes=5)
+    active_cutoff = now - timedelta(minutes=60)
 
     # 1. Fetch live active rooms from LiveKit Cloud if credentials exist (and not in pytest env)
     is_test_env = bool(os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"))
@@ -926,10 +926,8 @@ async def get_supervision_token(
     livekit_url = settings.LIVEKIT_URL or os.getenv(
         "LIVEKIT_URL", "wss://steyzi-xvk89l73.livekit.cloud"
     )
-    api_key = settings.LIVEKIT_API_KEY or os.getenv("LIVEKIT_API_KEY", "APIUJck6jdupFvT")
-    api_secret = settings.LIVEKIT_API_SECRET or os.getenv(
-        "LIVEKIT_API_SECRET", "JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA"
-    )
+    api_key = os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", "")
+    api_secret = os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", "")
 
     try:
         from livekit import api as lk_api
@@ -968,11 +966,12 @@ async def get_supervision_token(
 @router.post("/calls/{call_id}/barge-in")
 async def barge_in_call(
     call_id: str,
+    req: dict[str, Any] | None = None,
     current_user: User = Depends(get_current_user),
     tenant: Tenant = Depends(get_current_tenant),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """Enable supervisor live audio barge-in into an active call session."""
+    """Enable or toggle supervisor live audio barge-in into an active call session."""
     call = db.scalar(
         select(Call).where(
             (Call.id == call_id) | (Call.call_id == call_id),
@@ -986,7 +985,7 @@ async def barge_in_call(
         db=db,
         call=call,
         action="barge_in",
-        payload={},
+        payload=req or {},
         user=current_user,
     )
     await supervisor_manager.broadcast_call_event(call.call_id, result["data"])

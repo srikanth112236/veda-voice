@@ -25,6 +25,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:8000",
         "http://localhost:8001",
         "http://127.0.0.1:8001",
+        "https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io",
+        "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io",
     ]
 
     # Database: Default to local SQLite file for standalone local dev when PostgreSQL is unavailable

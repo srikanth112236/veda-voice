@@ -158,6 +158,18 @@ export default function CallsPage() {
   const [copiedDetails, setCopiedDetails] = useState(false);
   const [markedFollowedUp, setMarkedFollowedUp] = useState<Record<string, boolean>>({});
 
+  const fetchHistoricalCalls = () => {
+    api
+      .getPortalCalls({
+        urgency: filterUrgency || undefined,
+        outcome: filterOutcome || undefined,
+        limit: 100,
+      })
+      .then((data) => setCalls(data || []))
+      .catch((err) => console.error("Failed to load calls:", err))
+      .finally(() => setLoading(false));
+  };
+
   const fetchLiveCalls = () => {
     api
       .getLiveActiveCalls()
@@ -165,12 +177,17 @@ export default function CallsPage() {
       .catch((err) => console.error("Failed to load active calls:", err));
   };
 
-  // Poll for active calls every 4 seconds
+  // Poll for active calls every 4s and historical calls every 8s
   useEffect(() => {
     fetchLiveCalls();
-    const interval = setInterval(fetchLiveCalls, 4000);
-    return () => clearInterval(interval);
-  }, []);
+    fetchHistoricalCalls();
+    const liveInterval = setInterval(fetchLiveCalls, 4000);
+    const histInterval = setInterval(fetchHistoricalCalls, 8000);
+    return () => {
+      clearInterval(liveInterval);
+      clearInterval(histInterval);
+    };
+  }, [filterUrgency, filterOutcome]);
 
   // LiveKit WebRTC Audio Stream & WebSocket Supervision Event Bridge
   useEffect(() => {
@@ -308,12 +325,12 @@ export default function CallsPage() {
     setActionInProgress("barge_in");
     try {
       // Toggle browser microphone directly into LiveKit Room so both caller and agent hear supervisor
+      const nextMicState = !isBargeMicActive;
       if (livekitRoomRef.current) {
-        const nextMicState = !isBargeMicActive;
         await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(nextMicState);
-        setIsBargeMicActive(nextMicState);
       }
-      await api.bargeInCall(callId);
+      setIsBargeMicActive(nextMicState);
+      await api.bargeInCall(callId, nextMicState);
       fetchLiveCalls();
     } catch (err: any) {
       alert("Failed to toggle barge-in microphone: " + (err.message || err));
@@ -360,6 +377,7 @@ export default function CallsPage() {
       }
       await api.endCall(callId);
       fetchLiveCalls();
+      fetchHistoricalCalls();
     } catch (err: any) {
       alert("Failed to end call: " + (err.message || err));
     } finally {
@@ -458,18 +476,7 @@ export default function CallsPage() {
     }
   };
 
-  useEffect(() => {
-    setLoading(true);
-    api
-      .getPortalCalls({
-        urgency: filterUrgency || undefined,
-        outcome: filterOutcome || undefined,
-        limit: 100,
-      })
-      .then((res) => setCalls(res))
-      .catch((err) => console.error("Failed to load calls:", err))
-      .finally(() => setLoading(false));
-  }, [filterUrgency, filterOutcome]);
+
 
   // LiveKit Web Voice Test Call State
   const [testSessionModal, setTestSessionModal] = useState<TestCallSessionResponse | null>(null);
