@@ -112,7 +112,17 @@ export default function CallsPage() {
   const fetchLiveCalls = () => {
     api
       .getLiveActiveCalls()
-      .then((data) => setLiveCalls(data || []))
+      .then((data) => {
+        const raw = data || [];
+        // Deduplicate live calls by call_id or id so duplicate cards never render
+        const unique = raw.filter(
+          (c, idx, arr) =>
+            arr.findIndex(
+              (x) => (x.call_id && c.call_id && x.call_id === c.call_id) || x.id === c.id
+            ) === idx
+        );
+        setLiveCalls(unique);
+      })
       .catch((err) => console.error("Failed to load active calls:", err));
   };
 

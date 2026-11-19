@@ -787,8 +787,13 @@ async def get_live_active_calls(
                     existing_call_ids.add(r.name)
 
     items: list[LiveActiveCallItem] = []
+    seen_call_ids: set[str] = set()
     updated_stale = False
     for c in calls:
+        if c.call_id in seen_call_ids:
+            continue
+        seen_call_ids.add(c.call_id)
+
         started = c.started_at
         if started.tzinfo is None:
             started = started.replace(tzinfo=UTC)

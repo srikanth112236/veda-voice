@@ -662,32 +662,51 @@ def start_call(payload: CallStartRequest, db: Session = Depends(get_db)) -> Any:
             max_global_concurrency=global_cap,
         )
 
-    # 3. Register In-Progress Call Record Atomically
+    # 3. Register or Update In-Progress Call Record Atomically
     config = _build_tenant_config(
         tenant, payload.call_id, max_duration_s=max_duration_seconds, db=db
     )
-    in_progress_call = Call(
-        tenant_id=tenant.id,
-        location_id=config.location_id if config and config.location_id else None,
-        call_id=payload.call_id,
-        caller_number=payload.caller_number,
-        dialed_number=payload.dialed_number,
-        direction=direction,
-        started_at=datetime.now(UTC),
-        ended_at=None,
-        duration_s=0.0,
-        outcome="in_progress",
-        urgency="normal",
-        turn_count=0,
-        latency_p50_ms=0.0,
-        latency_p95_ms=0.0,
-        turn_latencies_ms=[],
-        transcript=[],
-        message=None,
-        tags=["in_progress", direction],
+    existing_call = db.scalar(
+        select(Call).where(
+            Call.tenant_id == tenant.id,
+            Call.call_id == payload.call_id,
+            Call.ended_at.is_(None),
+        )
     )
-    db.add(in_progress_call)
-    db.commit()
+    if existing_call:
+        if payload.caller_number and existing_call.caller_number in (
+            "LiveKit Console Caller",
+            "WebRTC Browser Caller",
+            "",
+        ):
+            existing_call.caller_number = payload.caller_number
+        if payload.dialed_number and not existing_call.dialed_number:
+            existing_call.dialed_number = payload.dialed_number
+        existing_call.outcome = "in_progress"
+        db.commit()
+    else:
+        in_progress_call = Call(
+            tenant_id=tenant.id,
+            location_id=config.location_id if config and config.location_id else None,
+            call_id=payload.call_id,
+            caller_number=payload.caller_number,
+            dialed_number=payload.dialed_number,
+            direction=direction,
+            started_at=datetime.now(UTC),
+            ended_at=None,
+            duration_s=0.0,
+            outcome="in_progress",
+            urgency="normal",
+            turn_count=0,
+            latency_p50_ms=0.0,
+            latency_p95_ms=0.0,
+            turn_latencies_ms=[],
+            transcript=[],
+            message=None,
+            tags=["in_progress", direction],
+        )
+        db.add(in_progress_call)
+        db.commit()
 
     return CallStartResponse(
         allow=True,
