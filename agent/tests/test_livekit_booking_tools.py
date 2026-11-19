@@ -51,15 +51,16 @@ async def test_create_booking_tools_and_full_lifecycle() -> None:
             }
         )
 
-        # 1. Factory creates 4 function tools
+        # 1. Factory creates function tools (including send_booking_link_tool)
         tools = create_booking_tools(call_token=call_token)
-        assert len(tools) == 4
+        assert len(tools) >= 4
 
         tool_map = {t.__name__: t for t in tools}
         assert "check_availability_tool" in tool_map
         assert "hold_slot_tool" in tool_map
         assert "book_appointment_tool" in tool_map
         assert "cancel_appointment_tool" in tool_map
+        assert "send_booking_link_tool" in tool_map
 
         # 2. Check availability for a future Wednesday
         target_date = "2026-11-25"
@@ -218,4 +219,4 @@ def test_tenant_configs_have_booking_enabled() -> None:
     assert "booking" in cfg.tools_enabled
 
     prompt = build_system_prompt(cfg)
-    assert "CALENDAR SCHEDULING (TOOLS: check_availability, hold_slot, book_appointment)" in prompt
+    assert "CALENDAR SCHEDULING (TOOLS: check_availability, hold_slot, book_appointment" in prompt

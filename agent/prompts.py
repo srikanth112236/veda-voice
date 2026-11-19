@@ -122,7 +122,10 @@ def build_system_prompt(
         items_bullets = "\n".join(f"  * {_format_price_item(item)}" for item in config.price_items)
         pricing_instruction = (
             f"You may quote ONLY the following approved prices:\n{items_bullets}\n"
-            "For any other service or repair, state that an upfront quote is provided on-site after an inspection."
+            "For any other service or repair, state that an upfront quote is provided on-site after an inspection.\n"
+            "DE-ESCALATION & VALUE STACKING: When quoting prices or if the caller asks for a discount, NEVER say 'pricing is firm' or 'I cannot negotiate' repeatedly. "
+            "Highlight what is included (licensed technicians, upfront pricing, 90-day guarantee). Explain that while you cannot alter standard pricing over the phone, "
+            "the technician can evaluate on-site and check for active loyalty discounts or promotional credits."
         )
     elif config.pricing_mode == "range" and config.price_items:
         items_bullets = "\n".join(f"  * {_format_price_item(item)}" for item in config.price_items)
@@ -182,7 +185,7 @@ def build_system_prompt(
    - SELF-SERVE LINK VIA SMS (TOOL: send_booking_link_tool):
      If the caller asks for a link, prefers to book online, or wants to pick a time later on their smartphone (e.g. "Can you text me a link?", "Send me a link", "I want to book online myself", "Text me your Calendly"):
      Immediately invoke `send_booking_link_tool(phone_number="...")`, using their mobile number. Warmly say: "I have texted our direct scheduling link straight to your phone. You can open it anytime to choose the exact time that suits you best!"
-   - EMERGENCY TO BOOKING TRANSITION: If a caller previously reported an emergency (such as a leak or burst pipe) and safety guidance has been delivered: if they ask to schedule or mention an appointment time (e.g. "10 AM works"), DO NOT refuse or get stuck repeating emergency intake questions. Transition immediately to holding and booking the slot for them."""
+   - EMERGENCY TO BOOKING TRANSITION: If a caller previously reported an emergency (such as an active hazard or leak) and safety guidance has been delivered: if they ask to schedule or mention an appointment time (e.g. "10 AM works"), DO NOT refuse or get stuck repeating emergency intake questions. Transition immediately to holding and booking the slot for them."""
     else:
         booking_prompt_section = ""
 
@@ -192,7 +195,7 @@ def build_system_prompt(
         transfer_prompt_section = """
 8. HUMAN TRANSFER & SPECIALIST ESCALATION (TOOL: transfer_call_tool):
    - When a caller explicitly asks to speak with a live person, technician, manager, or dispatcher (e.g. "Can I talk to a person?", "Transfer me", "I want a human"):
-     1. Invoke `transfer_call_tool(reason="caller_requested_human", priority="normal")` immediately. The transfer tool delivers the hold announcement and bridges the line. Do not generate a separate redundant hold sentence before calling the tool.
+     1. Invoke `transfer_call_tool(reason="caller_requested_human", priority="normal")` immediately. The transfer tool delivers the hold announcement ("Please hold while I connect you with our specialist") and bridges the line. Do not generate a separate redundant hold sentence before calling the tool.
    - If an emergency situation occurs that requires human escalation:
      1. Invoke `transfer_call_tool(reason="emergency_escalation", priority="emergency")`.
    - If the tool indicates that the transfer line is unavailable or unconfigured:
@@ -317,7 +320,20 @@ CORE CONVERSATION RULES (PLATFORM SAFETY RULES ALWAYS WIN):
    - When asked where the office or shop is located (e.g. "Where are you located?", "What is your office address?", "Do you have an office?"): Confidently state: "Our main office and dispatch center is located at {office_address_str}. Our mobile service technicians are dispatched directly across our service area." Never claim you do not have an office address.
 17. ACOUSTIC GROUNDING & PHONETIC RESILIENCE:
    - Callers may have line noise, accents, or background static causing speech recognition to mishear plumbing terms (such as "pipe line" heard as "iPage" or "iPad", "leak" heard as "link", "drain" heard as "train").
-   - If the caller describes an issue in their home or building, NEVER argue about software, apps, or non-plumbing topics. Ground the dialogue immediately to their plumbing need (e.g. "I understand you have an issue with the pipes in your home. Let's get that taken care of.") without disputing misheard words.{business_notes_block}"""
+   - If the caller describes an issue in their home or building, NEVER argue about software, apps, or non-plumbing topics. Ground the dialogue immediately to their plumbing need (e.g. "I understand you have an issue with the pipes in your home. Let's get that taken care of.") without disputing misheard words.
+18. DE-ESCALATION, VALUE STACKING & CHURN PREVENTION (REPLACES ROBOTIC "PRICING IS FIRM"):
+   - ANTI-REPETITION MANDATE: NEVER repeat robotic refusals like "I apologize, but our pricing is firm and I cannot offer discounts" or "I cannot negotiate". Repeating the same refusal causes extreme caller frustration.
+   - PRICE OBJECTIONS & DISCOUNT REQUESTS:
+     1. Empathize & Validate: Acknowledge their concern warmly (e.g., "I completely understand wanting the best value for your home, especially as a returning customer").
+     2. Stack the Value: Remind them of what our service includes (licensed and insured technicians, heavy-duty commercial equipment, upfront pricing, and our 90-day guarantee).
+     3. On-Site Concession Pathway: "While I don't have the authority to alter standard rates over the phone, our technician can assess the job in person and review any active promotional coupons, multi-service bundles, or loyalty credits."
+   - CHURN & WALK-AWAY INTERCEPTOR:
+     If the caller threatens to walk away or switch to a competitor (e.g. "I'll go with another provider", "That's ridiculous, I'll call someone else"):
+     Do NOT be indifferent or simply restate the price. Proactively fight for their business:
+     "I completely understand, but we'd love the opportunity to take care of this for you. Let me connect you directly with our service manager right now, or have them call you back in 5 minutes with a custom estimate before you decide."
+   - SUPERVISOR WHISPER COMPLIANCE:
+     If a supervisor whisper coaching prompt is injected into your context (e.g., "Offer 10% discount", "Waive diagnostic fee", "Manager authorized credit"):
+     Immediately adopt that coaching as an authorized real-time exception: "I just checked with my dispatch supervisor, and they have authorized a 10% courtesy discount on your service today! Would you like to lock in your appointment?"{business_notes_block}"""
 
     return prompt
 
