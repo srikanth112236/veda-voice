@@ -345,6 +345,7 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("conversation_item_added")
     def on_conversation_item_added(event: ConversationItemAddedEvent) -> None:
         """Record transcript entry and broadcast live turn to supervisors in real time."""
+        nonlocal call_outcome
         item = event.item
         if isinstance(item, ChatMessage):
             text_str = item.text_content or ""
@@ -405,6 +406,32 @@ async def entrypoint(ctx: JobContext) -> None:
                         logger.debug("Turn API broadcast notice: %s", s_err)
 
                 asyncio.create_task(_sync_turn_to_api(item.role, text_str, entry_time))
+
+            # Auto-disconnect watchdog: when assistant delivers goodbye, cleanly terminate room after TTS finishes
+            if item.role in ("assistant", "agent"):
+                low_text = text_str.lower()
+                goodbye_triggers = (
+                    "goodbye",
+                    "good-bye",
+                    "have a great day",
+                    "have a wonderful day",
+                    "bye now",
+                )
+                if any(trigger in low_text for trigger in goodbye_triggers):
+                    if call_outcome not in ("spam", "transferred"):
+                        call_outcome = "completed"
+                    logger.info(
+                        "Assistant delivered goodbye closing phrase; scheduling graceful room disconnect in 2.5s"
+                    )
+
+                    async def _delayed_goodbye_disconnect() -> None:
+                        await asyncio.sleep(2.5)
+                        try:
+                            await ctx.room.disconnect()
+                        except Exception as disc_err:
+                            logger.debug("Delayed goodbye disconnect notice: %s", disc_err)
+
+                    asyncio.create_task(_delayed_goodbye_disconnect())
 
             # Scan for emergency keywords or spam in text
             low = text_str.lower()
@@ -611,7 +638,7 @@ async def entrypoint(ctx: JobContext) -> None:
         )
 
     @function_tool(
-        description="End the phone call cleanly when conversation is complete, caller says goodbye, or caller asks to hang up."
+        description="Mandatory tool to cleanly disconnect and terminate the phone call when conversation is finished, caller says goodbye, or caller says that is all they need."
     )
     async def end_call_tool(
         reason: Annotated[
@@ -621,13 +648,15 @@ async def entrypoint(ctx: JobContext) -> None:
         nonlocal call_outcome
         logger.info("end_call tool invoked: reason=%s", reason)
         call_outcome = reason
-        try:
-            await session.say(
-                f"Thank you for calling {config.business}. Goodbye!", allow_interruptions=False
-            )
-        except Exception:
-            pass
-        await ctx.room.disconnect()
+
+        async def _graceful_tool_disconnect() -> None:
+            await asyncio.sleep(2.0)
+            try:
+                await ctx.room.disconnect()
+            except Exception:
+                pass
+
+        asyncio.create_task(_graceful_tool_disconnect())
         return f"Call ended cleanly: {reason}"
 
     # Tools enabled per tenant config
