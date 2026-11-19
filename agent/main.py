@@ -344,17 +344,68 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session.on("conversation_item_added")
     def on_conversation_item_added(event: ConversationItemAddedEvent) -> None:
-        """Record transcript entry and tags."""
+        """Record transcript entry and broadcast live turn to supervisors in real time."""
         item = event.item
         if isinstance(item, ChatMessage):
             text_str = item.text_content or ""
+            entry_time = datetime.now(UTC).isoformat()
             transcript_log.append(
                 TranscriptEntry(
                     role=item.role,
                     text=text_str,
-                    time=datetime.now(UTC).isoformat(),
+                    time=entry_time,
                 )
             )
+
+            # 1. Publish real-time turn packet over LiveKit room data channel
+            try:
+                data_packet = json.dumps(
+                    {
+                        "type": "transcript_turn",
+                        "call_id": room_name,
+                        "role": item.role,
+                        "text": text_str,
+                        "time": entry_time,
+                    }
+                ).encode("utf-8")
+                asyncio.create_task(
+                    ctx.room.local_participant.publish_data(data_packet, reliable=True)
+                )
+            except Exception as d_err:
+                logger.debug("LiveKit data channel publish notice: %s", d_err)
+
+            # 2. Asynchronously notify control plane API for database sync and WebSocket streaming
+            canonical_call_id = sip_info.get("call_id") or room_name
+            api_base = getattr(default_api_client, "base_url", None)
+            if api_base:
+
+                async def _sync_turn_to_api(t_role: str, t_text: str, t_time: str) -> None:
+                    try:
+                        import urllib.request
+
+                        turn_body = json.dumps(
+                            {
+                                "call_id": canonical_call_id,
+                                "role": t_role,
+                                "text": t_text,
+                                "time": t_time,
+                            }
+                        ).encode("utf-8")
+                        req = urllib.request.Request(
+                            f"{api_base}/api/v1/internal/calls/{canonical_call_id}/turn",
+                            data=turn_body,
+                            headers={
+                                "Content-Type": "application/json",
+                                "Accept": "application/json",
+                            },
+                            method="POST",
+                        )
+                        urllib.request.urlopen(req, timeout=1.5)
+                    except Exception as s_err:
+                        logger.debug("Turn API broadcast notice: %s", s_err)
+
+                asyncio.create_task(_sync_turn_to_api(item.role, text_str, entry_time))
+
             # Scan for emergency keywords or spam in text
             low = text_str.lower()
             for kw in config.emergency.keywords:

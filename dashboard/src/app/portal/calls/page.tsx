@@ -65,6 +65,7 @@ export default function CallsPage() {
   const [liveCalls, setLiveCalls] = useState<LiveActiveCallItem[]>([]);
   const [supervisingCall, setSupervisingCall] = useState<LiveActiveCallItem | null>(null);
   const [wsLiveEvents, setWsLiveEvents] = useState<any[]>([]);
+  const [liveDialogue, setLiveDialogue] = useState<{ role: string; text: string; time?: string }[]>([]);
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
   const wsRef = useRef<WebSocket | null>(null);
   const livekitRoomRef = useRef<Room | null>(null);
@@ -148,6 +149,7 @@ export default function CallsPage() {
       audioElementsRef.current = [];
       setWsStatus("disconnected");
       setWsLiveEvents([]);
+      setLiveDialogue([]);
       setIsBargeMicActive(false);
       setWebrtcAudioActive(false);
       return;
@@ -166,7 +168,9 @@ export default function CallsPage() {
       if (track.kind === Track.Kind.Audio) {
         const audioElement = track.attach();
         audioElement.volume = 1.0;
+        document.body.appendChild(audioElement);
         audioElementsRef.current.push(audioElement);
+        audioElement.play().catch(() => {});
         if (isMounted) setWebrtcAudioActive(true);
       }
     });
@@ -177,6 +181,22 @@ export default function CallsPage() {
           el.remove();
         } catch {}
       });
+    });
+
+    // Real-time spoken dialogue data packets over LiveKit WebRTC data channel
+    room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+      try {
+        const decoded = JSON.parse(new TextDecoder().decode(payload));
+        if (decoded.type === "transcript_turn") {
+          setLiveDialogue((prev) => {
+            const exists = prev.some((t) => t.text === decoded.text && t.role === decoded.role);
+            if (!exists) {
+              return [...prev, { role: decoded.role, text: decoded.text, time: decoded.time || new Date().toISOString() }];
+            }
+            return prev;
+          });
+        }
+      } catch {}
     });
 
     room.on(RoomEvent.Disconnected, () => {
@@ -193,7 +213,20 @@ export default function CallsPage() {
         return room.connect(res.livekit_url, res.token);
       })
       .then(() => {
-        if (isMounted) setWebrtcAudioActive(true);
+        if (!isMounted) return;
+        setWebrtcAudioActive(true);
+        // Play any tracks already published in the room
+        room.remoteParticipants.forEach((p) => {
+          p.trackPublications.forEach((pub) => {
+            if (pub.track && pub.track.kind === Track.Kind.Audio) {
+              const audioElement = pub.track.attach();
+              audioElement.volume = 1.0;
+              document.body.appendChild(audioElement);
+              audioElementsRef.current.push(audioElement);
+              audioElement.play().catch(() => {});
+            }
+          });
+        });
       })
       .catch((err) => {
         console.warn("LiveKit WebRTC supervision stream notice:", err);
@@ -222,11 +255,27 @@ export default function CallsPage() {
       try {
         const payload = JSON.parse(event.data);
         setWsLiveEvents((prev) => [...prev, payload]);
+
+        // Real-time dialogue turns from API
+        if (payload.event === "call_turn" && payload.turn) {
+          setLiveDialogue((prev) => {
+            const exists = prev.some((t) => t.text === payload.turn.text && t.role === payload.turn.role);
+            if (!exists) {
+              return [...prev, payload.turn];
+            }
+            return prev;
+          });
+        }
+        if (payload.event === "call_snapshot" && payload.transcript && payload.transcript.length > 0) {
+          setLiveDialogue((prev) => (prev.length === 0 ? payload.transcript : prev));
+        }
+
         if (
           payload.event === "whisper_dispatched" ||
           payload.event === "barge_in_activated" ||
           payload.event === "takeover_activated" ||
-          payload.event === "call_transferred"
+          payload.event === "call_transferred" ||
+          payload.event === "call_turn"
         ) {
           fetchLiveCalls();
         }
@@ -1875,54 +1924,77 @@ export default function CallsPage() {
                 </div>
               )}
 
-              {/* Live Events Stream */}
+              {/* Live Spoken Dialogue Stream */}
               <div className="space-y-2">
-                <h4 className="text-[11px] font-bold text-zinc-700 uppercase font-mono tracking-wider">
-                  Live Event Stream ({wsLiveEvents.length} events received)
-                </h4>
-                {wsLiveEvents.length === 0 ? (
-                  <div className="p-4 text-center text-xs text-zinc-400 font-mono">
-                    Waiting for call turn frames...
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-bold text-zinc-700 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                    Live Spoken Dialogue ({liveDialogue.length} Turns)
+                  </h4>
+                  <span className="text-[10px] text-zinc-400 font-mono">Real-Time WebRTC Data Stream</span>
+                </div>
+
+                {liveDialogue.length === 0 ? (
+                  <div className="p-6 rounded-xl border border-dashed border-zinc-200 bg-white text-center space-y-2">
+                    <Headphones className="w-6 h-6 text-emerald-500 mx-auto animate-pulse" />
+                    <div className="font-semibold text-xs text-zinc-800">Listening to Live Call Audio...</div>
+                    <p className="text-[11px] text-zinc-400 max-w-sm mx-auto">
+                      Dialogue turns from the caller and AI receptionist will stream here in real time as they speak.
+                    </p>
                   </div>
                 ) : (
-                  wsLiveEvents.map((ev, i) => (
-                    <div
-                      key={i}
-                      className="p-3 rounded-xl bg-white border border-zinc-200 shadow-2xs font-mono text-xs space-y-1"
-                    >
-                      <div className="flex items-center justify-between text-[10px] text-zinc-500">
-                        <span className="font-bold text-zinc-800 uppercase">
-                          {ev.event || "event"}
-                        </span>
-                        <span>{ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : ""}</span>
-                      </div>
-                      {ev.whisper && (
-                        <p className="text-amber-800 font-sans text-xs bg-amber-50 p-2 rounded border border-amber-200">
-                          Coach Whisper: &ldquo;{ev.whisper.instruction}&rdquo; (by{" "}
-                          {ev.whisper.supervisor_email})
-                        </p>
-                      )}
-                      {ev.transfer_to && (
-                        <p className="text-emerald-800 font-sans text-xs bg-emerald-50 p-2 rounded border border-emerald-200">
-                          Transferred to: {ev.transfer_to} (Reason: {ev.reason})
-                        </p>
-                      )}
-                      {ev.transcript && Array.isArray(ev.transcript) && (
-                        <div className="space-y-1 text-zinc-700 font-sans text-xs">
-                          {ev.transcript.map((t: any, idx: number) => (
-                            <div key={idx} className="flex gap-2">
-                              <span className="font-bold font-mono text-[11px]">
-                                {t.role === "assistant" ? "AI:" : "Caller:"}
-                              </span>
-                              <span>{t.text}</span>
-                            </div>
-                          ))}
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {liveDialogue.map((turn, idx) => {
+                      const isAI = turn.role === "assistant" || turn.role === "agent";
+                      return (
+                        <div
+                          key={idx}
+                          className={`p-3 rounded-xl text-xs space-y-1 shadow-2xs ${
+                            isAI
+                              ? "bg-indigo-50/70 border border-indigo-100 text-zinc-900"
+                              : "bg-white border border-zinc-200 text-zinc-900"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between text-[10px] font-mono">
+                            <span className={`font-bold ${isAI ? "text-indigo-700" : "text-zinc-700"}`}>
+                              {isAI ? "🤖 AI Receptionist" : "👤 Caller"}
+                            </span>
+                            <span className="text-zinc-400">
+                              {turn.time ? new Date(turn.time).toLocaleTimeString() : ""}
+                            </span>
+                          </div>
+                          <p className="font-sans text-xs leading-relaxed text-zinc-800">{turn.text}</p>
                         </div>
-                      )}
-                    </div>
-                  ))
+                      );
+                    })}
+                  </div>
                 )}
               </div>
+
+              {/* Interventions & Whispers Audit */}
+              {wsLiveEvents.some((ev) => ev.whisper || ev.transfer_to) && (
+                <div className="space-y-2 pt-2 border-t border-zinc-100">
+                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase font-mono tracking-wider">
+                    Supervisor Actions &amp; Coaching
+                  </h4>
+                  {wsLiveEvents
+                    .filter((ev) => ev.whisper || ev.transfer_to)
+                    .map((ev, i) => (
+                      <div key={i} className="p-2.5 rounded-lg bg-white border border-zinc-200 text-xs font-mono space-y-1">
+                        {ev.whisper && (
+                          <p className="text-amber-800 font-sans text-xs bg-amber-50 p-2 rounded border border-amber-200">
+                            Coach Whisper: &ldquo;{ev.whisper.instruction}&rdquo; (by {ev.whisper.supervisor_email})
+                          </p>
+                        )}
+                        {ev.transfer_to && (
+                          <p className="text-emerald-800 font-sans text-xs bg-emerald-50 p-2 rounded border border-emerald-200">
+                            Transferred to: {ev.transfer_to} (Reason: {ev.reason})
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
 
             {/* Modal Footer: Silent Whisper Coaching Input */}

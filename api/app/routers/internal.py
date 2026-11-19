@@ -73,6 +73,13 @@ class CallStartRequest(BaseModel):
     direction: str = "inbound"  # "inbound" | "outbound"
 
 
+class CallTurnRequest(BaseModel):
+    call_id: str
+    role: str
+    text: str
+    time: str | None = None
+
+
 class CallStartResponse(BaseModel):
     allow: bool
     reason: str  # "approved", "tenant_concurrency_exceeded", "global_concurrency_exceeded", "tenant_suspended", "quota_exceeded"
@@ -357,6 +364,48 @@ def handle_call_transfer(
         "priority": payload.priority,
         "status": "transferred",
     }
+
+
+@router.post("/calls/{call_id}/turn")
+async def record_call_turn(
+    call_id: str,
+    payload: CallTurnRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Record an incremental conversation turn and broadcast live to supervisor sockets."""
+    turn_entry = {
+        "role": payload.role,
+        "text": payload.text,
+        "time": payload.time or datetime.now(UTC).isoformat(),
+    }
+    call = db.scalar(select(Call).where((Call.call_id == call_id) | (Call.id == call_id)))
+    turn_count = 1
+    if call:
+        current_transcript = list(call.transcript or [])
+        current_transcript.append(turn_entry)
+        call.transcript = current_transcript
+        call.turn_count = len(current_transcript)
+        turn_count = call.turn_count
+        db.commit()
+
+    # Broadcast to connected supervisor WebSockets
+    try:
+        from api.app.services.supervisor import supervisor_manager
+
+        await supervisor_manager.broadcast_call_event(
+            call_id,
+            {
+                "event": "call_turn",
+                "call_id": call_id,
+                "turn": turn_entry,
+                "turn_count": turn_count,
+                "transcript": call.transcript if call else [turn_entry],
+            },
+        )
+    except Exception as e:
+        logger.debug("Failed to broadcast supervisor turn event: %s", e)
+
+    return {"status": "ok", "call_id": call_id, "turn_count": turn_count}
 
 
 @router.post("/calls/start", response_model=CallStartResponse)
