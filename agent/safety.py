@@ -73,6 +73,7 @@ class SafetyMonitor:
         self.silence_prompts_sent = 0
         self.duration_warned = False
         self.is_agent_busy = False  # True when speaking, thinking, or executing tools
+        self.call_transferred = False  # True when call is bridged or on transfer hold
         self.ended = False
         self.end_reason: str | None = None
 
@@ -119,8 +120,8 @@ class SafetyMonitor:
                 )
             return "warned_duration"
 
-        # 2. Check silence only when agent is not busy
-        if not self.is_agent_busy:
+        # 2. Check silence only when agent is not busy and call is not transferred
+        if not self.is_agent_busy and not self.call_transferred:
             idle_seconds = current - self.last_activity_time
             if idle_seconds >= 30.0:
                 self.ended = True

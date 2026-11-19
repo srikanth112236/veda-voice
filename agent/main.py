@@ -613,6 +613,7 @@ async def entrypoint(ctx: JobContext) -> None:
             livekit_session=session,
             room=ctx.room,
             call_id=sip_info.get("call_id") or room_name,
+            safety_monitor=safety_monitor,
         )
         active_tools.append(transfer_tool)
 

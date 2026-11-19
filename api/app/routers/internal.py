@@ -469,23 +469,16 @@ def start_call(payload: CallStartRequest, db: Session = Depends(get_db)) -> Any:
         "queued",
     ]
 
-    # Stale call cutoff: telephony calls cannot exceed 5 minutes without completion
+    # Stale call cutoff: telephony calls cannot exceed 15 minutes (max call duration is 10 minutes)
     now_utc = datetime.now(UTC)
-    stale_cutoff = now_utc - timedelta(minutes=5)
+    stale_cutoff = now_utc - timedelta(minutes=15)
 
-    # Auto-reconcile stale / abandoned calls to free line concurrency instantly:
-    # 1. Any in-progress call with 0 turns older than 90 seconds
-    # 2. Any in-progress call older than 5 minutes
-    from sqlalchemy import and_, or_
-
+    # Auto-reconcile stale calls older than 15 minutes to free line concurrency
     stale_dead_stmt = select(Call).where(
         Call.tenant_id == tenant.id,
         Call.ended_at.is_(None),
         Call.outcome.not_in(terminal_outcomes),
-        or_(
-            Call.started_at < stale_cutoff,
-            and_(Call.turn_count == 0, Call.started_at < (now_utc - timedelta(seconds=90))),
-        ),
+        Call.started_at < stale_cutoff,
     )
     stale_calls = db.scalars(stale_dead_stmt).all()
     if stale_calls:

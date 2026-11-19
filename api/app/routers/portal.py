@@ -805,13 +805,14 @@ async def get_live_active_calls(
             updated_stale = True
             continue
 
-        # If call has 0 turns and has been waiting > 60 seconds, auto-mark abandoned
-        if (c.turn_count or 0) == 0 and elapsed > 60.0:
+        # Only mark abandoned if call has been waiting > 600s (max call duration).
+        # Note: Do NOT check turn_count == 0 here as turn_count in DB is only finalized on call completion.
+        if elapsed > 600.0:
             c.ended_at = now
             c.outcome = "abandoned"
             c_tags = list(c.tags or [])
-            if "stale_zero_turns" not in c_tags:
-                c_tags.append("stale_zero_turns")
+            if "stale_max_duration" not in c_tags:
+                c_tags.append("stale_max_duration")
             c.tags = c_tags
             updated_stale = True
             continue

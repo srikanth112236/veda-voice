@@ -23,6 +23,7 @@ def create_transfer_tool(
     livekit_session: Any = None,
     room: Any = None,
     call_id: str = "",
+    safety_monitor: Any = None,
 ) -> FunctionTool:
     """Create a LiveKit function tool that executes warm/cold transfer to a human specialist."""
 
@@ -39,6 +40,11 @@ def create_transfer_tool(
     ) -> str:
         """Call this function when the customer explicitly asks to speak to a person/technician, or an emergency demands human escalation."""
         target_number = config.transfer_number.strip() if config.transfer_number else ""
+
+        # Pause safety monitor silence prompts so caller is not badgered during hold
+        if safety_monitor:
+            safety_monitor.call_transferred = True
+            safety_monitor.set_agent_busy(True)
 
         # Fallback to message taking if no transfer number configured
         if not target_number:
@@ -93,7 +99,7 @@ def create_transfer_tool(
 
         return (
             f"Transfer initiated to specialist at {target_number}. "
-            f"Please hold while the line bridges."
+            f"The line is now on transfer hold. DO NOT speak or ask further questions; stay completely silent while the specialist connects."
         )
 
     return cast(FunctionTool, transfer_call_tool)
