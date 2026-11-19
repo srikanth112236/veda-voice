@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     # Google Calendar OAuth & Integrations
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/portal/calendar/callback"
+    GOOGLE_REDIRECT_URI: str = "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io/api/v1/portal/calendar/callback"
     ENCRYPTION_SECRET: str = "envelope-secret-key-vedavoice-32bytes-min!"
 
     # HubSpot OAuth 2.0 App

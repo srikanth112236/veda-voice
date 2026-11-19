@@ -96,6 +96,7 @@ def get_calendar_status(
 
 @router.get("/connect")
 def initiate_google_oauth(
+    request: Request,
     tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Generate Google OAuth 2.0 consent URL for calendar authorization."""
@@ -107,6 +108,9 @@ def initiate_google_oauth(
     )
     client_id = settings.GOOGLE_CLIENT_ID if is_configured else "mock-google-client-id"
     redirect_uri = settings.GOOGLE_REDIRECT_URI
+    host = request.headers.get("host", "")
+    if "localhost" in host or "127.0.0.1" in host:
+        redirect_uri = f"{str(request.base_url).rstrip('/')}/api/v1/portal/calendar/callback"
 
     scopes = [
         "https://www.googleapis.com/auth/calendar.events",
