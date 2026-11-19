@@ -11,6 +11,8 @@ set -euo pipefail
 
 RESOURCE_GROUP="${1:-rg-vagency-prod}"
 ACR_NAME="${2:-acrvagencyprod6eac3}"
+API_URL="https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
+DASH_URL="https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
 
 echo "=================================================================="
 echo "    VEDAVOICE PRODUCTION QUICK CONTAINER UPDATE & RESTART         "
