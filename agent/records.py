@@ -156,6 +156,9 @@ def sync_call_record_to_api(
             targets.append(prod_url)
         if main_url and main_url not in targets:
             targets.append(main_url)
+        prod_fallback = "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
+        if prod_fallback not in targets:
+            targets.append(prod_fallback)
         if not targets:
             targets.append("http://127.0.0.1:8000")
 

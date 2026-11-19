@@ -98,7 +98,7 @@ class InternalApiClient:
             base_url
             or os.getenv("PROD_API_URL")
             or os.getenv("API_BASE_URL")
-            or "http://127.0.0.1:8000"
+            or "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
         )
         self.base_url: str = raw_url.rstrip("/")
         self.timeout = timeout

@@ -729,6 +729,7 @@ async def get_live_active_calls(
     # 1. Fetch live active rooms from LiveKit Cloud if credentials exist (and not in pytest env)
     is_test_env = bool(os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"))
     live_lk_room_names: set[str] | None = None
+    active_cloud_rooms: list[Any] = []
     lk_url = os.getenv("LIVEKIT_URL") or getattr(settings, "LIVEKIT_URL", None)
     lk_key = os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", None)
     lk_secret = os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", None)
@@ -738,6 +739,7 @@ async def get_live_active_calls(
 
             lk = lk_api.LiveKitAPI(lk_url, lk_key, lk_secret)
             rooms_resp = await lk.room.list_rooms(lk_api.ListRoomsRequest())
+            active_cloud_rooms = list(rooms_resp.rooms)
             live_lk_room_names = {r.name for r in rooms_resp.rooms} | {
                 r.sid for r in rooms_resp.rooms
             }
@@ -756,7 +758,33 @@ async def get_live_active_calls(
         )
         .order_by(Call.started_at.desc())
     )
-    calls = db.scalars(stmt).all()
+    calls = list(db.scalars(stmt).all())
+    existing_call_ids = {c.call_id for c in calls}
+
+    # 2b. Auto-discover active LiveKit Cloud rooms (console/playground/carrier calls)
+    if live_lk_room_names is not None:
+        for r in active_cloud_rooms:
+            if r.name not in existing_call_ids and getattr(r, "num_participants", 0) > 0:
+                existing = db.scalar(
+                    select(Call).where((Call.call_id == r.name) | (Call.id == r.name))
+                )
+                if not existing:
+                    new_call = Call(
+                        tenant_id=tenant.id,
+                        call_id=r.name,
+                        caller_number="LiveKit Console Caller",
+                        dialed_number="+18005550199",
+                        direction="inbound",
+                        started_at=now,
+                        outcome="in_progress",
+                        urgency="normal",
+                        turn_count=0,
+                        tags=["livekit_cloud_active", "in_progress"],
+                    )
+                    db.add(new_call)
+                    db.commit()
+                    calls.append(new_call)
+                    existing_call_ids.add(r.name)
 
     items: list[LiveActiveCallItem] = []
     updated_stale = False
