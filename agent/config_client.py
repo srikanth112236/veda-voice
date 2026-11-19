@@ -94,7 +94,12 @@ class InternalApiClient:
         timeout: float = 3.5,
         cache_dir: Path | str | None = None,
     ) -> None:
-        raw_url = base_url or os.getenv("API_BASE_URL") or "http://127.0.0.1:8000"
+        raw_url = (
+            base_url
+            or os.getenv("PROD_API_URL")
+            or os.getenv("API_BASE_URL")
+            or "http://127.0.0.1:8000"
+        )
         self.base_url: str = raw_url.rstrip("/")
         self.timeout = timeout
         self.internal_secret = os.getenv("INTERNAL_SIGNING_KEY", "")
