@@ -14,18 +14,29 @@ import {
   Trash2,
   ShieldAlert,
   Zap,
+  Globe,
+  Video,
+  ExternalLink,
+  ShieldCheck,
 } from "lucide-react";
 import {
   api,
   StaffMember,
   DispatchPreviewResult,
   RosterSchedule,
+  CalendarIntegrationStatus,
+  CalendarBookingItem,
 } from "@/lib/api";
 
 export default function StaffAndDispatchPage() {
-  const [activeTab, setActiveTab] = useState<"roster" | "simulator" | "schedule">("roster");
+  const [activeTab, setActiveTab] = useState<"roster" | "simulator" | "schedule" | "google_sync">("roster");
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [rosterSchedule, setRosterSchedule] = useState<RosterSchedule[]>([]);
+  const [calStatus, setCalStatus] = useState<CalendarIntegrationStatus | null>(null);
+  const [bookingsList, setBookingsList] = useState<CalendarBookingItem[]>([]);
+  const [testingCalSync, setTestingCalSync] = useState(false);
+  const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
+  const [calNotification, setCalNotification] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,14 +67,18 @@ export default function StaffAndDispatchPage() {
     setLoading(true);
     setError(null);
     try {
-      const [staffData, scheduleData] = await Promise.all([
-        api.listStaffMembers(true),
-        api.getRosterSchedule(targetDate),
+      const [staffData, scheduleData, calData, bookingsData] = await Promise.all([
+        api.listStaffMembers(true).catch(() => []),
+        api.getRosterSchedule(targetDate).catch(() => []),
+        api.getCalendarStatus().catch(() => null),
+        api.listCalendarBookings(50).catch(() => []),
       ]);
       setStaffList(staffData);
       setRosterSchedule(scheduleData);
+      if (calData) setCalStatus(calData);
+      setBookingsList(bookingsData);
     } catch (err: any) {
-      setError(err?.message || "Failed to load technician roster.");
+      setError(err?.message || "Failed to load calendar and technician roster.");
     } finally {
       setLoading(false);
     }
@@ -72,6 +87,72 @@ export default function StaffAndDispatchPage() {
   useEffect(() => {
     loadData();
   }, [targetDate]);
+
+  const handleConnectGoogleCalendar = async () => {
+    try {
+      const res = await api.connectGoogleCalendar();
+      if (res.auth_url) {
+        window.location.href = res.auth_url;
+      }
+    } catch (err: any) {
+      alert(`Could not initiate Google OAuth: ${err?.message || err}`);
+    }
+  };
+
+  const handleDisconnectGoogleCalendar = async () => {
+    if (!confirm("Are you sure you want to disconnect Google Calendar? Two-way synchronization will be paused.")) {
+      return;
+    }
+    try {
+      await api.disconnectGoogleCalendar();
+      setCalStatus({
+        is_connected: false,
+        provider: "none",
+        status: "disconnected",
+        calendar_id: "none",
+        token_expires_at: null,
+      });
+      setCalNotification("Google Calendar successfully disconnected.");
+      setTimeout(() => setCalNotification(null), 4000);
+    } catch (err: any) {
+      alert(`Failed to disconnect: ${err?.message || err}`);
+    }
+  };
+
+  const handleTestCalendarSync = async () => {
+    setTestingCalSync(true);
+    try {
+      const res = await api.testCalendarSync();
+      setCalNotification(
+        `Sync Verified! Connected: ${res.calendar_id} • FreeBusy Blocks: ${res.busy_blocks_found} • Meet Link: ${res.meet_link_generated || "Generated"}`
+      );
+      loadData();
+      setTimeout(() => setCalNotification(null), 6000);
+    } catch (err: any) {
+      alert(`Two-way sync test failed: ${err?.message || err}`);
+    } finally {
+      setTestingCalSync(false);
+    }
+  };
+
+  const handleCancelBooking = async (bookingId: string) => {
+    if (!confirm("Cancel this customer booking and remove it from Google Calendar?")) {
+      return;
+    }
+    setCancellingBookingId(bookingId);
+    try {
+      await api.cancelCalendarBooking(bookingId);
+      setBookingsList((prev) =>
+        prev.map((b) => (b.id === bookingId ? { ...b, status: "cancelled" } : b))
+      );
+      setCalNotification("Booking cancelled and removed from Google Calendar.");
+      setTimeout(() => setCalNotification(null), 4000);
+    } catch (err: any) {
+      alert(`Failed to cancel booking: ${err?.message || err}`);
+    } finally {
+      setCancellingBookingId(null);
+    }
+  };
 
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,7 +297,30 @@ export default function StaffAndDispatchPage() {
           <CalendarIcon className="w-4 h-4" />
           Daily Schedule Matrix
         </button>
+        <button
+          onClick={() => setActiveTab("google_sync")}
+          className={`pb-3 border-b-2 flex items-center gap-2 transition ${
+            activeTab === "google_sync"
+              ? "border-blue-600 text-blue-600 font-bold"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          <Globe className="w-4 h-4 text-blue-600" />
+          Google Calendar & Meet
+          {calStatus?.is_connected ? (
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          ) : (
+            <span className="w-2 h-2 rounded-full bg-zinc-300"></span>
+          )}
+        </button>
       </div>
+
+      {calNotification && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+          {calNotification}
+        </div>
+      )}
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-2">
@@ -523,6 +627,186 @@ export default function StaffAndDispatchPage() {
                   )}
                 </div>
               ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: GOOGLE CALENDAR & TWO-WAY SYNCHRONIZATION */}
+      {activeTab === "google_sync" && (
+        <div className="space-y-6">
+          {/* Integration Status Card */}
+          <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-600">
+                  <Globe className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-zinc-900">Google Calendar Two-Way Synchronization</h3>
+                    {calStatus?.is_connected ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Connected & Active
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                        Disconnected
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1 max-w-xl leading-relaxed">
+                    Automatically syncs voice caller appointments to your primary Google Calendar and queries live FreeBusy blocks to prevent double-booking. Includes auto-generated Google Meet video conference links.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {calStatus?.is_connected ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleTestCalendarSync}
+                      disabled={testingCalSync}
+                      className="px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${testingCalSync ? "animate-spin" : ""}`} />
+                      <span>{testingCalSync ? "Verifying..." : "Test Two-Way Sync"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDisconnectGoogleCalendar}
+                      className="px-3.5 py-2 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Disconnect</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleConnectGoogleCalendar}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
+                  >
+                    <Globe className="w-4 h-4" />
+                    <span>Connect Google Calendar</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Diagnostic Details Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-zinc-100 text-xs font-mono">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200/80">
+                <span className="text-[10px] text-zinc-400 block uppercase font-bold">Primary Calendar</span>
+                <span className="text-zinc-800 font-semibold">{calStatus?.calendar_id || "None"}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200/80">
+                <span className="text-[10px] text-zinc-400 block uppercase font-bold">FreeBusy Engine</span>
+                <span className="text-zinc-800 font-semibold">15m Travel Buffer + Drive Time</span>
+              </div>
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200/80">
+                <span className="text-[10px] text-zinc-400 block uppercase font-bold">Video Conferencing</span>
+                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                  <Video className="w-3.5 h-3.5" /> Google Meet Injected
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bookings Table */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-zinc-900">Synchronized Voice & Web Bookings</h4>
+                <p className="text-xs text-zinc-500">Live schedule of appointments booked by your AI receptionist.</p>
+              </div>
+              <span className="text-xs font-mono text-zinc-500">{bookingsList.length} Appointments</span>
+            </div>
+
+            {bookingsList.length === 0 ? (
+              <div className="border border-dashed border-zinc-300 rounded-xl p-8 text-center text-xs font-mono text-zinc-400">
+                No customer bookings recorded yet. When a caller confirms an appointment, it will appear here and sync to your Google Calendar.
+              </div>
+            ) : (
+              <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 uppercase font-mono text-[10px]">
+                    <tr>
+                      <th className="px-4 py-3">Customer</th>
+                      <th className="px-4 py-3">Service</th>
+                      <th className="px-4 py-3">Scheduled Window</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Google Meet</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 font-mono">
+                    {bookingsList.map((b) => (
+                      <tr key={b.id} className="hover:bg-zinc-50/50 transition">
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-zinc-900">{b.customer_name}</div>
+                          <div className="text-[11px] text-zinc-500">{b.customer_phone}</div>
+                          {b.customer_email && <div className="text-[10px] text-zinc-400">{b.customer_email}</div>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="capitalize text-zinc-800">{b.service_type.replace("_", " ")}</span>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-700">
+                          <div>{new Date(b.start_at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
+                          <div className="text-[11px] text-zinc-400">
+                            {new Date(b.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
+                            {new Date(b.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              b.status === "confirmed"
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : b.status === "held"
+                                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                : "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                            }`}
+                          >
+                            {b.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {b.meet_link ? (
+                            <a
+                              href={b.meet_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold hover:bg-blue-100"
+                            >
+                              <Video className="w-3 h-3 text-blue-600" />
+                              Join Meet
+                              <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                            </a>
+                          ) : (
+                            <span className="text-[10px] text-zinc-400 italic">In-Person Dispatch</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {b.status !== "cancelled" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelBooking(b.id)}
+                              disabled={cancellingBookingId === b.id}
+                              className="px-2.5 py-1 rounded border border-red-200 hover:bg-red-50 text-red-600 text-[11px] font-semibold transition"
+                            >
+                              {cancellingBookingId === b.id ? "Cancelling..." : "Cancel"}
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-zinc-400">Cancelled</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

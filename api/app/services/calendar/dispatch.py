@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 from api.app.models.booking import Booking
 from api.app.models.staff import StaffMember
 from api.app.models.tenant import Tenant
-from api.app.services.calendar.availability import AvailableSlotsResponse, Slot
+from api.app.services.calendar.availability import (
+    AvailableSlotsResponse,
+    Slot,
+    _get_tenant_calendar_provider,
+)
+from api.app.services.calendar.base import CalendarProvider, Interval
 
 logger = logging.getLogger("vedavoice.calendar.dispatch")
 
@@ -178,8 +183,9 @@ def compute_multi_staff_available_slots(
     service_duration_minutes: int = 60,
     buffer_minutes: int = 15,
     minimum_notice_hours: int = 2,
+    custom_provider: CalendarProvider | None = None,
 ) -> AvailableSlotsResponse:
-    """Compute aggregate slot availability across all eligible staff for target_date."""
+    """Compute aggregate slot availability across all eligible staff for target_date with Google Calendar FreeBusy."""
     # 1. Resolve Timezone
     try:
         tz = ZoneInfo(tenant.timezone)
@@ -219,6 +225,19 @@ def compute_multi_staff_available_slots(
         else:
             slot_busy_map[start_utc].add("unassigned")
 
+    # 3b. Query External Google Calendar Free/Busy Blocks (Two-Way Sync)
+    cal_provider = custom_provider
+    calendar_id = "primary"
+    if cal_provider is None:
+        cal_provider, calendar_id = _get_tenant_calendar_provider(tenant.id, db)
+
+    ext_busy_intervals: list[Interval] = []
+    if cal_provider:
+        try:
+            ext_busy_intervals = cal_provider.free_busy(calendar_id, day_open_dt, day_close_dt)
+        except Exception as e:
+            logger.warning("Failed to fetch external Google Calendar free_busy in dispatch: %s", e)
+
     # 4. Generate candidate slots
     step = timedelta(minutes=service_duration_minutes + buffer_minutes)
     current_slot_start = day_open_dt
@@ -243,6 +262,26 @@ def compute_multi_staff_available_slots(
                 # No staff configured -> single calendar behavior
                 if busy_at_slot:
                     is_available = False
+
+            # External Google Calendar Collision Check with Buffer
+            if is_available and ext_busy_intervals:
+                slot_start_utc = current_slot_start.astimezone(UTC)
+                slot_end_utc = slot_end.astimezone(UTC)
+                buf_delta = timedelta(minutes=buffer_minutes)
+                for ext in ext_busy_intervals:
+                    e_start = (
+                        ext.start.astimezone(UTC)
+                        if ext.start.tzinfo
+                        else ext.start.replace(tzinfo=UTC)
+                    )
+                    e_end = (
+                        ext.end.astimezone(UTC) if ext.end.tzinfo else ext.end.replace(tzinfo=UTC)
+                    )
+                    if slot_start_utc < (e_end + buf_delta) and slot_end_utc > (
+                        e_start - buf_delta
+                    ):
+                        is_available = False
+                        break
 
         candidate_slots.append(
             Slot(

@@ -222,6 +222,51 @@ class GoogleCalendarProvider:
             logger.error("Error deleting Google Calendar event %s: %s", event_id, e)
             return False
 
+    def test_connection(self, calendar_id: str = "primary") -> dict[str, Any]:
+        """Verify Google OAuth credentials and FreeBusy access."""
+        now = datetime.now(UTC)
+        end = now + timedelta(days=1)
+        intervals = self.free_busy(calendar_id, now, end)
+        return {
+            "status": "connected",
+            "calendar_id": calendar_id,
+            "busy_blocks_found": len(intervals),
+            "two_way_sync": True,
+            "provider": "google_calendar",
+        }
+
+    def watch_calendar(self, calendar_id: str, webhook_url: str) -> dict[str, Any]:
+        """Subscribe to Google Calendar push notifications for inbound sync."""
+        token = self._ensure_access_token()
+        encoded_cal = urllib.parse.quote(calendar_id)
+        url = f"https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events/watch"
+        channel_id = f"vedavoice-{uuid.uuid4().hex}"
+        payload = {
+            "id": channel_id,
+            "type": "web_hook",
+            "address": webhook_url,
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return {
+                    "channel_id": channel_id,
+                    "resource_id": data.get("resourceId"),
+                    "status": "active",
+                }
+        except Exception as e:
+            logger.warning("Could not register Google watch channel: %s", e)
+            return {"channel_id": channel_id, "status": "simulated", "error": str(e)}
+
 
 class MockSandboxCalendarProvider:
     """In-memory calendar provider for testing and sandbox simulation without live Google credentials."""
@@ -229,6 +274,22 @@ class MockSandboxCalendarProvider:
     def __init__(self) -> None:
         self.busy_blocks: list[Interval] = []
         self.events: dict[str, ExternalEvent] = {}
+
+    def test_connection(self, calendar_id: str = "primary") -> dict[str, Any]:
+        return {
+            "status": "connected",
+            "calendar_id": calendar_id,
+            "busy_blocks_found": len(self.busy_blocks),
+            "two_way_sync": True,
+            "provider": "google_calendar_sandbox",
+        }
+
+    def watch_calendar(self, calendar_id: str, webhook_url: str) -> dict[str, Any]:
+        return {
+            "channel_id": f"sandbox-{uuid.uuid4().hex[:8]}",
+            "resource_id": f"res-{uuid.uuid4().hex[:8]}",
+            "status": "active",
+        }
 
     def free_busy(self, calendar_id: str, start: datetime, end: datetime) -> list[Interval]:
         return [b for b in self.busy_blocks if (b.start < end and b.end > start)]

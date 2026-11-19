@@ -47,3 +47,7 @@ class CalendarProvider(Protocol):
     def delete_event(self, calendar_id: str, event_id: str) -> bool:
         """Delete external calendar event."""
         ...
+
+    def test_connection(self, calendar_id: str = "primary") -> dict[str, Any]:
+        """Verify provider authentication and calendar accessibility."""
+        ...

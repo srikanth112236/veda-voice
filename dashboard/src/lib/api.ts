@@ -1392,6 +1392,32 @@ export const api = {
       `/api/v1/portal/calendar/roster${targetDate ? `?target_date=${encodeURIComponent(targetDate)}` : ""}`
     ),
 
+  // Google Calendar Two-Way Synchronization (Milestone Phase 3)
+  getCalendarStatus: () =>
+    request<CalendarIntegrationStatus>("/api/v1/portal/calendar/status"),
+
+  connectGoogleCalendar: () =>
+    request<{ auth_url: string; state: string }>("/api/v1/portal/calendar/connect"),
+
+  disconnectGoogleCalendar: () =>
+    request<{ status: string; tenant_id: string }>("/api/v1/portal/calendar/disconnect", {
+      method: "POST",
+    }),
+
+  testCalendarSync: () =>
+    request<CalendarSyncTestResult>("/api/v1/portal/calendar/sync-test", {
+      method: "POST",
+    }),
+
+  listCalendarBookings: (limit = 50) =>
+    request<CalendarBookingItem[]>(`/api/v1/portal/calendar/bookings?limit=${limit}`),
+
+  cancelCalendarBooking: (bookingId: string) =>
+    request<{ success: boolean; booking_id: string; status: string; calendar_event_deleted: boolean }>(
+      `/api/v1/portal/calendar/bookings/${bookingId}/cancel`,
+      { method: "POST" }
+    ),
+
   // Industry Packs Engine (Milestone M4c)
   listIndustryPacks: () =>
     request<IndustryPackSummary[]>("/api/v1/portal/industry-packs"),
@@ -1618,6 +1644,39 @@ export interface RosterSchedule {
     end_at: string;
     status: string;
   }>;
+}
+
+export interface CalendarIntegrationStatus {
+  is_connected: boolean;
+  provider: string;
+  status: string;
+  calendar_id: string;
+  token_expires_at: string | null;
+}
+
+export interface CalendarBookingItem {
+  id: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string | null;
+  service_type: string;
+  start_at: string;
+  end_at: string;
+  status: string;
+  meet_link: string | null;
+  calendar_event_id: string | null;
+  staff_id: string | null;
+  notes: string | null;
+}
+
+export interface CalendarSyncTestResult {
+  success: boolean;
+  status: string;
+  calendar_id: string;
+  provider: string;
+  busy_blocks_found: number;
+  meet_link_generated: string | null;
+  message: string;
 }
 
 export interface IndustryPackSummary {
