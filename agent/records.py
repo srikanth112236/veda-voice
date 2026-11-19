@@ -146,8 +146,11 @@ def sync_call_record_to_api(
     import urllib.request
 
     targets: list[str] = []
+    is_test = bool(os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"))
     if api_base_url:
         targets.append(api_base_url.rstrip("/"))
+    elif is_test:
+        targets.append("http://127.0.0.1:8000")
     else:
         main_url = os.getenv("API_BASE_URL", "").rstrip("/")
         prod_url = os.getenv("PROD_API_URL", "").rstrip("/")
