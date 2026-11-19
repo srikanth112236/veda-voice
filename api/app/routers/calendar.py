@@ -127,11 +127,7 @@ def initiate_google_oauth(
         "state": tenant.id,
     }
 
-    auth_url = (
-        f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
-        if is_configured
-        else ""
-    )
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
     sandbox_connect_url = (
         f"/api/v1/portal/calendar/callback?code=mock_sandbox_code&state={tenant.id}"
     )
