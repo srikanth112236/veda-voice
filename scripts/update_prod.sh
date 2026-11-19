@@ -82,6 +82,8 @@ az containerapp update \
 
 # 4.3 Update or Create Voice Agent Worker Container App (24/7 Cloud Receptionist)
 echo "--> [4.3/5] Deploying Voice Agent Worker Container App..."
+echo "    Ensuring ACR admin user is enabled for container pulls..."
+az acr update --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --admin-enabled true --output none 2>/dev/null || true
 ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || echo "")
 ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
 
@@ -104,7 +106,27 @@ if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/n
       LIVEKIT_API_KEY="APIUJck6jdupFvT" \
       LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
       API_BASE_URL="$API_URL" \
-      PROD_API_URL="$API_URL"
+      PROD_API_URL="$API_URL" 2>/dev/null || {
+        echo "    Recreating 'agent' container app cleanly..."
+        az containerapp delete --name agent --resource-group "$RESOURCE_GROUP" --yes --output none 2>/dev/null || true
+        ENV_NAME=$(az containerapp env list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "env-vagency-prod")
+        az containerapp create \
+          --name agent \
+          --resource-group "$RESOURCE_GROUP" \
+          --environment "$ENV_NAME" \
+          --image "${ACR_LOGIN_SERVER}/agent:${IMAGE_TAG}" \
+          --registry-server "$ACR_LOGIN_SERVER" \
+          --registry-username "$ACR_USER" \
+          --registry-password "$ACR_PASS" \
+          --cpu 0.5 --memory 1.0Gi \
+          --min-replicas 1 --max-replicas 5 \
+          --env-vars \
+            LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+            LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+            LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+            API_BASE_URL="$API_URL" \
+            PROD_API_URL="$API_URL" || true
+      }
 else
   echo "    Creating new 'agent' container app..."
   ENV_NAME=$(az containerapp env list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "env-vagency-prod")
@@ -123,7 +145,7 @@ else
       LIVEKIT_API_KEY="APIUJck6jdupFvT" \
       LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
       API_BASE_URL="$API_URL" \
-      PROD_API_URL="$API_URL"
+      PROD_API_URL="$API_URL" || true
 fi
 
 # 5. Run DB Migration Job
