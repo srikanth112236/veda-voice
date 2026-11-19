@@ -13,6 +13,7 @@ jobs:
   build-and-deploy:
     name: Build & Deploy Production
     runs-on: ubuntu-latest
+    if: ${{ (secrets.AZURE_CLIENT_ID != '' || vars.AZURE_CLIENT_ID != '') && (secrets.AZURE_TENANT_ID != '' || vars.AZURE_TENANT_ID != '') }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4

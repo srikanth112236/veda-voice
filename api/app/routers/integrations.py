@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -28,6 +28,7 @@ from api.app.models.crm import CRMIntegration, WebhookSubscription
 from api.app.models.crm_sync import CRMConnection, CRMSyncOutbox
 from api.app.models.tenant import Tenant
 from api.app.models.user import User
+from api.app.routers.calendar import handle_calendly_inbound_webhook
 from api.app.services.entitlements import check_tenant_entitlement
 from api.app.services.integrations.gohighlevel import HighLevelProvider
 from api.app.services.integrations.hubspot import HubSpotProvider
@@ -821,9 +822,7 @@ def handle_calendly_webhook_alias(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Alias for Calendly webhook ingestion under /api/v1/integrations/calendly/webhook."""
-    from api.app.routers.calendar import handle_calendly_inbound_webhook
-
-    return cast(
-        dict[str, Any],
-        handle_calendly_inbound_webhook(payload=payload, tenant_id=tenant_id, db=db),
-    )
+    resp = handle_calendly_inbound_webhook(payload=payload, tenant_id=tenant_id, db=db)
+    if isinstance(resp, dict):
+        return resp
+    return {"status": "received"}
