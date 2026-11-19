@@ -1,5 +1,6 @@
 """Tenant business client portal endpoints strictly scoped to current tenant."""
 
+import json
 import logging
 import os
 import uuid
@@ -945,6 +946,37 @@ async def send_supervisor_whisper(
         user=current_user,
     )
     await supervisor_manager.broadcast_call_event(call.call_id, result["data"])
+
+    # Forward silent whisper data packet to LiveKit room for real-time agent ingestion
+    try:
+        from livekit.api import LiveKitAPI, SendDataRequest
+
+        if settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_SECRET:
+            lk_client = LiveKitAPI(
+                url=settings.LIVEKIT_URL,
+                api_key=settings.LIVEKIT_API_KEY,
+                api_secret=settings.LIVEKIT_API_SECRET,
+            )
+            whisper_bytes = json.dumps(
+                {
+                    "type": "supervisor_whisper",
+                    "action": "whisper",
+                    "call_id": call.call_id,
+                    "instruction": req.instruction,
+                    "supervisor_email": current_user.email,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                }
+            ).encode("utf-8")
+            await lk_client.room.send_data(SendDataRequest(room=call.call_id, data=whisper_bytes))
+            await lk_client.aclose()
+            logger.info("Dispatched silent whisper packet to LiveKit room %s", call.call_id)
+    except Exception as lk_err:
+        logger.warning(
+            "Could not dispatch whisper data packet to LiveKit room %s: %s",
+            call.call_id,
+            lk_err,
+        )
+
     return {
         "status": "whisper_dispatched",
         "action": "whisper",

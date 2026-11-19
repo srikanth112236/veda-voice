@@ -461,6 +461,38 @@ async def entrypoint(ctx: JobContext) -> None:
             config.tenant_id,
         )
 
+    @ctx.room.on("data_received")
+    def on_data_received(data_packet: rtc.DataPacket) -> None:
+        """Handle real-time data channel messages including supervisor whisper coaching."""
+        try:
+            raw_data = data_packet.data.decode("utf-8")
+            payload = json.loads(raw_data)
+        except Exception:
+            return
+
+        msg_type = payload.get("type") or payload.get("action")
+        if msg_type in ("supervisor_whisper", "whisper"):
+            instruction = payload.get("instruction", "").strip()
+            if instruction:
+                supervisor_tag = payload.get("supervisor_email") or "Supervisor"
+                logger.info(
+                    "Received supervisor whisper from %s in room %s: '%s'",
+                    supervisor_tag,
+                    room_name,
+                    instruction,
+                )
+                try:
+                    coaching_text = (
+                        f'[SUPERVISOR COACHING WHISPER from {supervisor_tag}]: "{instruction}". '
+                        "Adopt this coaching immediately in your next response to the caller."
+                    )
+                    session.history.add_message(role="system", content=coaching_text)
+                    logger.info("Supervisor whisper successfully injected into LLM chat context.")
+                except Exception as ctx_err:
+                    logger.warning(
+                        "Failed to inject supervisor whisper into chat context: %s", ctx_err
+                    )
+
     @ctx.room.on("participant_disconnected")
     def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:
         """Trigger immediate session disconnect when caller hangs up."""
