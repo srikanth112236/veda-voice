@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
+import { Room, RoomEvent, Track, RemoteTrack, RemoteTrackPublication, RemoteParticipant } from "livekit-client";
 import { InfoTrigger } from "@/context/info-modal-context";
 import {
   PhoneCall,
@@ -127,6 +128,10 @@ export default function CallsPage() {
   const [wsLiveEvents, setWsLiveEvents] = useState<any[]>([]);
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
   const wsRef = useRef<WebSocket | null>(null);
+  const livekitRoomRef = useRef<Room | null>(null);
+  const audioElementsRef = useRef<HTMLAudioElement[]>([]);
+  const [isBargeMicActive, setIsBargeMicActive] = useState<boolean>(false);
+  const [webrtcAudioActive, setWebrtcAudioActive] = useState<boolean>(false);
 
   // Supervisor Actions
   const [whisperText, setWhisperText] = useState("");
@@ -167,18 +172,79 @@ export default function CallsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // WebSocket Live Supervision Stream
+  // LiveKit WebRTC Audio Stream & WebSocket Supervision Event Bridge
   useEffect(() => {
     if (!supervisingCall) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      if (livekitRoomRef.current) {
+        livekitRoomRef.current.disconnect();
+        livekitRoomRef.current = null;
+      }
+      audioElementsRef.current.forEach((el) => {
+        try {
+          el.pause();
+          el.srcObject = null;
+          el.remove();
+        } catch {}
+      });
+      audioElementsRef.current = [];
       setWsStatus("disconnected");
       setWsLiveEvents([]);
+      setIsBargeMicActive(false);
+      setWebrtcAudioActive(false);
       return;
     }
 
+    let isMounted = true;
+
+    // 1. Establish LiveKit WebRTC Room Connection for Real-Time Audio (Listening & Barging)
+    const room = new Room({
+      adaptiveStream: true,
+      dynacast: true,
+    });
+    livekitRoomRef.current = room;
+
+    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+      if (track.kind === Track.Kind.Audio) {
+        const audioElement = track.attach();
+        audioElement.volume = 1.0;
+        audioElementsRef.current.push(audioElement);
+        if (isMounted) setWebrtcAudioActive(true);
+      }
+    });
+
+    room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+      track.detach().forEach((el) => {
+        try {
+          el.remove();
+        } catch {}
+      });
+    });
+
+    room.on(RoomEvent.Disconnected, () => {
+      if (isMounted) {
+        setWebrtcAudioActive(false);
+        setIsBargeMicActive(false);
+      }
+    });
+
+    // Request LiveKit Token and join audio room
+    api.getSupervisionToken(supervisingCall.call_id)
+      .then((res) => {
+        if (!isMounted) return;
+        return room.connect(res.livekit_url, res.token);
+      })
+      .then(() => {
+        if (isMounted) setWebrtcAudioActive(true);
+      })
+      .catch((err) => {
+        console.warn("LiveKit WebRTC supervision stream notice:", err);
+      });
+
+    // 2. Establish WebSocket Bridge for real-time text events & supervisor telemetry
     const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : "";
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
@@ -189,7 +255,7 @@ export default function CallsPage() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      setWsStatus("connected");
+      if (isMounted) setWsStatus("connected");
     };
 
     ws.onmessage = (event) => {
@@ -210,26 +276,42 @@ export default function CallsPage() {
     };
 
     ws.onclose = () => {
-      setWsStatus("disconnected");
+      if (isMounted) setWsStatus("disconnected");
     };
 
     ws.onerror = (err) => {
       console.error("Supervision WebSocket error:", err);
-      setWsStatus("disconnected");
+      if (isMounted) setWsStatus("disconnected");
     };
 
     return () => {
+      isMounted = false;
       ws.close();
+      room.disconnect();
+      audioElementsRef.current.forEach((el) => {
+        try {
+          el.pause();
+          el.srcObject = null;
+          el.remove();
+        } catch {}
+      });
+      audioElementsRef.current = [];
     };
   }, [supervisingCall?.call_id]);
 
   const handleBargeIn = async (callId: string) => {
     setActionInProgress("barge_in");
     try {
+      // Toggle browser microphone directly into LiveKit Room so both caller and agent hear supervisor
+      if (livekitRoomRef.current) {
+        const nextMicState = !isBargeMicActive;
+        await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(nextMicState);
+        setIsBargeMicActive(nextMicState);
+      }
       await api.bargeInCall(callId);
       fetchLiveCalls();
     } catch (err: any) {
-      alert("Failed to activate barge-in: " + (err.message || err));
+      alert("Failed to toggle barge-in microphone: " + (err.message || err));
     } finally {
       setActionInProgress(null);
     }
@@ -238,13 +320,18 @@ export default function CallsPage() {
   const handleTakeover = async (callId: string) => {
     if (
       !confirm(
-        "Are you sure you want to take over this call? The AI agent will be disconnected and call routed directly to supervisor."
+        "Are you sure you want to take over this call? The AI agent will be disconnected from the room and the customer will hear you directly."
       )
     ) {
       return;
     }
     setActionInProgress("takeover");
     try {
+      // Immediately unmute supervisor microphone so customer hears human voice seamlessly
+      if (livekitRoomRef.current) {
+        await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(true);
+        setIsBargeMicActive(true);
+      }
       await api.takeoverCall(callId);
       fetchLiveCalls();
     } catch (err: any) {
@@ -1674,16 +1761,27 @@ export default function CallsPage() {
             <div className="flex-1 overflow-y-auto p-4 space-y-3 font-sans text-xs bg-zinc-50/30">
               <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2 font-mono">
-                  <Radio className="w-4 h-4 text-emerald-600 animate-pulse" />
-                  <span>Real-Time Bi-Directional WebSocket Bridge Active</span>
+                  <Radio className={`w-4 h-4 ${webrtcAudioActive ? "text-emerald-600 animate-pulse" : "text-amber-500"}`} />
+                  <span>
+                    {webrtcAudioActive ? "🎧 Live WebRTC Audio Stream Connected" : "Connecting Live Audio Stream..."}
+                  </span>
+                  {isBargeMicActive && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-600 text-white font-bold text-[10px] animate-pulse">
+                      🎙️ MIC ACTIVE (CALLER HEARS YOU)
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleBargeIn(supervisingCall.call_id)}
-                    className="px-2.5 py-1 rounded bg-white border border-emerald-300 text-emerald-800 text-[11px] font-mono font-bold hover:bg-emerald-100 transition-colors"
+                    className={`px-2.5 py-1 rounded border text-[11px] font-mono font-bold transition-colors ${
+                      isBargeMicActive || supervisingCall.barge_in_active
+                        ? "bg-purple-600 border-purple-700 text-white hover:bg-purple-500"
+                        : "bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                    }`}
                   >
-                    {supervisingCall.barge_in_active ? "Barge Active" : "🎙️ Enable Barge-In"}
+                    {isBargeMicActive || supervisingCall.barge_in_active ? "🎙️ Mute Barge Mic" : "🎙️ Enable Barge-In"}
                   </button>
                   <button
                     type="button"

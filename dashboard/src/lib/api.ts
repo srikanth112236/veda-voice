@@ -1179,6 +1179,17 @@ export const api = {
       body: JSON.stringify({ instruction }),
     }),
 
+  getSupervisionToken: (callId: string) =>
+    request<{
+      status: string;
+      token: string;
+      livekit_url: string;
+      room_name: string;
+      identity: string;
+    }>(`/api/v1/portal/calls/${callId}/supervision-token`, {
+      method: "POST",
+    }),
+
   bargeInCall: (callId: string) =>
     request<{
       status: string;

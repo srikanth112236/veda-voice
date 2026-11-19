@@ -809,6 +809,69 @@ async def send_supervisor_whisper(
     }
 
 
+@router.post("/calls/{call_id}/supervision-token")
+async def get_supervision_token(
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Generate LiveKit WebRTC access token for supervisor to listen and barge-in."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    room_name = call.call_id
+    user_suffix = current_user.email.split("@")[0] if current_user.email else "user"
+    supervisor_identity = f"supervisor-{current_user.id[:8]}-{user_suffix}"
+
+    livekit_url = settings.LIVEKIT_URL or os.getenv(
+        "LIVEKIT_URL", "wss://steyzi-xvk89l73.livekit.cloud"
+    )
+    api_key = settings.LIVEKIT_API_KEY or os.getenv("LIVEKIT_API_KEY", "APIUJck6jdupFvT")
+    api_secret = settings.LIVEKIT_API_SECRET or os.getenv(
+        "LIVEKIT_API_SECRET", "JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA"
+    )
+
+    try:
+        from livekit import api as lk_api
+
+        token = (
+            lk_api.AccessToken(api_key, api_secret)
+            .with_identity(supervisor_identity)
+            .with_name(f"{current_user.full_name or 'Supervisor'} (Supervisor)")
+            .with_grants(
+                lk_api.VideoGrants(
+                    room_join=True,
+                    room=room_name,
+                    can_publish=True,
+                    can_subscribe=True,
+                    can_publish_data=True,
+                )
+            )
+            .to_jwt()
+        )
+    except Exception as e:
+        logger.error("Failed to generate LiveKit supervisor token: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate LiveKit supervisor token: {e}",
+        ) from e
+
+    return {
+        "status": "ok",
+        "token": token,
+        "livekit_url": livekit_url,
+        "room_name": room_name,
+        "identity": supervisor_identity,
+    }
+
+
 @router.post("/calls/{call_id}/barge-in")
 async def barge_in_call(
     call_id: str,
@@ -861,6 +924,32 @@ async def takeover_call(
         payload={},
         user=current_user,
     )
+
+    # Eject AI agent participant from the LiveKit room so supervisor is 1-on-1 with customer
+    livekit_url = settings.LIVEKIT_URL or os.getenv("LIVEKIT_URL")
+    api_key = settings.LIVEKIT_API_KEY or os.getenv("LIVEKIT_API_KEY")
+    api_secret = settings.LIVEKIT_API_SECRET or os.getenv("LIVEKIT_API_SECRET")
+    if livekit_url and api_key and api_secret:
+        try:
+            from livekit import api as lk_api
+
+            async with lk_api.LiveKitAPI(livekit_url, api_key, api_secret) as lk:
+                participants = await lk.room.list_participants(
+                    lk_api.ListParticipantsRequest(room=call.call_id)
+                )
+                for p in participants.participants:
+                    if "agent" in p.identity.lower() or "receptionist" in p.identity.lower():
+                        await lk.room.remove_participant(
+                            lk_api.RoomParticipantIdentity(room=call.call_id, identity=p.identity)
+                        )
+                        logger.info(
+                            "Takeover ejected agent participant '%s' from room '%s'",
+                            p.identity,
+                            call.call_id,
+                        )
+        except Exception as e:
+            logger.warning("Could not eject agent participant from room: %s", e)
+
     await supervisor_manager.broadcast_call_event(call.call_id, result["data"])
     return result
 
