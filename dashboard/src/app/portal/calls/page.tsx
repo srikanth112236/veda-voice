@@ -247,7 +247,12 @@ export default function CallsPage() {
     // 2. Establish WebSocket Bridge for real-time text events & supervisor telemetry
     const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : "";
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.host;
+    let host = window.location.host;
+    if (host.startsWith("dashboard.")) {
+      host = host.replace(/^dashboard\./, "api.");
+    } else if (host.includes("localhost") || host.includes("127.0.0.1")) {
+      host = "127.0.0.1:8000";
+    }
     const wsUrl = `${protocol}//${host}/api/v1/portal/calls/${supervisingCall.call_id}/stream?token=${encodeURIComponent(token || "")}`;
 
     setWsStatus("connecting");
