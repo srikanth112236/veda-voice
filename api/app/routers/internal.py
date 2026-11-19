@@ -355,6 +355,29 @@ def handle_call_transfer(
         call.tags = current_tags
         db.commit()
 
+        # Broadcast transfer event to live supervisor dashboard WebSockets
+        try:
+            import asyncio
+
+            from api.app.services.supervisor import supervisor_manager
+
+            asyncio.create_task(
+                supervisor_manager.broadcast_call_event(
+                    payload.call_id,
+                    {
+                        "event": "call_transferred",
+                        "call_id": payload.call_id,
+                        "tenant_id": tenant_id,
+                        "transfer_to": payload.target_number,
+                        "reason": payload.reason,
+                        "priority": payload.priority,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
+                )
+            )
+        except Exception as b_err:
+            logger.debug("Supervisor transfer broadcast notice: %s", b_err)
+
     return {
         "success": True,
         "call_id": payload.call_id,

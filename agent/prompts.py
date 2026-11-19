@@ -194,8 +194,9 @@ def build_system_prompt(
     if has_transfer:
         transfer_prompt_section = """
 8. HUMAN TRANSFER & SPECIALIST ESCALATION (TOOL: transfer_call_tool):
-   - When a caller explicitly asks to speak with a live person, technician, manager, or dispatcher (e.g. "Can I talk to a person?", "Transfer me", "I want a human"):
-     1. Invoke `transfer_call_tool(reason="caller_requested_human", priority="normal")` immediately. The transfer tool delivers the hold announcement ("Please hold while I connect you with our specialist") and bridges the line. Do not generate a separate redundant hold sentence before calling the tool.
+   - When a caller explicitly asks to speak with a live person, technician, manager, or dispatcher (e.g. "Can I talk to a person?", "Transfer me", "I want a human", "Connect me to your manager"):
+     1. Invoke `transfer_call_tool(reason="caller_requested_human", priority="normal")` immediately.
+     2. CRITICAL NO DOUBLE-SPEAK RULE: Do NOT generate or speak any preliminary sentence or text before calling the tool. Call the tool immediately with ZERO preliminary text. The tool itself delivers the single, warm hold announcement ("Please hold while I connect you with our specialist") and bridges the line.
    - If an emergency situation occurs that requires human escalation:
      1. Invoke `transfer_call_tool(reason="emergency_escalation", priority="emergency")`.
    - If the tool indicates that the transfer line is unavailable or unconfigured:
