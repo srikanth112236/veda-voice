@@ -82,7 +82,18 @@ az containerapp update \
 
 # 4.3 Update or Create Voice Agent Worker Container App (24/7 Cloud Receptionist)
 echo "--> [4.3/5] Deploying Voice Agent Worker Container App..."
+ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || echo "")
+ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
+
 if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+  echo "    Configuring registry credentials on existing 'agent' container app..."
+  az containerapp registry set \
+    --name agent \
+    --resource-group "$RESOURCE_GROUP" \
+    --server "$ACR_LOGIN_SERVER" \
+    --username "$ACR_USER" \
+    --password "$ACR_PASS" 2>/dev/null || true
+
   echo "    Updating existing 'agent' container app..."
   az containerapp update \
     --name agent \
@@ -97,8 +108,6 @@ if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/n
 else
   echo "    Creating new 'agent' container app..."
   ENV_NAME=$(az containerapp env list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "env-vagency-prod")
-  ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || echo "")
-  ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
   az containerapp create \
     --name agent \
     --resource-group "$RESOURCE_GROUP" \
