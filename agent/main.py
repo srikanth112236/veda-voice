@@ -138,7 +138,7 @@ async def entrypoint(ctx: JobContext) -> None:
     start_handshake = default_api_client.start_call_session(
         dialed_number=dialed_number or (config.numbers[0] if config.numbers else ""),
         caller_number=sip_info.get("caller_number", ""),
-        call_id=sip_info.get("call_id") or room_name or "call",
+        call_id=room_name or sip_info.get("call_id") or "call",
     )
     if start_handshake and start_handshake.get("allow") is False:
         rejection_msg = (

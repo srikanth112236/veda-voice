@@ -790,9 +790,13 @@ async def get_live_active_calls(
     seen_call_ids: set[str] = set()
     updated_stale = False
     for c in calls:
-        if c.call_id in seen_call_ids:
+        norm_key = (c.call_id or c.id or "").strip()
+        if not norm_key or norm_key in seen_call_ids or c.id in seen_call_ids:
             continue
-        seen_call_ids.add(c.call_id)
+        seen_call_ids.add(norm_key)
+        seen_call_ids.add(c.id)
+        if c.call_id:
+            seen_call_ids.add(c.call_id.strip())
 
         started = c.started_at
         if started.tzinfo is None:

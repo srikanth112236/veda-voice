@@ -118,7 +118,9 @@ export default function CallsPage() {
         const unique = raw.filter(
           (c, idx, arr) =>
             arr.findIndex(
-              (x) => (x.call_id && c.call_id && x.call_id === c.call_id) || x.id === c.id
+              (x) =>
+                (x.call_id && c.call_id && x.call_id.trim() === c.call_id.trim()) ||
+                (x.id && c.id && x.id.trim() === c.id.trim())
             ) === idx
         );
         setLiveCalls(unique);
