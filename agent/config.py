@@ -70,6 +70,7 @@ class TenantConfig(BaseModel):
     services: list[str] = Field(default_factory=list)
     service_area: str = ""
     service_cities: list[str] = Field(default_factory=list)
+    office_address: str = "10400 Metric Blvd, Suite 200, Austin, TX 78758"
     after_hours_policy: str = "take_message_all"
     out_of_area_policy: str = "polite_decline"
     faq: list[FAQItem] = Field(default_factory=list)
