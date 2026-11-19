@@ -97,11 +97,16 @@ if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/n
 else
   echo "    Creating new 'agent' container app..."
   ENV_NAME=$(az containerapp env list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "env-vagency-prod")
+  ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || echo "")
+  ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
   az containerapp create \
     --name agent \
     --resource-group "$RESOURCE_GROUP" \
     --environment "$ENV_NAME" \
     --image "${ACR_LOGIN_SERVER}/agent:${IMAGE_TAG}" \
+    --registry-server "$ACR_LOGIN_SERVER" \
+    --registry-username "$ACR_USER" \
+    --registry-password "$ACR_PASS" \
     --cpu 0.5 --memory 1.0Gi \
     --min-replicas 1 --max-replicas 5 \
     --env-vars \
