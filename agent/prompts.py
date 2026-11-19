@@ -184,11 +184,10 @@ def build_system_prompt(
     # Human transfer protocol section
     has_transfer = bool(config.transfer_number) or ("transfer" in config.tools_enabled)
     if has_transfer:
-        transfer_prompt_section = f"""
+        transfer_prompt_section = """
 8. HUMAN TRANSFER & SPECIALIST ESCALATION (TOOL: transfer_call_tool):
    - When a caller explicitly asks to speak with a live person, technician, manager, or dispatcher (e.g. "Can I talk to a person?", "Transfer me", "I want a human"):
-     1. Acknowledge politely and invoke `transfer_call_tool(reason="caller_requested_human", priority="normal")`.
-     2. Reassure the caller: "Please hold on for just a moment while I connect you with our specialist at {config.business}."
+     1. Invoke `transfer_call_tool(reason="caller_requested_human", priority="normal")` immediately. The transfer tool delivers the hold announcement and bridges the line. Do not generate a separate redundant hold sentence before calling the tool.
    - If an emergency situation occurs that requires human escalation:
      1. Invoke `transfer_call_tool(reason="emergency_escalation", priority="emergency")`.
    - If the tool indicates that the transfer line is unavailable or unconfigured:
