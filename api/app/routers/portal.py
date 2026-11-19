@@ -281,9 +281,13 @@ def create_test_call_session(
         os.getenv("LIVEKIT_URL")
         or getattr(settings, "LIVEKIT_URL", "wss://steyzi-xvk89l73.livekit.cloud")
     )
-    lk_key: str = str(os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", ""))
+    lk_key: str = str(
+        os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", "") or "devkey"
+    )
     lk_secret: str = str(
-        os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", "")
+        os.getenv("LIVEKIT_API_SECRET")
+        or getattr(settings, "LIVEKIT_API_SECRET", "")
+        or "devsecret32bytesminimumforlivekitcloudauth"
     )
 
     token = ""
@@ -926,8 +930,12 @@ async def get_supervision_token(
     livekit_url = settings.LIVEKIT_URL or os.getenv(
         "LIVEKIT_URL", "wss://steyzi-xvk89l73.livekit.cloud"
     )
-    api_key = os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", "")
-    api_secret = os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", "")
+    api_key = os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", "") or "devkey"
+    api_secret = (
+        os.getenv("LIVEKIT_API_SECRET")
+        or getattr(settings, "LIVEKIT_API_SECRET", "")
+        or "devsecret32bytesminimumforlivekitcloudauth"
+    )
 
     try:
         from livekit import api as lk_api
