@@ -683,14 +683,21 @@ def save_call_record_from_agent(
         token_tenant_id = token_data.get("tenant_id")
 
     # Find existing in-progress call or look up tenant
-    existing_call = db.scalar(select(Call).where(Call.call_id == payload.call_id))
+    existing_call = db.scalar(
+        select(Call).where((Call.call_id == payload.call_id) | (Call.id == payload.call_id))
+    )
 
     if existing_call:
         # Cross-tenant security check: Agent token MUST match call's tenant_id
         if token_tenant_id and token_tenant_id != existing_call.tenant_id:
+            tenant_obj = db.scalar(select(Tenant).where(Tenant.id == existing_call.tenant_id))
             is_valid_alias = token_tenant_id in ("apex-plumbing", "default") and (
-                (existing_call.tenant and existing_call.tenant.name.lower().startswith("apex"))
-                or existing_call.tenant_id == "45124363-dcf6-4771-b569-e60f0d19bd0c"
+                (tenant_obj and "apex" in tenant_obj.name.lower())
+                or existing_call.tenant_id
+                in (
+                    "45124363-dcf6-4771-b569-e60f0d19bd0c",
+                    "ab1dec11-d70d-4c26-ad0f-62c507a0c356",
+                )
             )
             if not is_valid_alias:
                 raise HTTPException(

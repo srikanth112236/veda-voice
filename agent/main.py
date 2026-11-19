@@ -430,7 +430,10 @@ async def entrypoint(ctx: JobContext) -> None:
         def _clean_str(val: Any) -> str:
             return str(val) if isinstance(val, str | int | float) else ""
 
-        safe_call_id = _clean_str(sip_info.get("call_id")) or _clean_str(room_name) or "call"
+        # Canonical call_id matches the room_name registered during /calls/start
+        safe_call_id = _clean_str(room_name) or _clean_str(sip_info.get("call_id")) or "call"
+        if sip_info.get("call_id"):
+            recorded_tags.add(f"sip_call_id:{sip_info['call_id']}")
         safe_dialed = _clean_str(sip_info.get("dialed_number"))
         safe_caller = _clean_str(sip_info.get("caller_number"))
 

@@ -352,11 +352,20 @@ def list_calls(
     if outcome:
         query = query.where(Call.outcome == outcome)
 
-    query = query.order_by(Call.started_at.desc()).limit(limit).offset(offset)
+    query = (
+        query.order_by(Call.started_at.desc(), Call.duration_s.desc())
+        .limit(limit * 2)
+        .offset(offset)
+    )
     calls = db.scalars(query).all()
 
     results = []
+    seen_call_ids: set[str] = set()
     for c in calls:
+        if c.call_id and c.call_id in seen_call_ids:
+            continue
+        if c.call_id:
+            seen_call_ids.add(c.call_id)
         caller_name = c.message.get("name") if c.message else None
         service_address = c.message.get("address") if c.message else None
 
@@ -382,6 +391,8 @@ def list_calls(
                 csat_score=getattr(c, "csat_score", 5.0) or 5.0,
             )
         )
+        if len(results) >= limit:
+            break
     return results
 
 
@@ -392,10 +403,12 @@ def get_call_detail(
     db: Session = Depends(get_db),
 ) -> Any:
     """Retrieve full call transcript and details strictly for this tenant."""
-    stmt = select(Call).where(
-        (Call.id == call_id) | (Call.call_id == call_id), Call.tenant_id == tenant.id
+    stmt = (
+        select(Call)
+        .where((Call.id == call_id) | (Call.call_id == call_id), Call.tenant_id == tenant.id)
+        .order_by(Call.duration_s.desc(), Call.started_at.desc())
     )
-    call = db.scalar(stmt)
+    call = db.scalars(stmt).first()
     if not call:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
 
@@ -491,23 +504,13 @@ def stream_call_audio(
         frames = bytearray()
         for i in range(n_samples):
             t = i / sample_rate
-            if t < 1.8:
-                # Telephone ringback tone (440Hz + 480Hz)
-                val = 0.28 * math.sin(2 * math.pi * 440 * t) + 0.28 * math.sin(
-                    2 * math.pi * 480 * t
-                )
-            elif t < 2.2:
-                # Connection click
-                val = 0.35 * math.sin(2 * math.pi * 1000 * t) * math.exp(-25 * (t - 1.8))
-            else:
-                # Rich acoustic conversational vocal harmonic modulation (220, 440, 880, 1320 Hz)
-                syllable = 0.5 * (1 + math.sin(2 * math.pi * 3.2 * t))
-                val = syllable * (
-                    0.35 * math.sin(2 * math.pi * 220 * t)
-                    + 0.25 * math.sin(2 * math.pi * 440 * t)
-                    + 0.15 * math.sin(2 * math.pi * 880 * t)
-                    + 0.08 * math.sin(2 * math.pi * 1320 * t)
-                )
+            # Natural soft telephony carrier sound wave (warm fundamental 220Hz with soft harmonics, zero harsh beeps)
+            syllable = 0.5 * (1 + math.sin(2 * math.pi * 1.8 * t))
+            val = syllable * (
+                0.20 * math.sin(2 * math.pi * 220 * t)
+                + 0.12 * math.sin(2 * math.pi * 440 * t)
+                + 0.05 * math.sin(2 * math.pi * 660 * t)
+            )
             sample = int(max(-32767, min(32767, val * 32767)))
             frames.extend(struct.pack("<h", sample))
         wav.writeframes(frames)
@@ -763,12 +766,8 @@ async def get_live_active_calls(
             started = started.replace(tzinfo=UTC)
         elapsed = max(0.0, (now - started).total_seconds())
 
-        # If LiveKit confirmed this room is no longer active in cloud and > 20s elapsed
-        if (
-            live_lk_room_names is not None
-            and c.call_id not in live_lk_room_names
-            and elapsed > 20.0
-        ):
+        # If LiveKit confirmed this room is no longer active in cloud, reconcile immediately
+        if live_lk_room_names is not None and c.call_id not in live_lk_room_names:
             c.ended_at = now
             c.outcome = "completed"
             c_tags = list(c.tags or [])
@@ -778,8 +777,8 @@ async def get_live_active_calls(
             updated_stale = True
             continue
 
-        # If call has 0 turns and has been waiting > 90 seconds, auto-mark abandoned
-        if (c.turn_count or 0) == 0 and elapsed > 90.0:
+        # If call has 0 turns and has been waiting > 60 seconds, auto-mark abandoned
+        if (c.turn_count or 0) == 0 and elapsed > 60.0:
             c.ended_at = now
             c.outcome = "abandoned"
             c_tags = list(c.tags or [])
@@ -865,7 +864,19 @@ async def end_active_call(
     if "ended_by_supervisor" not in tags_list:
         tags_list.append("ended_by_supervisor")
     call.tags = tags_list
+    # Ensure all DB instances with this call_id are terminated
+    db.query(Call).filter(
+        Call.call_id == call.call_id,
+        Call.tenant_id == tenant.id,
+        Call.ended_at.is_(None),
+    ).update({"ended_at": now, "outcome": "ended_by_supervisor"})
     db.commit()
+
+    # Broadcast termination event to supervisor sockets so UI updates instantly
+    await supervisor_manager.broadcast_call_event(
+        call.call_id,
+        {"event": "call_ended", "call_id": call.call_id, "action": "ended_by_supervisor"},
+    )
 
     return {"status": "success", "call_id": call.call_id, "message": "Call session terminated."}
 
@@ -1142,8 +1153,12 @@ async def websocket_call_supervision(websocket: WebSocket, call_id: str) -> None
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
-        stmt = select(Call).where((Call.id == call_id) | (Call.call_id == call_id))
-        call = db.scalar(stmt)
+        stmt = (
+            select(Call)
+            .where((Call.id == call_id) | (Call.call_id == call_id))
+            .order_by(Call.started_at.desc(), Call.duration_s.desc())
+        )
+        call = db.scalars(stmt).first()
         if not call:
             await websocket.close(code=status.WS_1000_NORMAL_CLOSURE)
             return
@@ -1155,7 +1170,7 @@ async def websocket_call_supervision(websocket: WebSocket, call_id: str) -> None
 
         resolved_call_id = call.call_id
 
-        # Register connection in supervisor manager
+        # Register connection in supervisor manager (accepts websocket)
         await supervisor_manager.connect_call(resolved_call_id, websocket)
 
         # Send initial snapshot
@@ -1167,6 +1182,7 @@ async def websocket_call_supervision(websocket: WebSocket, call_id: str) -> None
                 "caller_number": call.caller_number,
                 "dialed_number": call.dialed_number,
                 "started_at": call.started_at.isoformat() if call.started_at else None,
+                "ended_at": call.ended_at.isoformat() if call.ended_at else None,
                 "barge_in_active": getattr(call, "barge_in_active", False) or False,
                 "takeover_active": getattr(call, "takeover_active", False) or False,
                 "transfer_to_number": getattr(call, "transfer_to_number", None),
@@ -1175,6 +1191,16 @@ async def websocket_call_supervision(websocket: WebSocket, call_id: str) -> None
                 "turn_count": call.turn_count or 0,
             }
         )
+
+        if call.ended_at:
+            await websocket.send_json(
+                {
+                    "event": "call_ended",
+                    "call_id": resolved_call_id,
+                    "status": call.outcome,
+                    "message": "Call session has concluded.",
+                }
+            )
 
         try:
             while True:

@@ -43,67 +43,6 @@ import {
 } from "lucide-react";
 import { api, CallListItem, CallDetail, LiveActiveCallItem, TestCallSessionResponse } from "@/lib/api";
 
-function generateWavBlobUrl(durationSeconds: number): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const sampleRate = 16000;
-    const dur = Math.min(60, Math.max(8, Math.round(durationSeconds)));
-    const numSamples = dur * sampleRate;
-    const buffer = new ArrayBuffer(44 + numSamples * 2);
-    const view = new DataView(buffer);
-
-    const writeStr = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i));
-      }
-    };
-
-    writeStr(0, "RIFF");
-    view.setUint32(4, 36 + numSamples * 2, true);
-    writeStr(8, "WAVE");
-    writeStr(12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // PCM
-    view.setUint16(22, 1, true); // Mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeStr(36, "data");
-    view.setUint32(40, numSamples * 2, true);
-
-    let offset = 44;
-    for (let i = 0; i < numSamples; i++, offset += 2) {
-      const t = i / sampleRate;
-      let s = 0;
-      if (t < 1.8) {
-        // Telephone ringback tone (440Hz + 480Hz)
-        s = 0.28 * Math.sin(2 * Math.PI * 440 * t) + 0.28 * Math.sin(2 * Math.PI * 480 * t);
-      } else if (t < 2.2) {
-        // Line pickup click
-        s = 0.35 * Math.sin(2 * Math.PI * 1000 * t) * Math.exp(-25 * (t - 1.8));
-      } else {
-        // Human speech formants & vocal cadence (220Hz fundamental, 440Hz, 880Hz, 1320Hz harmonics)
-        const syllable = 0.5 * (1 + Math.sin(2 * Math.PI * 3.2 * t));
-        s = syllable * (
-          0.35 * Math.sin(2 * Math.PI * 220 * t) +
-          0.25 * Math.sin(2 * Math.PI * 440 * t) +
-          0.15 * Math.sin(2 * Math.PI * 880 * t) +
-          0.08 * Math.sin(2 * Math.PI * 1320 * t)
-        );
-      }
-      const sample = Math.max(-32768, Math.min(32767, Math.floor(s * 32767)));
-      view.setInt16(offset, sample, true);
-    }
-
-    const blob = new Blob([buffer], { type: "audio/wav" });
-    return URL.createObjectURL(blob);
-  } catch (err) {
-    console.warn("Failed to generate WAV blob URL:", err);
-    return "";
-  }
-}
-
 export default function CallsPage() {
   const [calls, setCalls] = useState<CallListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,7 +93,6 @@ export default function CallsPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [audioSourceType, setAudioSourceType] = useState<"stream" | "synthetic" | "none">("stream");
   const [activeAudioUrl, setActiveAudioUrl] = useState<string>("");
-  const [fallbackAudioUrl, setFallbackAudioUrl] = useState<string>("");
   const [copiedDetails, setCopiedDetails] = useState(false);
   const [markedFollowedUp, setMarkedFollowedUp] = useState<Record<string, boolean>>({});
 
@@ -323,9 +261,11 @@ export default function CallsPage() {
 
   const handleBargeIn = async (callId: string) => {
     setActionInProgress("barge_in");
+    const nextMicState = !isBargeMicActive;
+    setLiveCalls((prev) =>
+      prev.map((c) => (c.call_id === callId ? { ...c, barge_in_active: nextMicState } : c))
+    );
     try {
-      // Toggle browser microphone directly into LiveKit Room so both caller and agent hear supervisor
-      const nextMicState = !isBargeMicActive;
       if (livekitRoomRef.current) {
         await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(nextMicState);
       }
@@ -334,6 +274,7 @@ export default function CallsPage() {
       fetchLiveCalls();
     } catch (err: any) {
       alert("Failed to toggle barge-in microphone: " + (err.message || err));
+      fetchLiveCalls();
     } finally {
       setActionInProgress(null);
     }
@@ -348,8 +289,10 @@ export default function CallsPage() {
       return;
     }
     setActionInProgress("takeover");
+    setLiveCalls((prev) =>
+      prev.map((c) => (c.call_id === callId ? { ...c, takeover_active: true } : c))
+    );
     try {
-      // Immediately unmute supervisor microphone so customer hears human voice seamlessly
       if (livekitRoomRef.current) {
         await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(true);
         setIsBargeMicActive(true);
@@ -358,6 +301,7 @@ export default function CallsPage() {
       fetchLiveCalls();
     } catch (err: any) {
       alert("Failed to take over call: " + (err.message || err));
+      fetchLiveCalls();
     } finally {
       setActionInProgress(null);
     }
@@ -367,19 +311,25 @@ export default function CallsPage() {
     if (!confirm("Are you sure you want to end and dismiss this call session?")) {
       return;
     }
+    // Optimistically remove card and close modal immediately
+    setLiveCalls((prev) => prev.filter((c) => c.call_id !== callId && c.id !== callId));
+    if (supervisingCall?.call_id === callId) {
+      setSupervisingCall(null);
+    }
     setActionInProgress("end_call");
     try {
       if (livekitRoomRef.current && supervisingCall?.call_id === callId) {
         livekitRoomRef.current.disconnect();
         livekitRoomRef.current = null;
-        setSupervisingCall(null);
         setIsBargeMicActive(false);
       }
       await api.endCall(callId);
       fetchLiveCalls();
       fetchHistoricalCalls();
     } catch (err: any) {
-      alert("Failed to end call: " + (err.message || err));
+      console.warn("Notice ending call:", err?.message || err);
+      fetchLiveCalls();
+      fetchHistoricalCalls();
     } finally {
       setActionInProgress(null);
     }
@@ -514,12 +464,10 @@ export default function CallsPage() {
       .getPortalCallDetail(id)
       .then((res) => {
         setDetailCall(res);
-        const fallback = generateWavBlobUrl(res.duration_s || 60);
-        setFallbackAudioUrl(fallback);
-        const streamUrl = res.recording_url || `/api/v1/portal/calls/${res.call_id}/audio-stream`;
+        const streamUrl = res.recording_url || (res.call_id ? `/api/v1/portal/calls/${res.call_id}/audio-stream` : "");
         setActiveAudioUrl(streamUrl);
         setAudioSourceType("stream");
-        if (audioRef.current) {
+        if (audioRef.current && streamUrl) {
           audioRef.current.src = streamUrl;
           audioRef.current.load();
         }
@@ -538,21 +486,6 @@ export default function CallsPage() {
   }, [playbackSpeed, isMuted]);
 
   const handleTogglePlay = () => {
-    // 1. Unlock AudioContext within direct user click gesture
-    if (typeof window !== "undefined") {
-      try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtx && !synthAudioCtxRef.current) {
-          synthAudioCtxRef.current = new AudioCtx();
-        }
-        if (synthAudioCtxRef.current && synthAudioCtxRef.current.state === "suspended") {
-          synthAudioCtxRef.current.resume();
-        }
-      } catch (err) {
-        console.warn("AudioContext resume error:", err);
-      }
-    }
-
     if (isPlaying) {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -564,34 +497,36 @@ export default function CallsPage() {
     } else {
       setIsPlaying(true);
 
-      if (audioRef.current) {
+      const hasCloudRecording = Boolean(
+        detailCall?.recording_url &&
+        detailCall.recording_url.startsWith("http") &&
+        !detailCall.recording_url.includes("audio-stream")
+      );
+
+      if (hasCloudRecording && audioRef.current) {
         audioRef.current.muted = isMuted;
         audioRef.current.volume = isMuted ? 0 : 1.0;
         audioRef.current.playbackRate = playbackSpeed;
-        audioRef.current
-          .play()
-          .catch((err) => {
-            console.warn("Audio stream playback failed, switching to in-memory PCM WAV blob:", err);
-            if (fallbackAudioUrl && audioRef.current) {
-              audioRef.current.src = fallbackAudioUrl;
-              audioRef.current.load();
-              audioRef.current.play().catch(() => {});
-            }
-          });
-      }
-
-      // Speak real conversation aloud via Web Speech API
-      if (typeof window !== "undefined" && "speechSynthesis" in window && detailCall?.transcript?.length) {
+        audioRef.current.play().catch((err) => {
+          console.warn("Direct recording playback failed:", err);
+        });
+      } else if (
+        typeof window !== "undefined" &&
+        "speechSynthesis" in window &&
+        detailCall?.transcript &&
+        detailCall.transcript.length > 0
+      ) {
+        // High fidelity clean narration of real transcript turns without any dial-tone beeps
         try {
           window.speechSynthesis.cancel();
           const dialogLines = detailCall.transcript
             .map((t: any) => {
-              const speaker = t.role === "assistant" ? "Receptionist" : "Caller";
+              const speaker = t.role === "assistant" ? "Apex AI Receptionist" : "Customer";
               const text = t.text || t.content || t.message || "";
               return text ? `${speaker}: ${text}` : "";
             })
             .filter(Boolean)
-            .slice(0, 16)
+            .slice(0, 20)
             .join(". ");
 
           if (dialogLines.trim()) {
@@ -610,11 +545,20 @@ export default function CallsPage() {
                     v.name.includes("David"))
               ) || voices[0];
             if (preferredVoice) utterance.voice = preferredVoice;
+            utterance.onend = () => {
+              setIsPlaying(false);
+              setPlaybackProgress(100);
+            };
             window.speechSynthesis.speak(utterance);
           }
         } catch (speechErr) {
-          console.warn("Speech synthesis error:", speechErr);
+          console.warn("Speech synthesis notice:", speechErr);
         }
+      } else if (audioRef.current) {
+        audioRef.current.muted = isMuted;
+        audioRef.current.volume = isMuted ? 0 : 1.0;
+        audioRef.current.playbackRate = playbackSpeed;
+        audioRef.current.play().catch(() => {});
       }
     }
   };
@@ -1162,8 +1106,20 @@ export default function CallsPage() {
                       )}
                     </div>
                   </td>
-                  <td className="p-3.5 text-right text-zinc-500 font-sans text-[11px]">
-                    {new Date(call.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  <td className="p-3.5 text-right font-sans">
+                    <div className="font-semibold text-zinc-900 text-xs">
+                      {new Date(call.started_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </div>
+                    <div className="text-[11px] text-zinc-500 font-mono">
+                      {new Date(call.started_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -1177,14 +1133,45 @@ export default function CallsPage() {
         <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white border-l border-zinc-200 shadow-2xl p-6 z-50 overflow-y-auto space-y-6 animate-in slide-in-from-right duration-200">
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-zinc-200">
-            <div className="space-y-0.5">
-              <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider flex items-center gap-1.5 font-bold">
-                <Activity className="w-3.5 h-3.5 text-emerald-600" />
-                Call Telemetry &amp; Audio Inspection
-              </span>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider flex items-center gap-1.5 font-bold">
+                  <Activity className="w-3.5 h-3.5 text-emerald-600" />
+                  Call Telemetry &amp; Audio Inspection
+                </span>
+                {detailCall?.outcome && (
+                  <span
+                    className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${
+                      detailCall.outcome === "message_taken"
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        : detailCall.outcome === "ended_by_supervisor"
+                        ? "bg-purple-50 text-purple-700 border border-purple-200"
+                        : "bg-zinc-100 text-zinc-700 border border-zinc-200"
+                    }`}
+                  >
+                    {detailCall.outcome.replace(/_/g, " ")}
+                  </span>
+                )}
+              </div>
               <h2 className="text-base font-bold text-zinc-900 font-mono">
                 {detailCall?.call_id || "Loading..."}
               </h2>
+              {detailCall?.started_at && (
+                <div className="text-[11px] font-sans text-zinc-500">
+                  {new Date(detailCall.started_at).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}{" "}
+                  at{" "}
+                  {new Date(detailCall.started_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  • Duration: {Math.floor(detailCall.duration_s / 60)}m{" "}
+                  {Math.floor(detailCall.duration_s % 60)}s ({detailCall.turn_count} turns)
+                </div>
+              )}
             </div>
             <button
               onClick={() => setSelectedCallId(null)}
@@ -1202,7 +1189,7 @@ export default function CallsPage() {
             <div className="space-y-6">
               {/* Interactive Audio Player with Animated Waveform & Acoustic Engine */}
               <div className="p-5 rounded-2xl border border-zinc-200 bg-zinc-50 space-y-3">
-                {/* HTML5 Audio Stream Element with automatic sample stream fallback */}
+                {/* HTML5 Audio Stream Element */}
                 <audio
                   ref={audioRef}
                   src={
@@ -1213,19 +1200,6 @@ export default function CallsPage() {
                   preload="auto"
                   onTimeUpdate={handleAudioTimeUpdate}
                   onEnded={handleAudioEnded}
-                  onError={() => {
-                    console.warn("Audio stream load failed; defaulting to local PCM WAV blob");
-                    if (fallbackAudioUrl && activeAudioUrl !== fallbackAudioUrl) {
-                      setActiveAudioUrl(fallbackAudioUrl);
-                      if (audioRef.current) {
-                        audioRef.current.src = fallbackAudioUrl;
-                        audioRef.current.load();
-                        if (isPlaying) {
-                          audioRef.current.play().catch(() => {});
-                        }
-                      }
-                    }
-                  }}
                   className="hidden"
                 />
 
@@ -1785,7 +1759,7 @@ export default function CallsPage() {
                             : "text-zinc-500"
                         }`}
                       >
-                        ● {wsStatus}
+                        ● {wsStatus === "connected" ? "Live Stream Active" : wsStatus === "connecting" ? "Connecting to Stream..." : "Session Concluded / Dismissed"}
                       </span>
                     </span>
                   </div>
@@ -1802,6 +1776,26 @@ export default function CallsPage() {
 
             {/* Modal Body: Live Turn Feed & Events */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 font-sans text-xs bg-zinc-50/30">
+              {wsStatus === "disconnected" && (
+                <div className="p-3.5 rounded-xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-between shadow-2xs">
+                  <div>
+                    <div className="font-bold text-xs text-zinc-900">Call Session Concluded</div>
+                    <div className="text-[11px] text-zinc-500">The LiveKit audio room has concluded and capacity has been released.</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupervisingCall(null);
+                      fetchLiveCalls();
+                      fetchHistoricalCalls();
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-mono text-[11px] font-semibold transition-colors"
+                  >
+                    Close Supervision
+                  </button>
+                </div>
+              )}
+
               <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2 font-mono">
                   <Radio className={`w-4 h-4 ${webrtcAudioActive ? "text-emerald-600 animate-pulse" : "text-amber-500"}`} />

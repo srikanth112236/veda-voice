@@ -70,10 +70,30 @@ az acr build \
 
 # 4. Trigger Container Apps Revisions Update
 echo "--> [4/5] Deploying Fresh Container App Revisions..."
+echo "    Ensuring ACR admin credentials are configured on container apps..."
+az acr update --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --admin-enabled true --output none 2>/dev/null || true
+ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || echo "")
+ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
+
+for app_name in api dashboard agent; do
+  if az containerapp show --name "$app_name" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+    az containerapp registry set \
+      --name "$app_name" \
+      --resource-group "$RESOURCE_GROUP" \
+      --server "$ACR_LOGIN_SERVER" \
+      --username "$ACR_USER" \
+      --password "$ACR_PASS" 2>/dev/null || true
+  fi
+done
+
 az containerapp update \
   --name api \
   --resource-group "$RESOURCE_GROUP" \
-  --image "${ACR_LOGIN_SERVER}/api:${IMAGE_TAG}"
+  --image "${ACR_LOGIN_SERVER}/api:${IMAGE_TAG}" \
+  --set-env-vars \
+    LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+    LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+    LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA"
 
 az containerapp update \
   --name dashboard \
@@ -82,20 +102,7 @@ az containerapp update \
 
 # 4.3 Update or Create Voice Agent Worker Container App (24/7 Cloud Receptionist)
 echo "--> [4.3/5] Deploying Voice Agent Worker Container App..."
-echo "    Ensuring ACR admin user is enabled for container pulls..."
-az acr update --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --admin-enabled true --output none 2>/dev/null || true
-ACR_USER=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || echo "")
-ACR_PASS=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
-
 if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-  echo "    Configuring registry credentials on existing 'agent' container app..."
-  az containerapp registry set \
-    --name agent \
-    --resource-group "$RESOURCE_GROUP" \
-    --server "$ACR_LOGIN_SERVER" \
-    --username "$ACR_USER" \
-    --password "$ACR_PASS" 2>/dev/null || true
-
   echo "    Updating existing 'agent' container app..."
   az containerapp update \
     --name agent \
