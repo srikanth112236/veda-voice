@@ -34,7 +34,7 @@ def create_opt_out_tool(
         }
 
         # 1. Attempt HTTP request to control plane
-        base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+        base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
         url = f"{base_url}/api/v1/internal/calls/opt-out"
 
         try:

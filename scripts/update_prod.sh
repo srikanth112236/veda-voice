@@ -58,6 +58,14 @@ az acr build \
   --image "dashboard:latest" \
   --file dashboard/Dockerfile .
 
+# 3.1 Build Updated Voice Agent Image
+echo "--> [3.1/5] Building Updated Voice Agent Container Image in ACR (Tag: $IMAGE_TAG)..."
+az acr build \
+  --registry "$ACR_NAME" \
+  --image "agent:${IMAGE_TAG}" \
+  --image "agent:latest" \
+  --file agent/Dockerfile .
+
 # 4. Trigger Container Apps Revisions Update
 echo "--> [4/5] Deploying Fresh Container App Revisions..."
 az containerapp update \
@@ -69,6 +77,38 @@ az containerapp update \
   --name dashboard \
   --resource-group "$RESOURCE_GROUP" \
   --image "${ACR_LOGIN_SERVER}/dashboard:${IMAGE_TAG}"
+
+# 4.3 Update or Create Voice Agent Worker Container App (24/7 Cloud Receptionist)
+echo "--> [4.3/5] Deploying Voice Agent Worker Container App..."
+if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+  echo "    Updating existing 'agent' container app..."
+  az containerapp update \
+    --name agent \
+    --resource-group "$RESOURCE_GROUP" \
+    --image "${ACR_LOGIN_SERVER}/agent:${IMAGE_TAG}" \
+    --set-env-vars \
+      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+      API_BASE_URL="$API_URL" \
+      PROD_API_URL="$API_URL"
+else
+  echo "    Creating new 'agent' container app..."
+  ENV_NAME=$(az containerapp env list --resource-group "$RESOURCE_GROUP" --query "[0].name" -o tsv 2>/dev/null || echo "env-vagency-prod")
+  az containerapp create \
+    --name agent \
+    --resource-group "$RESOURCE_GROUP" \
+    --environment "$ENV_NAME" \
+    --image "${ACR_LOGIN_SERVER}/agent:${IMAGE_TAG}" \
+    --cpu 0.5 --memory 1.0Gi \
+    --min-replicas 1 --max-replicas 5 \
+    --env-vars \
+      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+      API_BASE_URL="$API_URL" \
+      PROD_API_URL="$API_URL"
+fi
 
 # 5. Run DB Migration Job
 echo "--> [5/5] Starting Database Migrations (alembic upgrade head)..."

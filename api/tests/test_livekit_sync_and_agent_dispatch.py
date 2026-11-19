@@ -148,3 +148,49 @@ def test_dynamic_api_resolution_for_livekit_worker() -> None:
     assert resolved.business == f"Dynamic Auto {unique_suffix}"
     assert resolved.voice_id == "Dennis"
     assert resolved.agent_name == "Dennis"
+
+
+def test_livekit_webhook_lifecycle_and_call_reconciliation() -> None:
+    """Verify that LiveKit webhook room_started and room_finished events record and reconcile calls."""
+    room_id = f"test-room-{uuid.uuid4().hex[:8]}"
+
+    # 1. room_started event
+    start_payload = {
+        "event": "room_started",
+        "room": {
+            "name": room_id,
+            "sid": f"RM_{uuid.uuid4().hex[:12]}",
+        },
+        "participant": {
+            "identity": "caller-1",
+            "attributes": {
+                "caller_number": "+15125550199",
+                "dialed_number": "+18005550100",
+            },
+        },
+    }
+
+    start_res = client.post(
+        "/api/v1/internal/livekit/webhook",
+        json=start_payload,
+    )
+    assert start_res.status_code == 200
+    assert start_res.json()["status"] == "ok"
+    assert start_res.json()["call_id"] == room_id
+
+    # 2. room_finished event
+    finish_payload = {
+        "event": "room_finished",
+        "room": {
+            "name": room_id,
+            "sid": start_payload["room"]["sid"],
+        },
+    }
+
+    finish_res = client.post(
+        "/api/v1/internal/livekit/webhook",
+        json=finish_payload,
+    )
+    assert finish_res.status_code == 200
+    assert finish_res.json()["status"] == "ok"
+    assert finish_res.json()["call_id"] == room_id

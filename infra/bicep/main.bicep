@@ -35,6 +35,9 @@ param apiImage string = ''
 @description('Optional initial Dashboard container image')
 param dashboardImage string = ''
 
+@description('Optional initial Agent worker container image')
+param agentImage string = ''
+
 @description('Optional pre-provisioned PostgreSQL Server FQDN')
 param existingPostgresFqdn string = ''
 
@@ -129,6 +132,7 @@ module containerAppsModule 'modules/containerapps.bicep' = {
     acrPassword: acrModule.outputs.acrAdminPassword
     apiImage: empty(apiImage) ? '${acrModule.outputs.acrLoginServer}/api:latest' : apiImage
     dashboardImage: empty(dashboardImage) ? '${acrModule.outputs.acrLoginServer}/dashboard:latest' : dashboardImage
+    agentImage: empty(agentImage) ? '${acrModule.outputs.acrLoginServer}/agent:latest' : agentImage
     databaseUrl: databaseUrl
     jwtSecret: jwtSecret
     internalSigningKey: internalSigningKey

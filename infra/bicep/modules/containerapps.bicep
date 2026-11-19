@@ -24,6 +24,9 @@ param apiImage string
 @description('Dashboard Container Image')
 param dashboardImage string
 
+@description('Voice Agent Worker Container Image')
+param agentImage string = ''
+
 @description('Database Connection URL')
 @secure()
 param databaseUrl string
@@ -325,7 +328,68 @@ resource notifierApp 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
-// 6. Database Migration Job (One-shot execution triggered before release)
+// 6. Voice Agent Worker (LiveKit Cloud Voice Receptionist)
+resource agentApp 'Microsoft.App/containerApps@2023-05-01' = {
+  name: 'agent'
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    managedEnvironmentId: containerAppEnv.id
+    configuration: {
+      secrets: [
+        {
+          name: 'acr-password'
+          value: acrPassword
+        }
+        {
+          name: 'signing-key'
+          value: internalSigningKey
+        }
+      ]
+      registries: [
+        {
+          server: acrLoginServer
+          username: acrUsername
+          passwordSecretRef: 'acr-password'
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'agent'
+          image: !empty(agentImage) ? agentImage : '${acrLoginServer}/agent:latest'
+          resources: {
+            cpu: json('0.5')
+            memory: '1.0Gi'
+          }
+          env: [
+            {
+              name: 'LIVEKIT_URL'
+              value: 'wss://steyzi-xvk89l73.livekit.cloud'
+            }
+            {
+              name: 'API_BASE_URL'
+              value: 'https://${apiApp.properties.configuration.ingress.fqdn}'
+            }
+            {
+              name: 'INTERNAL_SIGNING_KEY'
+              secretRef: 'signing-key'
+            }
+          ]
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 5
+      }
+    }
+  }
+}
+
+// 7. Database Migration Job (One-shot execution triggered before release)
 resource migrationJob 'Microsoft.App/jobs@2023-05-01' = {
   name: 'db-migrate-job'
   location: location

@@ -20,7 +20,8 @@ RUN groupadd -g 10001 appgroup && \
     useradd -u 10001 -g appgroup -s /bin/bash -m appuser
 
 COPY agent /app/agent
-RUN chown -R appuser:appgroup /app
+COPY api /app/api
+RUN mkdir -p /app/data && chown -R appuser:appgroup /app
 
 USER appuser
 

@@ -48,6 +48,14 @@ jobs:
             --image dashboard:latest \
             --file dashboard/Dockerfile .
 
+      - name: Build & Push Voice Agent Worker Image to ACR
+        run: |
+          az acr build \
+            --registry ${{ steps.vars.outputs.ACR_NAME }} \
+            --image agent:${{ steps.vars.outputs.SHA_SHORT }} \
+            --image agent:latest \
+            --file agent/Dockerfile .
+
       - name: Run Database Migration Job (Alembic)
         run: |
           echo "Triggering database migration job in Container Apps..."
@@ -82,6 +90,13 @@ jobs:
             --name notifier \
             --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }}
+
+      - name: Update Container App: Voice Agent Worker
+        run: |
+          az containerapp update \
+            --name agent \
+            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
+            --image ${{ steps.vars.outputs.ACR_SERVER }}/agent:${{ steps.vars.outputs.SHA_SHORT }} || echo "agent container app not provisioned yet in RG"
 
       - name: Deploy Voice Agent to LiveKit Cloud
         if: ${{ secrets.LIVEKIT_ACCESS_TOKEN != '' }}

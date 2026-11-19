@@ -145,8 +145,18 @@ def sync_call_record_to_api(
     import urllib.error
     import urllib.request
 
-    base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-    url = f"{base_url}/api/v1/internal/calls/complete"
+    targets: list[str] = []
+    if api_base_url:
+        targets.append(api_base_url.rstrip("/"))
+    else:
+        main_url = os.getenv("API_BASE_URL", "").rstrip("/")
+        prod_url = os.getenv("PROD_API_URL", "").rstrip("/")
+        if main_url:
+            targets.append(main_url)
+        if prod_url and prod_url not in targets:
+            targets.append(prod_url)
+        if not targets:
+            targets.append("http://127.0.0.1:8000")
 
     # Ensure a valid token if not explicitly provided
     token = call_token
@@ -185,51 +195,64 @@ def sync_call_record_to_api(
         "transcript": [t.model_dump() for t in record.transcript],
     }
 
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {token}" if token else "",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "LiveKit-Agent-Worker/1.0",
-        },
-        method="POST",
-    )
+    synced_any = False
+    for base_url in targets:
+        url = f"{base_url}/api/v1/internal/calls/complete"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}" if token else "",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "LiveKit-Agent-Worker/1.0",
+            },
+            method="POST",
+        )
 
-    try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            if resp.status == 200:
-                logger.info(
-                    "Successfully synced call record %s to control plane API", record.call_id
-                )
-                return True
-    except Exception as e:
-        logger.debug("HTTP call to /internal/calls/complete failed (%s); trying in-process", e)
-        # In-process fallback when running in tests or within same Python interpreter
         try:
-            from fastapi import BackgroundTasks
-
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import (
-                CallCompletionPayload,
-                save_call_record_from_agent,
+            with urllib.request.urlopen(req, timeout=8.0) as resp:
+                if resp.status == 200:
+                    logger.info(
+                        "Successfully synced call record %s to control plane API at %s",
+                        record.call_id,
+                        base_url,
+                    )
+                    synced_any = True
+        except Exception as e:
+            logger.debug(
+                "HTTP call to %s failed (%s); trying fallback",
+                url,
+                e,
             )
 
-            with SessionLocal() as db:
-                bg = BackgroundTasks()
-                auth_header = f"Bearer {token}" if token else None
-                completion_payload = CallCompletionPayload.model_validate(payload)
-                res = save_call_record_from_agent(
-                    payload=completion_payload,
-                    background_tasks=bg,
-                    authorization=auth_header,
-                    db=db,
-                )
-                if res.get("status") == "ok":
-                    logger.info("In-process synced call record %s to database", record.call_id)
-                    return True
-        except Exception as inner_e:
-            logger.warning("Failed to sync call record %s to live DB: %s", record.call_id, inner_e)
+    if synced_any:
+        return True
+
+    # In-process fallback when running in tests or within same Python interpreter
+    try:
+        from fastapi import BackgroundTasks
+
+        from api.app.db.session import SessionLocal
+        from api.app.routers.internal import (
+            CallCompletionPayload,
+            save_call_record_from_agent,
+        )
+
+        with SessionLocal() as db:
+            bg = BackgroundTasks()
+            auth_header = f"Bearer {token}" if token else None
+            completion_payload = CallCompletionPayload.model_validate(payload)
+            res = save_call_record_from_agent(
+                payload=completion_payload,
+                background_tasks=bg,
+                authorization=auth_header,
+                db=db,
+            )
+            if res.get("status") == "ok":
+                logger.info("In-process synced call record %s to database", record.call_id)
+                return True
+    except Exception as inner_e:
+        logger.warning("Failed to sync call record %s to live DB: %s", record.call_id, inner_e)
 
     return False

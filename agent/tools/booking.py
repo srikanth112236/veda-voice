@@ -27,7 +27,7 @@ def _call_internal_calendar_api(
     api_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Execute authenticated HTTP POST request to internal control plane."""
-    base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
+    base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
     url = f"{base_url}/api/v1/internal/calendar/{endpoint_path.lstrip('/')}"
 
     req = urllib.request.Request(

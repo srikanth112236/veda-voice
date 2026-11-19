@@ -133,6 +133,8 @@ Write-Host "    Building API image..."
 az acr build --registry $AcrName --image api:latest --file api/Dockerfile . --output none
 Write-Host "    Building Dashboard image..."
 az acr build --registry $AcrName --image dashboard:latest --file dashboard/Dockerfile . --output none
+Write-Host "    Building Voice Agent Worker image..."
+az acr build --registry $AcrName --image agent:latest --file agent/Dockerfile . --output none
 Write-Host "    [DONE] Docker images built and stored in ACR." -ForegroundColor Green
 
 # 7. Run Migration Job
@@ -146,6 +148,7 @@ az containerapp update --name api --resource-group $ResourceGroupName --image "$
 az containerapp update --name dashboard --resource-group $ResourceGroupName --image "$AcrLoginServer/dashboard:latest" --output none
 az containerapp update --name dialer --resource-group $ResourceGroupName --image "$AcrLoginServer/api:latest" --output none
 az containerapp update --name notifier --resource-group $ResourceGroupName --image "$AcrLoginServer/api:latest" --output none
+az containerapp update --name agent --resource-group $ResourceGroupName --image "$AcrLoginServer/agent:latest" --output none 2>$null
 Write-Host "    [DONE] Container Apps updated with zero downtime." -ForegroundColor Green
 
 # 9. Verify Live Health
