@@ -94,6 +94,18 @@ def _call_internal_calendar_api(
                         db=db,
                     )
                     return dict(res_cancel)
+                if endpoint_path == "send-link":
+                    from api.app.routers.internal import (
+                        SendBookingLinkRequest,
+                        send_self_serve_booking_link_sync,
+                    )
+
+                    res_send = send_self_serve_booking_link_sync(
+                        payload=SendBookingLinkRequest(**payload),
+                        authorization=auth_hdr,
+                        db=db,
+                    )
+                    return dict(res_send)
         except Exception as inner_e:
             logger.error("In-process internal calendar execution failed: %s", inner_e)
             raise inner_e
@@ -187,6 +199,22 @@ def cancel_appointment(
     return _call_internal_calendar_api(
         endpoint_path="cancel",
         payload={"booking_id": booking_id},
+        call_token=call_token,
+    )
+
+
+def send_booking_link(
+    call_token: str,
+    phone_number: str,
+    customer_name: str = "Valued Customer",
+) -> dict[str, Any]:
+    """Dispatch self-serve SMS booking link directly to caller mobile phone."""
+    return _call_internal_calendar_api(
+        endpoint_path="send-link",
+        payload={
+            "phone_number": phone_number,
+            "customer_name": customer_name,
+        },
         call_token=call_token,
     )
 
@@ -381,9 +409,42 @@ def create_booking_tools(call_token: str, caller_phone: str = "") -> list[Functi
         except Exception as e:
             return f"Error cancelling appointment: {e}"
 
+    @function_tool(
+        description="Text a direct self-serve booking link (Calendly or scheduling portal) straight to the caller's phone via SMS if they prefer to choose a time on their phone, book online, or schedule later."
+    )
+    async def send_booking_link_tool(
+        phone_number: Annotated[
+            str,
+            "Mobile phone number to receive the text message. If blank, automatically uses caller ID.",
+        ] = "",
+        customer_name: Annotated[
+            str, "Customer's name if known, or 'Valued Customer'"
+        ] = "Valued Customer",
+    ) -> str:
+        """Send self-serve booking link via SMS."""
+        target_phone = phone_number.strip() or caller_phone.strip()
+        if not target_phone:
+            return "Please ask the caller for their mobile phone number so I can text them our booking link."
+        try:
+            res = await asyncio.to_thread(
+                send_booking_link,
+                call_token=call_token,
+                phone_number=target_phone,
+                customer_name=customer_name.strip() or "Valued Customer",
+            )
+            if res.get("success"):
+                return (
+                    f"Direct scheduling link successfully texted to {target_phone}. "
+                    "Warmly let the caller know that the scheduling link has been sent to their phone, and they can open it anytime to choose their preferred time."
+                )
+            return f"Unable to text booking link: {res.get('message', 'SMS service unavailable')}"
+        except Exception as e:
+            return f"Error sending booking link: {e}"
+
     return [
         check_availability_tool,
         hold_slot_tool,
         book_appointment_tool,
         cancel_appointment_tool,
+        send_booking_link_tool,
     ]

@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
@@ -20,10 +20,12 @@ from api.app.core.deps import get_current_tenant
 from api.app.core.encryption import encrypt_token
 from api.app.db.session import get_db
 from api.app.models.booking import Booking, TenantIntegration
+from api.app.models.crm import Contact
 from api.app.models.tenant import Tenant
 from api.app.services.calendar.availability import _get_tenant_calendar_provider
 from api.app.services.calendar.base import ExternalEvent
 from api.app.services.calendar.booking import cancel_booking
+from api.app.services.notifier import TelnyxSmsDispatcher, dispatch_booking_notifications
 
 logger = logging.getLogger("vedavoice.portal.calendar")
 
@@ -331,3 +333,258 @@ def handle_google_calendar_push_webhook(
     """Receive Google Calendar push notifications (X-Goog-Resource-State)."""
     logger.info("Google Calendar webhook push notification received.")
     return {"status": "received"}
+
+
+class CalendlyConfigRequest(BaseModel):
+    calendly_url: str
+    webhook_secret: str | None = None
+
+
+class CalendlyConfigResponse(BaseModel):
+    is_configured: bool
+    calendly_url: str | None
+    webhook_endpoint: str
+
+
+class CalendlyTestSMSRequest(BaseModel):
+    phone_number: str
+    customer_name: str = "Valued Customer"
+
+
+@router.get("/calendly", response_model=CalendlyConfigResponse)
+def get_calendly_config(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Retrieve tenant's configured Calendly link and webhook status."""
+    integration = db.scalar(
+        select(TenantIntegration).where(
+            TenantIntegration.tenant_id == tenant.id,
+            TenantIntegration.provider == "calendly",
+        )
+    )
+    url = integration.calendar_id if integration and integration.calendar_id != "primary" else None
+    return CalendlyConfigResponse(
+        is_configured=bool(url),
+        calendly_url=url,
+        webhook_endpoint="/api/v1/portal/calendar/calendly/webhook",
+    )
+
+
+@router.post("/calendly", response_model=CalendlyConfigResponse)
+def update_calendly_config(
+    payload: CalendlyConfigRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Save or update tenant's Calendly scheduling link."""
+    integration = db.scalar(
+        select(TenantIntegration).where(
+            TenantIntegration.tenant_id == tenant.id,
+            TenantIntegration.provider == "calendly",
+        )
+    )
+    clean_url = payload.calendly_url.strip()
+    if integration:
+        integration.calendar_id = clean_url
+        integration.status = "connected"
+        integration.updated_at = datetime.now(UTC)
+    else:
+        integration = TenantIntegration(
+            tenant_id=tenant.id,
+            provider="calendly",
+            status="connected",
+            calendar_id=clean_url,
+            encrypted_tokens="",
+        )
+        db.add(integration)
+
+    db.commit()
+    return CalendlyConfigResponse(
+        is_configured=True,
+        calendly_url=clean_url,
+        webhook_endpoint="/api/v1/portal/calendar/calendly/webhook",
+    )
+
+
+@router.post("/calendly/test-sms")
+def send_calendly_test_sms(
+    payload: CalendlyTestSMSRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Test in-call SMS booking link dispatch from portal."""
+    integration = db.scalar(
+        select(TenantIntegration).where(
+            TenantIntegration.tenant_id == tenant.id,
+            TenantIntegration.provider == "calendly",
+        )
+    )
+    if integration and integration.calendar_id and integration.calendar_id != "primary":
+        booking_url = integration.calendar_id
+    else:
+        tenant_slug = tenant.name.lower().replace(" ", "-").replace("&", "and")
+        booking_url = f"https://calendly.com/{tenant_slug}/service-visit"
+
+    clean_name = payload.customer_name.strip() or "Valued Customer"
+    msg_text = (
+        f"Hi {clean_name}! Here is your direct link to schedule service with {tenant.name}: {booking_url}\n\n"
+        f"Reply STOP to opt out."
+    )
+
+    sms_worker = TelnyxSmsDispatcher()
+    delivered = sms_worker.send(payload.phone_number, msg_text)
+
+    return {
+        "success": delivered,
+        "phone_number": payload.phone_number,
+        "booking_url": booking_url,
+        "message": f"Test SMS dispatched to {payload.phone_number}",
+    }
+
+
+@router.post("/calendly/webhook")
+def handle_calendly_inbound_webhook(
+    payload: dict[str, Any],
+    tenant_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Ingest Calendly webhook event (invitee.created / invitee.canceled) and sync to CRM and DB."""
+    event_type = payload.get("event")
+    event_payload = payload.get("payload", {})
+
+    logger.info("Calendly webhook received: event=%s", event_type)
+
+    if event_type == "invitee.created":
+        name = event_payload.get("name") or "Calendly Invitee"
+        email = event_payload.get("email")
+        phone = (
+            event_payload.get("text_reminder_number")
+            or event_payload.get("phone")
+            or "+15125550199"
+        )
+        scheduled_event = event_payload.get("scheduled_event", {})
+        start_str = scheduled_event.get("start_time")
+        end_str = scheduled_event.get("end_time")
+        event_name = scheduled_event.get("name") or "Service Appointment"
+        event_uri = scheduled_event.get("uri")
+
+        start_dt = (
+            datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            if start_str
+            else datetime.now(UTC) + timedelta(days=1)
+        )
+        end_dt = (
+            datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+            if end_str
+            else start_dt + timedelta(hours=1)
+        )
+
+        # Resolve tenant:
+        # 1. Direct tenant_id parameter or payload key
+        # 2. Match existing CRM Contact by phone or email
+        # 3. Match tenant with active Calendly integration
+        # 4. Fallback to active tenant
+        resolved_tenant_id = tenant_id or payload.get("tenant_id")
+        tenant = None
+        if resolved_tenant_id:
+            tenant = db.scalar(select(Tenant).where(Tenant.id == resolved_tenant_id))
+
+        if not tenant and (phone or email):
+            matched_contact = db.scalar(
+                select(Contact)
+                .where(or_(Contact.phone == phone, Contact.email == email))
+                .order_by(Contact.created_at.desc())
+            )
+            if matched_contact:
+                tenant = db.scalar(select(Tenant).where(Tenant.id == matched_contact.tenant_id))
+
+        if not tenant:
+            tenant_integ = db.scalar(
+                select(TenantIntegration).where(
+                    TenantIntegration.provider == "calendly",
+                    TenantIntegration.status == "connected",
+                )
+            )
+            if tenant_integ:
+                tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_integ.tenant_id))
+
+        if not tenant:
+            tenant = db.scalar(
+                select(Tenant).where(Tenant.status == "active").order_by(Tenant.created_at.asc())
+            )
+
+        if not tenant:
+            return {"status": "ignored", "reason": "no_active_tenant"}
+
+        # 1. Register or update Booking in DB
+        booking = Booking(
+            tenant_id=tenant.id,
+            customer_name=name,
+            customer_phone=phone,
+            customer_email=email,
+            service_type=event_name.lower().replace(" ", "_"),
+            start_at=start_dt,
+            end_at=end_dt,
+            status="confirmed",
+            calendar_event_id=event_uri,
+            notes=f"Booked via Calendly self-serve link: {event_name}",
+        )
+        db.add(booking)
+
+        # 2. Synchronize to native CRM Contact (Stage: 'booked')
+        existing_contact = db.scalar(
+            select(Contact).where(Contact.tenant_id == tenant.id, Contact.phone == phone)
+        )
+        if existing_contact:
+            existing_contact.stage = "booked"
+            existing_contact.last_contact_at = datetime.now(UTC)
+            tags = list(existing_contact.tags or [])
+            if "calendly_booking" not in tags:
+                tags.append("calendly_booking")
+            existing_contact.tags = tags
+        else:
+            new_contact = Contact(
+                tenant_id=tenant.id,
+                name=name,
+                phone=phone,
+                email=email,
+                source="calendly",
+                stage="booked",
+                tags=["calendly_booking", "self_serve"],
+                notes=f"Booked appointment via Calendly: {event_name}",
+            )
+            db.add(new_contact)
+
+        db.commit()
+        db.refresh(booking)
+
+        # 3. Trigger Phase 5 automated customer & technician notifications
+        try:
+            import threading
+
+            threading.Thread(
+                target=dispatch_booking_notifications,
+                args=(booking.id, tenant.id),
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.warning("Could not dispatch booking notifications for Calendly booking: %s", e)
+
+        return {
+            "status": "ingested",
+            "booking_id": booking.id,
+            "customer_name": name,
+            "crm_updated": True,
+        }
+
+    elif event_type == "invitee.canceled":
+        event_uri = event_payload.get("scheduled_event", {}).get("uri")
+        if event_uri:
+            b = db.scalar(select(Booking).where(Booking.calendar_event_id == event_uri))
+            if b:
+                b.status = "cancelled"
+                db.commit()
+                return {"status": "cancelled", "booking_id": b.id}
+
+    return {"status": "received", "event": event_type}

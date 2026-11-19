@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -812,3 +812,18 @@ def test_webhook_dispatch(
     )
 
     return {"success": True, "delivery_result": result}
+
+
+@router.post("/calendly/webhook")
+def handle_calendly_webhook_alias(
+    payload: dict[str, Any],
+    tenant_id: str | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Alias for Calendly webhook ingestion under /api/v1/integrations/calendly/webhook."""
+    from api.app.routers.calendar import handle_calendly_inbound_webhook
+
+    return cast(
+        dict[str, Any],
+        handle_calendly_inbound_webhook(payload=payload, tenant_id=tenant_id, db=db),
+    )

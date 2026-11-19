@@ -20,7 +20,10 @@ from sqlalchemy import select
 
 from api.app.core.config import settings
 from api.app.db.session import SessionLocal
+from api.app.models.booking import Booking
 from api.app.models.call import Call
+from api.app.models.location import Location
+from api.app.models.staff import StaffMember
 from api.app.models.tenant import Tenant
 from api.app.models.user import User
 
@@ -217,15 +220,31 @@ def format_sms_text(payload: CallNotificationPayload) -> str:
 class EmailDispatcher(Protocol):
     """Interface for delivering email notifications."""
 
-    def send(self, to_email: str, subject: str, text: str, html: str) -> bool: ...
+    def send(
+        self,
+        to_email: str,
+        subject: str,
+        text: str,
+        html: str,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> bool: ...
 
 
 class ConsoleEmailDispatcher:
     """Fallback dispatcher that logs emails to console."""
 
-    def send(self, to_email: str, subject: str, text: str, html: str) -> bool:
+    def send(
+        self,
+        to_email: str,
+        subject: str,
+        text: str,
+        html: str,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        att_note = f" (Attachments: {len(attachments)})" if attachments else ""
         logger.info(
-            "\n[DISPATCH CONSOLE EMAIL]\nTo: %s\nSubject: %s\nBody:\n%s\n",
+            "\n[DISPATCH CONSOLE EMAIL]%s\nTo: %s\nSubject: %s\nBody:\n%s\n",
+            att_note,
             to_email,
             subject,
             text,
@@ -240,18 +259,27 @@ class ResendEmailDispatcher:
         self.api_key = api_key or settings.RESEND_API_KEY
         self.from_email = from_email or settings.RESEND_FROM_EMAIL
 
-    def send(self, to_email: str, subject: str, text: str, html: str) -> bool:
+    def send(
+        self,
+        to_email: str,
+        subject: str,
+        text: str,
+        html: str,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> bool:
         if not self.api_key:
             logger.debug("RESEND_API_KEY not configured. Falling back to ConsoleEmailDispatcher.")
-            return ConsoleEmailDispatcher().send(to_email, subject, text, html)
+            return ConsoleEmailDispatcher().send(to_email, subject, text, html, attachments)
 
-        payload = {
+        payload: dict[str, Any] = {
             "from": f"VedaVoice Alerts <{self.from_email}>",
             "to": [to_email],
             "subject": subject,
             "text": text,
             "html": html,
         }
+        if attachments:
+            payload["attachments"] = attachments
 
         req = urllib.request.Request(
             "https://api.resend.com/emails",
@@ -573,6 +601,281 @@ def dispatch_call_notifications(
 
     except Exception as e:
         logger.exception("Error in dispatch_call_notifications for call %s: %s", call_id, e)
+        return {"status": "error", "error": str(e)}
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Phase 5: Automated Booking Notifications & Staff Dispatch
+# ===========================================================================
+
+
+class BookingNotificationPayload(BaseModel):
+    """Normalized payload for confirmed booking notifications."""
+
+    booking_id: str
+    tenant_id: str
+    tenant_name: str
+    tenant_phone: str = ""
+    customer_name: str
+    customer_phone: str
+    customer_email: str | None = None
+    service_type: str
+    service_address: str | None = None
+    start_at: datetime
+    end_at: datetime
+    technician_name: str | None = None
+    technician_phone: str | None = None
+    technician_email: str | None = None
+    meet_link: str | None = None
+    notes: str | None = None
+    reschedule_url: str | None = None
+
+
+def generate_ics_calendar_invite(payload: BookingNotificationPayload) -> str:
+    """Generate RFC 5545 iCalendar (.ics) string for customer appointment invitation."""
+    dt_fmt = "%Y%m%dT%H%M%SZ"
+    start_utc = payload.start_at.astimezone(UTC).strftime(dt_fmt)
+    end_utc = payload.end_at.astimezone(UTC).strftime(dt_fmt)
+    now_utc = datetime.now(UTC).strftime(dt_fmt)
+
+    summary = f"{payload.service_type.replace('_', ' ').title()} - {payload.tenant_name}"
+    description = (
+        f"Service: {payload.service_type}\\n"
+        f"Customer: {payload.customer_name} ({payload.customer_phone})\\n"
+        f"Assigned Technician: {payload.technician_name or 'On-Call Technician'}\\n"
+        f"Notes: {payload.notes or 'Booked via VedaVoice'}"
+    )
+    if payload.meet_link:
+        description += f"\\nGoogle Meet: {payload.meet_link}"
+
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//VedaVoice//Appointment Booking//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:REQUEST",
+        "BEGIN:VEVENT",
+        f"UID:booking-{payload.booking_id}@vedavoice.ai",
+        f"DTSTAMP:{now_utc}",
+        f"DTSTART:{start_utc}",
+        f"DTEND:{end_utc}",
+        f"SUMMARY:{summary}",
+        f"DESCRIPTION:{description}",
+        f"LOCATION:{payload.service_address or payload.tenant_name}",
+        "STATUS:CONFIRMED",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
+    return "\r\n".join(lines)
+
+
+def format_booking_customer_email_html(payload: BookingNotificationPayload) -> str:
+    """Format modern, responsive HTML customer appointment confirmation."""
+    date_str = payload.start_at.strftime("%A, %B %d, %Y")
+    start_time = payload.start_at.strftime("%I:%M %p").lstrip("0")
+    end_time = payload.end_at.strftime("%I:%M %p").lstrip("0")
+    tech_str = payload.technician_name or "Certified Technician"
+
+    meet_btn_html = ""
+    if payload.meet_link:
+        meet_btn_html = f"""
+        <div style="margin: 20px 0; text-align: center;">
+          <a href="{payload.meet_link}" style="background-color: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+            📹 Join Google Meet Video Consultation
+          </a>
+        </div>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f8fafc; padding: 24px; color: #1e293b;">
+      <div style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+        <div style="background-color: #0f172a; padding: 24px; text-align: center; color: #ffffff;">
+          <h1 style="margin: 0; font-size: 20px; font-weight: 700;">{payload.tenant_name}</h1>
+          <p style="margin: 4px 0 0; font-size: 13px; color: #94a3b8;">Appointment Confirmation</p>
+        </div>
+        <div style="padding: 28px;">
+          <h2 style="font-size: 16px; margin: 0 0 12px; color: #0f172a;">Hi {payload.customer_name},</h2>
+          <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 20px;">
+            Your service appointment is confirmed! Our technician will arrive within your scheduled arrival window.
+          </p>
+          <div style="background: #f1f5f9; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+            <div style="margin-bottom: 10px;">
+              <span style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; display: block;">Service</span>
+              <strong style="font-size: 14px; color: #0f172a;">{payload.service_type.replace('_', ' ').title()}</strong>
+            </div>
+            <div style="margin-bottom: 10px;">
+              <span style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; display: block;">Date & Time</span>
+              <strong style="font-size: 14px; color: #0f172a;">{date_str}</strong><br/>
+              <span style="font-size: 13px; color: #334155;">{start_time} – {end_time}</span>
+            </div>
+            <div style="margin-bottom: 10px;">
+              <span style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; display: block;">Service Location</span>
+              <span style="font-size: 13px; color: #334155;">{payload.service_address or 'Service address confirmed with coordinator'}</span>
+            </div>
+            <div>
+              <span style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; display: block;">Assigned Technician</span>
+              <span style="font-size: 13px; color: #334155;">{tech_str}</span>
+            </div>
+          </div>
+          {meet_btn_html}
+          <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 20px 0 0; text-align: center;">
+            Need to reschedule or have questions? Call us directly at <strong>{payload.tenant_phone or 'our main line'}</strong>.<br/>
+            An iCalendar (.ics) invite has been attached to this email for your convenience.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+
+def format_booking_customer_sms(payload: BookingNotificationPayload) -> str:
+    """Format concise customer SMS confirmation."""
+    date_str = payload.start_at.strftime("%a, %b %d")
+    time_str = payload.start_at.strftime("%I:%M %p").lstrip("0")
+    phone_part = f" Questions? Call {payload.tenant_phone}." if payload.tenant_phone else ""
+    return (
+        f"Hi {payload.customer_name}, your appointment with {payload.tenant_name} is confirmed for "
+        f"{date_str} at {time_str}. Tech: {payload.technician_name or 'On-call specialist'}.{phone_part} Reply STOP to opt out."
+    )
+
+
+def format_booking_technician_sms(payload: BookingNotificationPayload) -> str:
+    """Format dispatch alert SMS to assigned technician."""
+    date_str = payload.start_at.strftime("%a, %b %d")
+    time_str = payload.start_at.strftime("%I:%M %p").lstrip("0")
+    addr = payload.service_address or "Customer Location"
+    encoded_addr = urllib.parse.quote(addr)
+    notes_str = f"\n📝 Notes: {payload.notes}" if payload.notes else ""
+    return (
+        f"🔧 DISPATCH ALERT: {payload.service_type.replace('_', ' ').title()}\n"
+        f"🕒 Time: {date_str} @ {time_str}\n"
+        f"👤 Customer: {payload.customer_name} ({payload.customer_phone})\n"
+        f"📍 Address: {addr}\n"
+        f"🗺️ Maps: https://maps.google.com/?q={encoded_addr}{notes_str}"
+    )
+
+
+def dispatch_booking_notifications(
+    booking_id: str,
+    tenant_id: str | None = None,
+    email_dispatcher: EmailDispatcher | None = None,
+    sms_dispatcher: SmsDispatcher | None = None,
+) -> dict[str, Any]:
+    """Dispatch real-time booking alerts to customer, assigned technician, and dispatch inbox."""
+    db = SessionLocal()
+    try:
+        stmt = select(Booking).where(Booking.id == booking_id)
+        if tenant_id:
+            stmt = stmt.where(Booking.tenant_id == tenant_id)
+        booking = db.scalar(stmt)
+        if not booking:
+            logger.warning("Booking %s not found for notification dispatch", booking_id)
+            return {"status": "error", "detail": "Booking not found"}
+
+        tenant = db.scalar(select(Tenant).where(Tenant.id == booking.tenant_id))
+        tenant_name = tenant.name if tenant else "Service Provider"
+
+        # Resolve technician details
+        tech_name: str | None = None
+        tech_phone: str | None = None
+        tech_email: str | None = None
+        if booking.staff_id:
+            tech = db.scalar(select(StaffMember).where(StaffMember.id == booking.staff_id))
+            if tech:
+                tech_name = tech.name
+                tech_phone = tech.phone
+                tech_email = tech.email
+
+        # Resolve location address if set
+        service_addr = None
+        if booking.location_id:
+            loc = db.scalar(select(Location).where(Location.id == booking.location_id))
+            if loc:
+                service_addr = f"{loc.address_line1}, {loc.city}, {loc.state} {loc.postal_code}"
+        elif booking.postal_code:
+            service_addr = f"Postal Code: {booking.postal_code}"
+
+        payload = BookingNotificationPayload(
+            booking_id=booking.id,
+            tenant_id=booking.tenant_id,
+            tenant_name=tenant_name,
+            customer_name=booking.customer_name,
+            customer_phone=booking.customer_phone,
+            customer_email=booking.customer_email,
+            service_type=booking.service_type,
+            service_address=service_addr,
+            start_at=booking.start_at,
+            end_at=booking.end_at,
+            technician_name=tech_name,
+            technician_phone=tech_phone,
+            technician_email=tech_email,
+            meet_link=booking.meet_link,
+            notes=booking.notes,
+        )
+
+        email_worker = email_dispatcher or ResendEmailDispatcher()
+        sms_worker = sms_dispatcher or TelnyxSmsDispatcher()
+
+        customer_email_sent = False
+        customer_sms_sent = False
+        tech_sms_sent = False
+
+        # 1. Dispatch Customer Confirmation Email (with HTML + attached .ics calendar invite)
+        if payload.customer_email and "@" in payload.customer_email:
+            ics_content = generate_ics_calendar_invite(payload)
+            ics_b64 = base64.b64encode(ics_content.encode("utf-8")).decode("utf-8")
+            attachments = [
+                {
+                    "filename": "appointment.ics",
+                    "content": ics_b64,
+                }
+            ]
+            subject = f"Appointment Confirmed: {payload.service_type.replace('_', ' ').title()} with {payload.tenant_name}"
+            html_body = format_booking_customer_email_html(payload)
+            text_body = f"Your appointment with {payload.tenant_name} is confirmed for {payload.start_at.isoformat()}."
+            customer_email_sent = email_worker.send(
+                to_email=payload.customer_email,
+                subject=subject,
+                text=text_body,
+                html=html_body,
+                attachments=attachments,
+            )
+
+        # 2. Dispatch Customer Confirmation SMS
+        if payload.customer_phone and len(payload.customer_phone) >= 10:
+            sms_text = format_booking_customer_sms(payload)
+            customer_sms_sent = sms_worker.send(payload.customer_phone, sms_text)
+
+        # 3. Dispatch Technician SMS Alert (with Google Maps location link)
+        if tech_phone and len(tech_phone) >= 10:
+            tech_sms_text = format_booking_technician_sms(payload)
+            tech_sms_sent = sms_worker.send(tech_phone, tech_sms_text)
+
+        logger.info(
+            "Booking notifications dispatched for booking %s: customer_email=%s, customer_sms=%s, tech_sms=%s",
+            booking_id,
+            customer_email_sent,
+            customer_sms_sent,
+            tech_sms_sent,
+        )
+
+        return {
+            "status": "delivered",
+            "booking_id": booking_id,
+            "customer_email_sent": customer_email_sent,
+            "customer_sms_sent": customer_sms_sent,
+            "technician_sms_sent": tech_sms_sent,
+        }
+    except Exception as e:
+        logger.exception(
+            "Failed to dispatch booking notifications for booking %s: %s", booking_id, e
+        )
         return {"status": "error", "error": str(e)}
     finally:
         db.close()

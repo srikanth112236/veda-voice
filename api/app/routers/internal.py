@@ -1166,6 +1166,76 @@ def cancel_appointment_booking(
         ) from err
 
 
+class SendBookingLinkRequest(BaseModel):
+    phone_number: str
+    customer_name: str = "Valued Customer"
+
+
+def send_self_serve_booking_link_sync(
+    payload: SendBookingLinkRequest,
+    authorization: str | None = None,
+    db: Session | None = None,
+) -> dict[str, Any]:
+    """Send SMS containing tenant's Calendly or self-serve scheduling link directly to the caller."""
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+
+    if db is None:
+        from api.app.db.session import SessionLocal
+
+        with SessionLocal() as session:
+            return send_self_serve_booking_link_sync(payload, authorization, session)
+
+    from api.app.models.booking import TenantIntegration
+
+    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    # Look for tenant's configured Calendly link
+    integration = db.scalar(
+        select(TenantIntegration).where(
+            TenantIntegration.tenant_id == tenant.id,
+            TenantIntegration.provider == "calendly",
+            TenantIntegration.status == "connected",
+        )
+    )
+    if integration and integration.calendar_id and integration.calendar_id != "primary":
+        booking_url = integration.calendar_id
+    else:
+        tenant_slug = tenant.name.lower().replace(" ", "-").replace("&", "and")
+        booking_url = f"https://calendly.com/{tenant_slug}/service-visit"
+
+    clean_name = payload.customer_name.strip() or "Valued Customer"
+    msg_text = (
+        f"Hi {clean_name}! Here is your direct link to schedule service with {tenant.name}: {booking_url}\n\n"
+        f"Reply STOP to opt out."
+    )
+
+    from api.app.services.notifier import TelnyxSmsDispatcher
+
+    sms_worker = TelnyxSmsDispatcher()
+    sms_sent = sms_worker.send(payload.phone_number, msg_text)
+
+    return {
+        "success": True,
+        "message": f"Scheduling link sent to {payload.phone_number}",
+        "booking_url": booking_url,
+        "phone_number": payload.phone_number,
+        "sms_delivered": sms_sent,
+    }
+
+
+@router.post("/calendar/send-link")
+def send_self_serve_booking_link_endpoint(
+    payload: SendBookingLinkRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Endpoint for voice agent to text direct self-serve booking link to caller."""
+    return send_self_serve_booking_link_sync(payload=payload, authorization=authorization, db=db)
+
+
 class InternalKnowledgeSearchRequest(BaseModel):
     query: str
     top_k: int = 3

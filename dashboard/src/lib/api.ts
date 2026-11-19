@@ -1418,6 +1418,25 @@ export const api = {
       { method: "POST" }
     ),
 
+  // Calendly & Self-Serve In-Call SMS Booking (Milestone Phase 4)
+  getCalendlyConfig: () =>
+    request<CalendlyConfigResponse>("/api/v1/portal/calendar/calendly"),
+
+  updateCalendlyConfig: (data: { calendly_url: string; webhook_secret?: string }) =>
+    request<CalendlyConfigResponse>("/api/v1/portal/calendar/calendly", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  sendCalendlyTestSMS: (data: { phone_number: string; customer_name?: string }) =>
+    request<{ success: boolean; phone_number: string; booking_url: string; message: string }>(
+      "/api/v1/portal/calendar/calendly/test-sms",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    ),
+
   // Industry Packs Engine (Milestone M4c)
   listIndustryPacks: () =>
     request<IndustryPackSummary[]>("/api/v1/portal/industry-packs"),
@@ -1677,6 +1696,12 @@ export interface CalendarSyncTestResult {
   busy_blocks_found: number;
   meet_link_generated: string | null;
   message: string;
+}
+
+export interface CalendlyConfigResponse {
+  is_configured: boolean;
+  calendly_url: string | null;
+  webhook_endpoint: string;
 }
 
 export interface IndustryPackSummary {

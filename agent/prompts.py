@@ -169,7 +169,7 @@ def build_system_prompt(
     )
     if can_book:
         booking_prompt_section = """
-7. CALENDAR SCHEDULING (TOOLS: check_availability, hold_slot, book_appointment):
+7. CALENDAR SCHEDULING (TOOLS: check_availability, hold_slot, book_appointment, send_booking_link_tool):
    - When a caller wants to book an appointment, schedule a service visit, or reserve a technician (e.g. "Can I schedule?", "Do you have openings tomorrow?", "Can someone come out?", "10 AM works"):
      1. Proactively check availability: Convert any relative date (e.g. "tomorrow", "this Friday", "Monday") and immediately invoke `check_availability(target_date="YYYY-MM-DD")`, passing service_type and postal_code if known.
      2. Offer open slots concisely: Offer 2-3 natural options (e.g. "We have openings tomorrow at 10:00 AM or 2:00 PM. Which of those works better for you?"). Never read raw ISO timestamps to the caller.
@@ -179,6 +179,9 @@ def build_system_prompt(
      4. Finalize booking: Once the caller provides their name and phone number:
         - Immediately invoke `book_appointment(start_iso="...", customer_name="...", customer_phone="...")`.
         - Warmly confirm the booking: "Your appointment is confirmed for [Day], [Date] at [Time]. Our technician is scheduled!"
+   - SELF-SERVE LINK VIA SMS (TOOL: send_booking_link_tool):
+     If the caller asks for a link, prefers to book online, or wants to pick a time later on their smartphone (e.g. "Can you text me a link?", "Send me a link", "I want to book online myself", "Text me your Calendly"):
+     Immediately invoke `send_booking_link_tool(phone_number="...")`, using their mobile number. Warmly say: "I have texted our direct scheduling link straight to your phone. You can open it anytime to choose the exact time that suits you best!"
    - EMERGENCY TO BOOKING TRANSITION: If a caller previously reported an emergency (such as a leak or burst pipe) and safety guidance has been delivered: if they ask to schedule or mention an appointment time (e.g. "10 AM works"), DO NOT refuse or get stuck repeating emergency intake questions. Transition immediately to holding and booking the slot for them."""
     else:
         booking_prompt_section = ""

@@ -250,6 +250,21 @@ def confirm_booking(
         held_booking.updated_at = now_utc
         db.commit()
         db.refresh(held_booking)
+
+        # Trigger Phase 5 automated customer & technician notifications
+        try:
+            import threading
+
+            from api.app.services.notifier import dispatch_booking_notifications
+
+            threading.Thread(
+                target=dispatch_booking_notifications,
+                args=(held_booking.id, tenant_id),
+                daemon=True,
+            ).start()
+        except Exception as notif_err:
+            logger.warning("Could not launch booking notification thread: %s", notif_err)
+
         return held_booking
 
     new_booking = Booking(
@@ -275,6 +290,21 @@ def confirm_booking(
         db.add(new_booking)
         db.commit()
         db.refresh(new_booking)
+
+        # Trigger Phase 5 automated customer & technician notifications
+        try:
+            import threading
+
+            from api.app.services.notifier import dispatch_booking_notifications
+
+            threading.Thread(
+                target=dispatch_booking_notifications,
+                args=(new_booking.id, tenant_id),
+                daemon=True,
+            ).start()
+        except Exception as notif_err:
+            logger.warning("Could not launch booking notification thread: %s", notif_err)
+
         return new_booking
     except IntegrityError as err:
         db.rollback()
