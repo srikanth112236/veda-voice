@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Room, RoomEvent, Track, RemoteTrack, RemoteTrackPublication, RemoteParticipant } from "livekit-client";
+import { Room, RoomEvent, Track, RemoteTrack, RemoteTrackPublication, RemoteParticipant, ConnectionState } from "livekit-client";
 import { InfoTrigger } from "@/context/info-modal-context";
 import {
   PhoneCall,
@@ -260,20 +260,29 @@ export default function CallsPage() {
   }, [supervisingCall?.call_id]);
 
   const handleBargeIn = async (callId: string) => {
+    if (wsStatus === "disconnected" || supervisingCall?.outcome === "completed" || supervisingCall?.outcome === "ended") {
+      alert("This call session has already concluded and is no longer active for barge-in.");
+      return;
+    }
+
     setActionInProgress("barge_in");
     const nextMicState = !isBargeMicActive;
     setLiveCalls((prev) =>
       prev.map((c) => (c.call_id === callId ? { ...c, barge_in_active: nextMicState } : c))
     );
     try {
-      if (livekitRoomRef.current) {
-        await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(nextMicState);
+      if (livekitRoomRef.current && (livekitRoomRef.current.state === ConnectionState.Connected || (livekitRoomRef.current.state as any) === "connected")) {
+        try {
+          await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(nextMicState);
+        } catch (micErr: any) {
+          console.warn("Local WebRTC microphone track notice:", micErr?.message || micErr);
+        }
       }
       setIsBargeMicActive(nextMicState);
       await api.bargeInCall(callId, nextMicState);
       fetchLiveCalls();
     } catch (err: any) {
-      alert("Failed to toggle barge-in microphone: " + (err.message || err));
+      console.warn("Notice updating barge-in status:", err?.message || err);
       fetchLiveCalls();
     } finally {
       setActionInProgress(null);
@@ -281,6 +290,11 @@ export default function CallsPage() {
   };
 
   const handleTakeover = async (callId: string) => {
+    if (wsStatus === "disconnected" || supervisingCall?.outcome === "completed" || supervisingCall?.outcome === "ended") {
+      alert("This call session has already concluded and cannot be taken over.");
+      return;
+    }
+
     if (
       !confirm(
         "Are you sure you want to take over this call? The AI agent will be disconnected from the room and the customer will hear you directly."
@@ -293,14 +307,18 @@ export default function CallsPage() {
       prev.map((c) => (c.call_id === callId ? { ...c, takeover_active: true } : c))
     );
     try {
-      if (livekitRoomRef.current) {
-        await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(true);
-        setIsBargeMicActive(true);
+      if (livekitRoomRef.current && (livekitRoomRef.current.state === ConnectionState.Connected || (livekitRoomRef.current.state as any) === "connected")) {
+        try {
+          await livekitRoomRef.current.localParticipant.setMicrophoneEnabled(true);
+          setIsBargeMicActive(true);
+        } catch (micErr: any) {
+          console.warn("Local WebRTC takeover mic notice:", micErr?.message || micErr);
+        }
       }
       await api.takeoverCall(callId);
       fetchLiveCalls();
     } catch (err: any) {
-      alert("Failed to take over call: " + (err.message || err));
+      console.warn("Notice updating takeover status:", err?.message || err);
       fetchLiveCalls();
     } finally {
       setActionInProgress(null);
@@ -885,8 +903,8 @@ export default function CallsPage() {
                   <button
                     type="button"
                     onClick={() => handleBargeIn(call.call_id)}
-                    disabled={actionInProgress === "barge_in"}
-                    className={`px-2 py-1 rounded-lg border text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors ${
+                    disabled={actionInProgress === "barge_in" || call.outcome === "completed" || call.outcome === "ended"}
+                    className={`px-2 py-1 rounded-lg border text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors disabled:opacity-50 ${
                       call.barge_in_active
                         ? "bg-purple-100 border-purple-300 text-purple-900 font-bold"
                         : "border-zinc-300 bg-white hover:bg-zinc-100 text-zinc-700"
@@ -899,8 +917,8 @@ export default function CallsPage() {
                   <button
                     type="button"
                     onClick={() => handleTakeover(call.call_id)}
-                    disabled={actionInProgress === "takeover" || call.takeover_active}
-                    className="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors"
+                    disabled={actionInProgress === "takeover" || call.takeover_active || call.outcome === "completed" || call.outcome === "ended"}
+                    className="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors disabled:opacity-50"
                   >
                     <PhoneOff className="w-3 h-3" />
                     Takeover
@@ -1776,66 +1794,86 @@ export default function CallsPage() {
 
             {/* Modal Body: Live Turn Feed & Events */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 font-sans text-xs bg-zinc-50/30">
-              {wsStatus === "disconnected" && (
-                <div className="p-3.5 rounded-xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-between shadow-2xs">
+              {wsStatus === "disconnected" ? (
+                <div className="p-4 rounded-xl bg-zinc-100 border border-zinc-200 text-zinc-800 flex items-center justify-between shadow-2xs">
                   <div>
-                    <div className="font-bold text-xs text-zinc-900">Call Session Concluded</div>
-                    <div className="text-[11px] text-zinc-500">The LiveKit audio room has concluded and capacity has been released.</div>
+                    <div className="font-bold text-xs text-zinc-900 flex items-center gap-1.5">
+                      <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-400"></span>
+                      Call Session Concluded
+                    </div>
+                    <div className="text-[11px] text-zinc-500 mt-0.5">
+                      The LiveKit audio room has concluded and capacity has been released.
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSupervisingCall(null);
-                      fetchLiveCalls();
-                      fetchHistoricalCalls();
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-mono text-[11px] font-semibold transition-colors"
-                  >
-                    Close Supervision
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleEndCall(supervisingCall.call_id);
+                        setSupervisingCall(null);
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-mono text-[11px] font-semibold transition-colors"
+                    >
+                      Dismiss from Active
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSupervisingCall(null);
+                        fetchLiveCalls();
+                        fetchHistoricalCalls();
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-mono text-[11px] font-semibold transition-colors"
+                    >
+                      Close Supervision
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 font-mono">
+                    <Radio className={`w-4 h-4 ${webrtcAudioActive ? "text-emerald-600 animate-pulse" : "text-amber-500"}`} />
+                    <span>
+                      {webrtcAudioActive ? "🎧 Live WebRTC Audio Stream Connected" : "Connecting Live Audio Stream..."}
+                    </span>
+                    {isBargeMicActive && (
+                      <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-600 text-white font-bold text-[10px] animate-pulse">
+                        🎙️ MIC ACTIVE (CALLER HEARS YOU)
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleBargeIn(supervisingCall.call_id)}
+                      disabled={actionInProgress === "barge_in"}
+                      className={`px-2.5 py-1 rounded border text-[11px] font-mono font-bold transition-colors ${
+                        isBargeMicActive || supervisingCall.barge_in_active
+                          ? "bg-purple-600 border-purple-700 text-white hover:bg-purple-500"
+                          : "bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                      }`}
+                    >
+                      {isBargeMicActive || supervisingCall.barge_in_active ? "🎙️ Mute Barge Mic" : "🎙️ Enable Barge-In"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTakeover(supervisingCall.call_id)}
+                      disabled={actionInProgress === "takeover"}
+                      className="px-2.5 py-1 rounded bg-rose-600 text-white text-[11px] font-mono font-bold hover:bg-rose-500 transition-colors"
+                    >
+                      🛑 Takeover
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEndCall(supervisingCall.call_id)}
+                      disabled={actionInProgress === "end_call"}
+                      className="px-2.5 py-1 rounded bg-zinc-800 text-white text-[11px] font-mono font-bold hover:bg-zinc-700 transition-colors"
+                    >
+                      ⏹️ End Call
+                    </button>
+                  </div>
                 </div>
               )}
-
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 font-mono">
-                  <Radio className={`w-4 h-4 ${webrtcAudioActive ? "text-emerald-600 animate-pulse" : "text-amber-500"}`} />
-                  <span>
-                    {webrtcAudioActive ? "🎧 Live WebRTC Audio Stream Connected" : "Connecting Live Audio Stream..."}
-                  </span>
-                  {isBargeMicActive && (
-                    <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-600 text-white font-bold text-[10px] animate-pulse">
-                      🎙️ MIC ACTIVE (CALLER HEARS YOU)
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleBargeIn(supervisingCall.call_id)}
-                    className={`px-2.5 py-1 rounded border text-[11px] font-mono font-bold transition-colors ${
-                      isBargeMicActive || supervisingCall.barge_in_active
-                        ? "bg-purple-600 border-purple-700 text-white hover:bg-purple-500"
-                        : "bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-100"
-                    }`}
-                  >
-                    {isBargeMicActive || supervisingCall.barge_in_active ? "🎙️ Mute Barge Mic" : "🎙️ Enable Barge-In"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTakeover(supervisingCall.call_id)}
-                    className="px-2.5 py-1 rounded bg-rose-600 text-white text-[11px] font-mono font-bold hover:bg-rose-500 transition-colors"
-                  >
-                    🛑 Takeover
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleEndCall(supervisingCall.call_id)}
-                    className="px-2.5 py-1 rounded bg-zinc-800 text-white text-[11px] font-mono font-bold hover:bg-zinc-700 transition-colors"
-                  >
-                    ⏹️ End Call
-                  </button>
-                </div>
-              </div>
 
               {/* Live Events Stream */}
               <div className="space-y-2">
@@ -1911,13 +1949,18 @@ export default function CallsPage() {
                       handleDispatchWhisper(supervisingCall.call_id);
                     }
                   }}
-                  placeholder="Inject coaching prompt to agent (e.g. 'Offer 10% diagnostic discount', 'Ask for unit model number')..."
-                  className="flex-1 px-3 py-2 text-xs rounded-xl border border-zinc-300 font-sans focus:outline-none focus:border-zinc-900"
+                  disabled={wsStatus === "disconnected"}
+                  placeholder={
+                    wsStatus === "disconnected"
+                      ? "Call session has concluded (whisper coaching is unavailable)."
+                      : "Inject coaching prompt to agent (e.g. 'Offer 10% diagnostic discount', 'Ask for unit model number')..."
+                  }
+                  className="flex-1 px-3 py-2 text-xs rounded-xl border border-zinc-300 font-sans focus:outline-none focus:border-zinc-900 disabled:bg-zinc-100 disabled:text-zinc-400"
                 />
                 <button
                   type="button"
                   onClick={() => handleDispatchWhisper(supervisingCall.call_id)}
-                  disabled={sendingWhisper || !whisperText.trim()}
+                  disabled={sendingWhisper || !whisperText.trim() || wsStatus === "disconnected"}
                   className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-mono text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
                 >
                   <Send className="w-3.5 h-3.5" />
