@@ -432,6 +432,8 @@ class InternalApiClient:
         except Exception as e:
             logger.debug("HTTP call transfer audit failed (%s); trying in-process fallback", e)
             try:
+                import asyncio
+
                 from api.app.db.session import SessionLocal
                 from api.app.routers.internal import CallTransferRequest, handle_call_transfer
 
@@ -443,7 +445,13 @@ class InternalApiClient:
                         priority=priority,
                         notes=notes,
                     )
-                    handle_call_transfer(req_obj, x_call_token=call_token, db=db)
+                    coro = handle_call_transfer(req_obj, x_call_token=call_token, db=db)
+                    try:
+                        loop = asyncio.get_running_loop()
+                        future = asyncio.run_coroutine_threadsafe(coro, loop)
+                        future.result(timeout=5.0)
+                    except RuntimeError:
+                        asyncio.run(coro)
                     return True
             except Exception as inner_e:
                 logger.error("In-process call transfer audit failed: %s", inner_e)
