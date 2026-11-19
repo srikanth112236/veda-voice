@@ -236,11 +236,11 @@ def _normalize_target_date(raw_date: str) -> str:
     return cleaned
 
 
-def create_booking_tools(call_token: str) -> list[FunctionTool]:
+def create_booking_tools(call_token: str, caller_phone: str = "") -> list[FunctionTool]:
     """Factory to create LiveKit function tools for calendar scheduling bound to a session's call token."""
 
     @function_tool(
-        description="Check open appointment times for a specific date (YYYY-MM-DD or relative like 'tomorrow', 'Friday'). Call this when the caller asks when you have openings or wants to schedule on a day."
+        description="Check open appointment times for a specific date (YYYY-MM-DD or relative like 'tomorrow', 'Friday'). Call this when the caller asks when you have openings, wants to schedule on a day, or asks if a technician can come out."
     )
     async def check_availability_tool(
         target_date: Annotated[
@@ -286,38 +286,46 @@ def create_booking_tools(call_token: str) -> list[FunctionTool]:
             return f"Unable to check availability for {normalized_date} right now: {e}"
 
     @function_tool(
-        description="Temporarily reserve an appointment time slot for 5 minutes while confirming details with caller."
+        description="Temporarily reserve and lock an appointment time slot for 5 minutes as soon as the caller agrees on or specifies a time. Call this immediately when a time is selected."
     )
     async def hold_slot_tool(
         start_iso: Annotated[
             str,
             "Exact start_iso string returned from check_availability (e.g. 2026-11-20T10:00:00-05:00)",
         ],
-        customer_name: Annotated[str, "Customer's full name"],
-        customer_phone: Annotated[str, "Customer's callback phone number"],
+        customer_name: Annotated[
+            str, "Customer's full name (if already known, or 'Prospective Customer')"
+        ] = "Prospective Customer",
+        customer_phone: Annotated[
+            str, "Customer's callback phone number (if already known, or leave empty)"
+        ] = "",
     ) -> str:
         """Lock slot for 5 minutes to prevent double-booking."""
+        phone_to_use = customer_phone.strip() or caller_phone.strip()
         try:
             res = await asyncio.to_thread(
                 hold_slot,
                 call_token=call_token,
                 start_iso=start_iso.strip(),
-                customer_name=customer_name.strip(),
-                customer_phone=customer_phone.strip(),
+                customer_name=customer_name.strip() or "Prospective Customer",
+                customer_phone=phone_to_use,
             )
             if res.get("status") == "held":
-                return f"Slot {start_iso} held successfully for 5 minutes. Please confirm callback phone number and customer details."
+                return (
+                    f"Slot {start_iso} held successfully for 5 minutes. "
+                    "Now confirm customer full name and callback number to complete booking."
+                )
             return f"Could not hold slot: {res.get('message', 'Slot may be unavailable.')}"
         except Exception as e:
             return f"Error holding slot: {e}"
 
     @function_tool(
-        description="Confirm and schedule the appointment on the calendar. Call this ONLY AFTER the caller has agreed to a specific time slot and confirmed their name and phone number."
+        description="Confirm and schedule the appointment on the calendar. Call this after the time slot has been chosen and the caller's name and callback phone number are confirmed."
     )
     async def book_appointment_tool(
         start_iso: Annotated[str, "Confirmed slot start_iso string"],
         customer_name: Annotated[str, "Customer's full name"],
-        customer_phone: Annotated[str, "Customer's callback phone number"],
+        customer_phone: Annotated[str, "Customer's callback phone number"] = "",
         customer_email: Annotated[
             str | None,
             "Customer's email address if provided for calendar invite",
@@ -329,13 +337,18 @@ def create_booking_tools(call_token: str) -> list[FunctionTool]:
         notes: Annotated[str | None, "Special notes or request details"] = None,
     ) -> str:
         """Confirm booking, generate calendar event and optional Google Meet link."""
+        phone_to_use = customer_phone.strip() or caller_phone.strip()
+        if not phone_to_use:
+            return (
+                "Please ask the caller for their callback phone number to confirm the appointment."
+            )
         try:
             res = await asyncio.to_thread(
                 book_appointment,
                 call_token=call_token,
                 start_iso=start_iso.strip(),
                 customer_name=customer_name.strip(),
-                customer_phone=customer_phone.strip(),
+                customer_phone=phone_to_use,
                 customer_email=customer_email.strip() if customer_email else None,
                 service_type=service_type,
                 postal_code=postal_code.strip() if postal_code else None,

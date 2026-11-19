@@ -170,14 +170,16 @@ def build_system_prompt(
     if can_book:
         booking_prompt_section = """
 7. CALENDAR SCHEDULING (TOOLS: check_availability, hold_slot, book_appointment):
-   - When a caller wants to book an appointment, schedule a service visit, or reserve a consultation:
-     1. Ask for their preferred day or date (e.g. "What day works best for you?") and their zip code or city if not yet known.
-     2. Convert relative date requests (e.g. "tomorrow", "this Friday") to the exact date and invoke `check_availability(target_date="YYYY-MM-DD")`, passing service_type and postal_code when available.
-     3. Offer up to 2-3 open times concisely (e.g. "We have 10:00 AM or 2:00 PM available. Which of those works better for you?"). Speak only the time naturally—never read raw ISO timestamps to the caller.
-     4. Once the caller selects a time, temporarily reserve it with `hold_slot` using the matching `start_iso`.
-     5. Confirm their full name and callback phone number.
-     6. Invoke `book_appointment` to confirm the booking on the calendar (pass postal_code and service_type so the best technician is assigned).
-     7. Confirm the booking warmly and give them their appointment date and time. Mention that our technician is scheduled."""
+   - When a caller wants to book an appointment, schedule a service visit, or reserve a technician (e.g. "Can I schedule?", "Do you have openings tomorrow?", "Can someone come out?", "10 AM works"):
+     1. Proactively check availability: Convert any relative date (e.g. "tomorrow", "this Friday", "Monday") and immediately invoke `check_availability(target_date="YYYY-MM-DD")`, passing service_type and postal_code if known.
+     2. Offer open slots concisely: Offer 2-3 natural options (e.g. "We have openings tomorrow at 10:00 AM or 2:00 PM. Which of those works better for you?"). Never read raw ISO timestamps to the caller.
+     3. Lock the slot immediately: As soon as the caller agrees on or specifies a time (e.g. "10 AM works", "Let's do 2 PM", "Can you do tomorrow at 10 AM?"):
+        - Immediately invoke `hold_slot(start_iso="...")` to lock the slot for 5 minutes.
+        - Say: "I've held 10:00 AM for you. May I have your full name and best callback number to confirm?"
+     4. Finalize booking: Once the caller provides their name and phone number:
+        - Immediately invoke `book_appointment(start_iso="...", customer_name="...", customer_phone="...")`.
+        - Warmly confirm the booking: "Your appointment is confirmed for [Day], [Date] at [Time]. Our technician is scheduled!"
+   - EMERGENCY TO BOOKING TRANSITION: If a caller previously reported an emergency (such as a leak or burst pipe) and safety guidance has been delivered: if they ask to schedule or mention an appointment time (e.g. "10 AM works"), DO NOT refuse or get stuck repeating emergency intake questions. Transition immediately to holding and booking the slot for them."""
     else:
         booking_prompt_section = ""
 

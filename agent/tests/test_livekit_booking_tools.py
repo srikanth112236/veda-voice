@@ -161,6 +161,54 @@ async def test_relative_date_handling_in_booking_tools() -> None:
         db.close()
 
 
+@pytest.mark.asyncio
+async def test_hold_slot_with_defaults_and_caller_phone() -> None:
+    """Verify hold_slot_tool works when name/phone are omitted, falling back to caller ID."""
+    db = SessionLocal()
+    suffix = uuid.uuid4().hex[:6]
+    caller_id_phone = "+15125550199"
+    try:
+        tenant = Tenant(
+            name=f"Hold Defaults Plumbing {suffix}",
+            timezone="America/New_York",
+            hours="Mon-Fri 8am-6pm",
+            status="active",
+        )
+        db.add(tenant)
+        db.commit()
+
+        call_token = create_access_token(
+            {
+                "sub": "livekit-agent",
+                "role": "agent",
+                "tenant_id": tenant.id,
+                "call_id": f"hold-def-call-{suffix}",
+            }
+        )
+        tools = create_booking_tools(call_token=call_token, caller_phone=caller_id_phone)
+        tool_map = {t.__name__: t for t in tools}
+
+        target_date = "2026-11-26"
+        avail_text = await tool_map["check_availability_tool"](target_date=target_date)
+        start_marker = "start_iso: "
+        start_idx = avail_text.find(start_marker) + len(start_marker)
+        end_idx = avail_text.find(")", start_idx)
+        slot_iso = avail_text[start_idx:end_idx].strip()
+
+        # Hold slot without passing name and phone
+        hold_res = await tool_map["hold_slot_tool"](start_iso=slot_iso)
+        assert "held successfully for 5 minutes" in hold_res
+
+        # Book appointment using caller ID phone fallback
+        book_res = await tool_map["book_appointment_tool"](
+            start_iso=slot_iso,
+            customer_name="Alice Smith",
+        )
+        assert "Appointment confirmed for Alice Smith" in book_res
+    finally:
+        db.close()
+
+
 def test_tenant_configs_have_booking_enabled() -> None:
     """Verify active tenants in clients.json have calendar booking enabled by default."""
     from agent.config import load_business_config

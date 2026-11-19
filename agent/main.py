@@ -670,7 +670,10 @@ async def entrypoint(ctx: JobContext) -> None:
         for b in ("booking", "book_appointment", "check_availability", "calendar")
     ):
         if config.call_token:
-            booking_tools = create_booking_tools(config.call_token)
+            booking_tools = create_booking_tools(
+                config.call_token,
+                caller_phone=sip_info.get("caller_number", ""),
+            )
             active_tools.extend(booking_tools)
 
     # Attach knowledge base RAG tool (Milestone M10a)
