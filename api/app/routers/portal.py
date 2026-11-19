@@ -711,12 +711,34 @@ def get_tenant_qa_analytics(
 
 
 @router.get("/copilot/active-calls", response_model=list[LiveActiveCallItem])
-def get_live_active_calls(
+async def get_live_active_calls(
     tenant: Tenant = Depends(get_current_tenant),
     db: Session = Depends(get_db),
 ) -> list[LiveActiveCallItem]:
     """Retrieve currently active/in-progress calls for tenant real-time supervisor monitoring."""
-    active_cutoff = datetime.now(UTC) - timedelta(minutes=45)
+    now = datetime.now(UTC)
+    active_cutoff = now - timedelta(minutes=5)
+
+    # 1. Fetch live active rooms from LiveKit Cloud if credentials exist (and not in pytest env)
+    is_test_env = bool(os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"))
+    live_lk_room_names: set[str] | None = None
+    lk_url = os.getenv("LIVEKIT_URL") or getattr(settings, "LIVEKIT_URL", None)
+    lk_key = os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", None)
+    lk_secret = os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", None)
+    if not is_test_env and lk_url and lk_key and lk_secret:
+        try:
+            from livekit import api as lk_api
+
+            lk = lk_api.LiveKitAPI(lk_url, lk_key, lk_secret)
+            rooms_resp = await lk.room.list_rooms(lk_api.ListRoomsRequest())
+            live_lk_room_names = {r.name for r in rooms_resp.rooms} | {
+                r.sid for r in rooms_resp.rooms
+            }
+            await lk.aclose()
+        except Exception as e:
+            logger.debug("Could not query LiveKit Cloud active rooms: %s", e)
+
+    # 2. Query DB candidate calls
     stmt = (
         select(Call)
         .where(
@@ -730,12 +752,38 @@ def get_live_active_calls(
     calls = db.scalars(stmt).all()
 
     items: list[LiveActiveCallItem] = []
-    now = datetime.now(UTC)
+    updated_stale = False
     for c in calls:
         started = c.started_at
         if started.tzinfo is None:
             started = started.replace(tzinfo=UTC)
         elapsed = max(0.0, (now - started).total_seconds())
+
+        # If LiveKit confirmed this room is no longer active in cloud and > 20s elapsed
+        if (
+            live_lk_room_names is not None
+            and c.call_id not in live_lk_room_names
+            and elapsed > 20.0
+        ):
+            c.ended_at = now
+            c.outcome = "completed"
+            c_tags = list(c.tags or [])
+            if "livekit_reconciled" not in c_tags:
+                c_tags.append("livekit_reconciled")
+            c.tags = c_tags
+            updated_stale = True
+            continue
+
+        # If call has 0 turns and has been waiting > 90 seconds, auto-mark abandoned
+        if (c.turn_count or 0) == 0 and elapsed > 90.0:
+            c.ended_at = now
+            c.outcome = "abandoned"
+            c_tags = list(c.tags or [])
+            if "stale_zero_turns" not in c_tags:
+                c_tags.append("stale_zero_turns")
+            c.tags = c_tags
+            updated_stale = True
+            continue
 
         latest_user: str | None = None
         latest_agent: str | None = None
@@ -770,7 +818,52 @@ def get_live_active_calls(
                 takeover_active=bool(getattr(c, "takeover_active", False)),
             )
         )
+    if updated_stale:
+        db.commit()
     return items
+
+
+@router.post("/calls/{call_id}/end")
+async def end_active_call(
+    call_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Force end/dismiss an active call session and release line concurrency."""
+    call = db.scalar(
+        select(Call).where(
+            (Call.id == call_id) | (Call.call_id == call_id),
+            Call.tenant_id == tenant.id,
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    # 1. Close LiveKit room if active
+    lk_url = os.getenv("LIVEKIT_URL") or getattr(settings, "LIVEKIT_URL", None)
+    lk_key = os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", None)
+    lk_secret = os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", None)
+    if lk_url and lk_key and lk_secret:
+        try:
+            from livekit import api as lk_api
+
+            lk = lk_api.LiveKitAPI(lk_url, lk_key, lk_secret)
+            await lk.room.delete_room(lk_api.DeleteRoomRequest(room=call.call_id))
+            await lk.aclose()
+        except Exception as e:
+            logger.warning("Could not delete room %s in LiveKit: %s", call.call_id, e)
+
+    # 2. Update DB record to ended immediately
+    now = datetime.now(UTC)
+    call.ended_at = now
+    call.outcome = "ended_by_supervisor"
+    tags_list = list(call.tags or [])
+    if "ended_by_supervisor" not in tags_list:
+        tags_list.append("ended_by_supervisor")
+    call.tags = tags_list
+    db.commit()
+
+    return {"status": "success", "call_id": call.call_id, "message": "Call session terminated."}
 
 
 @router.post("/calls/{call_id}/whisper")

@@ -469,9 +469,34 @@ def start_call(payload: CallStartRequest, db: Session = Depends(get_db)) -> Any:
         "queued",
     ]
 
-    # Stale call cutoff: telephony calls cannot exceed 30 minutes
+    # Stale call cutoff: telephony calls cannot exceed 5 minutes without completion
     now_utc = datetime.now(UTC)
-    stale_cutoff = now_utc - timedelta(minutes=30)
+    stale_cutoff = now_utc - timedelta(minutes=5)
+
+    # Auto-reconcile stale / abandoned calls to free line concurrency instantly:
+    # 1. Any in-progress call with 0 turns older than 90 seconds
+    # 2. Any in-progress call older than 5 minutes
+    from sqlalchemy import and_, or_
+
+    stale_dead_stmt = select(Call).where(
+        Call.tenant_id == tenant.id,
+        Call.ended_at.is_(None),
+        Call.outcome.not_in(terminal_outcomes),
+        or_(
+            Call.started_at < stale_cutoff,
+            and_(Call.turn_count == 0, Call.started_at < (now_utc - timedelta(seconds=90))),
+        ),
+    )
+    stale_calls = db.scalars(stale_dead_stmt).all()
+    if stale_calls:
+        for sc in stale_calls:
+            sc.ended_at = now_utc
+            sc.outcome = "abandoned" if (sc.turn_count or 0) == 0 else "completed"
+            sc_tags = list(sc.tags or [])
+            if "auto_stale_reconciled" not in sc_tags:
+                sc_tags.append("auto_stale_reconciled")
+            sc.tags = sc_tags
+        db.commit()
 
     # Concurrency calculations
     active_tenant_inbound = (
@@ -1140,7 +1165,10 @@ async def handle_livekit_webhook(
     logger.info("LiveKit Webhook received: event=%s room=%s", event_type, room_name)
 
     call_id = room_name or room_sid or f"livekit-{int(datetime.now(UTC).timestamp())}"
-    call = db.scalar(select(Call).where(Call.call_id == call_id))
+    lookup_keys = [k for k in [room_name, room_sid, call_id] if k]
+    call = db.scalar(
+        select(Call).where((Call.call_id.in_(lookup_keys)) | (Call.id.in_(lookup_keys)))
+    )
 
     if event_type == "room_started":
         if not call:
@@ -1171,10 +1199,17 @@ async def handle_livekit_webhook(
             db.add(call)
             db.commit()
 
-    elif event_type == "room_finished":
+    elif event_type in ("room_finished", "participant_left"):
+        p_id = participant_data.get("identity", "") if isinstance(participant_data, dict) else ""
+        # If an agent or supervisor leaves during participant_left, do not terminate caller session
+        if event_type == "participant_left" and (
+            p_id.startswith("agent-") or p_id.startswith("supervisor-")
+        ):
+            return {"status": "ignored", "reason": "internal_participant_left", "call_id": call_id}
+
         now_ts = datetime.now(UTC)
         if call:
-            if call.outcome == "in_progress":
+            if call.outcome in ("in_progress", "active", "ringing", "dispatching"):
                 call.outcome = "completed"
             if not call.ended_at:
                 call.ended_at = now_ts

@@ -383,6 +383,25 @@ async def entrypoint(ctx: JobContext) -> None:
             config.tenant_id,
         )
 
+    @ctx.room.on("participant_disconnected")
+    def on_participant_disconnected(participant: rtc.RemoteParticipant) -> None:
+        """Trigger immediate session disconnect when caller hangs up."""
+        caller_identity = getattr(participant, "identity", "")
+        logger.info("Participant disconnected: %s from room %s", caller_identity, room_name)
+        # Check if any non-agent callers remain
+        remaining_callers = [
+            p
+            for p in ctx.room.remote_participants.values()
+            if not getattr(p, "identity", "").startswith("agent-")
+            and not getattr(p, "identity", "").startswith("supervisor-")
+            and getattr(p, "identity", "") != caller_identity
+        ]
+        if not remaining_callers:
+            logger.info(
+                "All remote callers left room %s. Disconnecting session cleanly.", room_name
+            )
+            asyncio.create_task(ctx.room.disconnect())
+
     def write_shutdown_call_record(close_reason: str = "") -> None:
         """Persist final CallRecord to data/calls/<tenant_id>/ upon any session termination."""
         nonlocal call_record_written, call_outcome
@@ -442,10 +461,9 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.info(
                 "Call record successfully stored at %s for tenant %s", saved_path, config.tenant_id
             )
-            # Sync call record and billable minutes to live PostgreSQL database asynchronously
-            asyncio.create_task(
-                asyncio.to_thread(sync_call_record_to_api, record, config.call_token)
-            )
+            # Sync call record and billable minutes to live PostgreSQL database immediately
+            synced = sync_call_record_to_api(record, config.call_token)
+            logger.info("Call record API sync result: %s for call_id=%s", synced, record.call_id)
             # Dispatch post-call notification asynchronously so teardown does not block
             asyncio.create_task(asyncio.to_thread(dispatch_post_call_notification, record, config))
         except Exception as e:

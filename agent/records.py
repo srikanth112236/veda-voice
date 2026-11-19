@@ -151,10 +151,11 @@ def sync_call_record_to_api(
     else:
         main_url = os.getenv("API_BASE_URL", "").rstrip("/")
         prod_url = os.getenv("PROD_API_URL", "").rstrip("/")
-        if main_url:
-            targets.append(main_url)
-        if prod_url and prod_url not in targets:
+        # If PROD_API_URL is specified and main_url is localhost, prioritize prod_url to prevent slow fallback
+        if prod_url:
             targets.append(prod_url)
+        if main_url and main_url not in targets:
+            targets.append(main_url)
         if not targets:
             targets.append("http://127.0.0.1:8000")
 

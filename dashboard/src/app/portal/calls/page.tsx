@@ -341,6 +341,27 @@ export default function CallsPage() {
     }
   };
 
+  const handleEndCall = async (callId: string) => {
+    if (!confirm("Are you sure you want to end and dismiss this call session?")) {
+      return;
+    }
+    setActionInProgress("end_call");
+    try {
+      if (livekitRoomRef.current && supervisingCall?.call_id === callId) {
+        livekitRoomRef.current.disconnect();
+        livekitRoomRef.current = null;
+        setSupervisingCall(null);
+        setIsBargeMicActive(false);
+      }
+      await api.endCall(callId);
+      fetchLiveCalls();
+    } catch (err: any) {
+      alert("Failed to end call: " + (err.message || err));
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
   const handleDispatchWhisper = async (callId: string) => {
     if (!whisperText.trim()) return;
     setSendingWhisper(true);
@@ -932,10 +953,20 @@ export default function CallsPage() {
                   <button
                     type="button"
                     onClick={() => handleOpenTransferModal(call.call_id)}
-                    className="col-span-2 px-2 py-1 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1.5 transition-colors"
+                    className="px-2 py-1 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors"
                   >
                     <PhoneForwarded className="w-3 h-3 text-emerald-600" />
-                    Transfer to Human Specialist
+                    Transfer
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleEndCall(call.call_id)}
+                    disabled={actionInProgress === "end_call"}
+                    className="px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <PhoneOff className="w-3 h-3 text-rose-600" />
+                    End / Dismiss
                   </button>
                 </div>
               </div>
@@ -1789,6 +1820,13 @@ export default function CallsPage() {
                     className="px-2.5 py-1 rounded bg-rose-600 text-white text-[11px] font-mono font-bold hover:bg-rose-500 transition-colors"
                   >
                     🛑 Takeover
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleEndCall(supervisingCall.call_id)}
+                    className="px-2.5 py-1 rounded bg-zinc-800 text-white text-[11px] font-mono font-bold hover:bg-zinc-700 transition-colors"
+                  >
+                    ⏹️ End Call
                   </button>
                 </div>
               </div>

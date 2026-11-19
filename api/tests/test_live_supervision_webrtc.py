@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.app.core.security import create_access_token
@@ -116,3 +117,69 @@ def test_takeover_activation(supervisor_client: tuple[TestClient, str, str, str]
     data = resp.json()
     assert data["status"] == "success"
     assert data["action"] == "takeover"
+
+
+def test_end_active_call_by_supervisor(supervisor_client: tuple[TestClient, str, str, str]) -> None:
+    """Verify supervisor can manually end and dismiss a call, releasing concurrency immediately."""
+    client, token, call_id, tenant_id = supervisor_client
+
+    resp = client.post(
+        f"/api/v1/portal/calls/{call_id}/end",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["call_id"] == call_id
+
+    # Verify DB call record is now ended
+    db: Session = SessionLocal()
+    call = db.scalar(select(Call).where(Call.call_id == call_id))
+    assert call is not None
+    assert call.ended_at is not None
+    assert call.outcome == "ended_by_supervisor"
+
+
+def test_livekit_webhook_participant_left_reconciliation() -> None:
+    """Verify LiveKit Webhook participant_left marks caller session as completed."""
+    db: Session = SessionLocal()
+    suffix = uuid.uuid4().hex[:6]
+    room_name = f"room-webhook-{suffix}"
+
+    tenant = Tenant(
+        name=f"Webhook Apex {suffix}",
+        timezone="America/New_York",
+        status="active",
+    )
+    db.add(tenant)
+    db.flush()
+
+    call = Call(
+        tenant_id=tenant.id,
+        call_id=room_name,
+        caller_number="+15125550999",
+        dialed_number="+18005550199",
+        direction="inbound",
+        outcome="in_progress",
+        started_at=datetime.now(UTC),
+    )
+    db.add(call)
+    db.commit()
+
+    client = TestClient(app)
+    payload = {
+        "event": "participant_left",
+        "room": {"name": room_name, "sid": f"RM_{suffix}"},
+        "participant": {"identity": "caller-123", "attributes": {}},
+    }
+    resp = client.post("/api/v1/internal/livekit/webhook", json=payload)
+    assert resp.status_code == 200
+
+    # Verify DB record is completed
+    db.expire_all()
+    reconciled_call = db.scalar(select(Call).where(Call.call_id == room_name))
+    assert reconciled_call is not None
+    assert reconciled_call.ended_at is not None
+    assert reconciled_call.outcome == "completed"
+    assert "webhook_reconciled" in (reconciled_call.tags or [])

@@ -1218,6 +1218,15 @@ export const api = {
       body: JSON.stringify({ transfer_to, reason }),
     }),
 
+  endCall: (callId: string) =>
+    request<{
+      status: string;
+      call_id: string;
+      message: string;
+    }>(`/api/v1/portal/calls/${callId}/end`, {
+      method: "POST",
+    }),
+
   // Automated Post-Call QA & Call Scoring (Milestone M7b)
   getCallQAScorecard: (callId: string) =>
     request<QAScorecard>(`/api/v1/portal/calls/${callId}/qa`),
