@@ -10,7 +10,8 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -96,9 +97,15 @@ def get_calendar_status(
 @router.get("/connect")
 def initiate_google_oauth(
     tenant: Tenant = Depends(get_current_tenant),
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Generate Google OAuth 2.0 consent URL for calendar authorization."""
-    client_id = settings.GOOGLE_CLIENT_ID or "mock-google-client-id"
+    is_configured = bool(
+        settings.GOOGLE_CLIENT_ID
+        and not settings.GOOGLE_CLIENT_ID.startswith("mock")
+        and settings.GOOGLE_CLIENT_SECRET
+        and not settings.GOOGLE_CLIENT_SECRET.startswith("mock")
+    )
+    client_id = settings.GOOGLE_CLIENT_ID if is_configured else "mock-google-client-id"
     redirect_uri = settings.GOOGLE_REDIRECT_URI
 
     scopes = [
@@ -116,12 +123,77 @@ def initiate_google_oauth(
         "state": tenant.id,
     }
 
-    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
-    return {"auth_url": auth_url, "state": tenant.id}
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
+        if is_configured
+        else ""
+    )
+    sandbox_connect_url = (
+        f"/api/v1/portal/calendar/callback?code=mock_sandbox_code&state={tenant.id}"
+    )
+
+    return {
+        "auth_url": auth_url,
+        "state": tenant.id,
+        "is_configured": is_configured,
+        "sandbox_connect_url": sandbox_connect_url,
+        "redirect_uri": redirect_uri,
+        "message": (
+            "Google Calendar OAuth is configured and ready."
+            if is_configured
+            else "Google OAuth client ID is not configured. Connect Instant Sandbox Calendar or configure GOOGLE_CLIENT_ID in Azure/env."
+        ),
+    }
+
+
+@router.post("/connect-sandbox")
+def connect_sandbox_calendar(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """Instant 1-click connection of simulated calendar for development and end-to-end voice booking tests."""
+    token_data = {
+        "refresh_token": f"mock_refresh_sandbox_{tenant.id}",
+        "access_token": f"mock_access_sandbox_{tenant.id}",
+        "expires_in": 3600,
+    }
+    encrypted = encrypt_token(json.dumps(token_data))
+    token_expires_at = datetime.now(UTC) + timedelta(seconds=3600)
+
+    integration = db.scalar(
+        select(TenantIntegration).where(TenantIntegration.tenant_id == tenant.id)
+    )
+
+    if integration:
+        integration.provider = "google_calendar"
+        integration.status = "connected"
+        integration.calendar_id = "primary (Sandbox)"
+        integration.encrypted_tokens = encrypted
+        integration.token_expires_at = token_expires_at
+        integration.updated_at = datetime.now(UTC)
+    else:
+        integration = TenantIntegration(
+            tenant_id=tenant.id,
+            provider="google_calendar",
+            status="connected",
+            calendar_id="primary (Sandbox)",
+            encrypted_tokens=encrypted,
+            token_expires_at=token_expires_at,
+        )
+        db.add(integration)
+
+    db.commit()
+    return {
+        "status": "connected",
+        "tenant_id": tenant.id,
+        "provider": "google_calendar",
+        "calendar_id": "primary (Sandbox)",
+    }
 
 
 @router.get("/callback")
 def handle_google_oauth_callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     db: Session = Depends(get_db),
@@ -206,6 +278,17 @@ def handle_google_oauth_callback(
         db.add(integration)
 
     db.commit()
+
+    if request and "text/html" in request.headers.get("accept", ""):
+        # Browser was redirected here directly from Google OAuth consent flow
+        dashboard_url = "https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
+        if settings.CORS_ORIGINS:
+            # Prefer first frontend origin if specified
+            for o in settings.CORS_ORIGINS:
+                if "dashboard" in o or "localhost:3000" in o:
+                    dashboard_url = o.rstrip("/")
+                    break
+        return RedirectResponse(url=f"{dashboard_url}/portal/calendar?connected=true")
 
     return {"status": "connected", "tenant_id": tenant.id, "provider": "google_calendar"}
 

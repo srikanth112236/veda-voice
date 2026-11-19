@@ -18,7 +18,7 @@ from api.app.core.encryption import decrypt_token
 from api.app.models.booking import Booking, TenantIntegration
 from api.app.models.tenant import Tenant
 from api.app.services.calendar.base import CalendarProvider, Interval
-from api.app.services.calendar.google import GoogleCalendarProvider
+from api.app.services.calendar.google import GoogleCalendarProvider, MockSandboxCalendarProvider
 
 logger = logging.getLogger("vedavoice.calendar.availability")
 
@@ -40,6 +40,16 @@ class AvailableSlotsResponse(BaseModel):
     timezone: str
     slots: list[Slot]
     available_count: int
+
+
+_tenant_sandbox_calendars: dict[str, MockSandboxCalendarProvider] = {}
+
+
+def get_or_create_sandbox_calendar(tenant_id: str) -> MockSandboxCalendarProvider:
+    """Retrieve or initialize persistent in-memory simulated calendar for tenant sandbox testing."""
+    if tenant_id not in _tenant_sandbox_calendars:
+        _tenant_sandbox_calendars[tenant_id] = MockSandboxCalendarProvider()
+    return _tenant_sandbox_calendars[tenant_id]
 
 
 def _get_tenant_calendar_provider(
@@ -65,6 +75,9 @@ def _get_tenant_calendar_provider(
 
         refresh_token = token_data.get("refresh_token", "")
         access_token = token_data.get("access_token")
+
+        if refresh_token.startswith("mock_") or (access_token and access_token.startswith("mock_")):
+            return get_or_create_sandbox_calendar(tenant_id), integration.calendar_id
 
         if refresh_token:
             provider = GoogleCalendarProvider(

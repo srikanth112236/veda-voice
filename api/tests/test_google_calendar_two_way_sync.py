@@ -287,3 +287,51 @@ def test_portal_list_and_cancel_booking_endpoints() -> None:
     assert cancel_res.status_code == 200
     assert cancel_res.json()["success"] is True
     assert cancel_res.json()["status"] == "cancelled"
+
+
+def test_instant_sandbox_calendar_connection_and_roundtrip() -> None:
+    """Verify 1-click sandbox calendar connection enables immediate two-way sync diagnostics without Google credentials."""
+    suffix = uuid.uuid4().hex[:6]
+    email = f"sandbox_owner_{suffix}@test.com"
+
+    reg_res = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": f"Sandbox Test Co {suffix}",
+            "owner_name": "Sandbox Master",
+            "email": email,
+            "password": "Password123!",
+            "phone_number": f"+1512{uuid.uuid4().int % 9000000 + 1000000}",
+        },
+    )
+    assert reg_res.status_code == 200
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Connect query informs client of configuration state
+    conn_info = client.get("/api/v1/portal/calendar/connect", headers=headers)
+    assert conn_info.status_code == 200
+    info_data = conn_info.json()
+    assert "sandbox_connect_url" in info_data
+    assert "is_configured" in info_data
+
+    # 2. Connect via 1-click instant sandbox
+    sandbox_res = client.post("/api/v1/portal/calendar/connect-sandbox", headers=headers)
+    assert sandbox_res.status_code == 200
+    assert sandbox_res.json()["status"] == "connected"
+    assert "Sandbox" in sandbox_res.json()["calendar_id"]
+
+    # 3. Status is now connected
+    status_res = client.get("/api/v1/portal/calendar/status", headers=headers)
+    assert status_res.status_code == 200
+    assert status_res.json()["is_connected"] is True
+    assert status_res.json()["status"] == "connected"
+
+    # 4. Two-way sync test succeeds immediately
+    sync_test_res = client.post("/api/v1/portal/calendar/sync-test", headers=headers)
+    assert sync_test_res.status_code == 200
+    sync_data = sync_test_res.json()
+    assert sync_data["success"] is True
+    assert sync_data["status"] == "active_sync"
+    assert sync_data["meet_link_generated"] is not None
+    assert "meet.google.com" in sync_data["meet_link_generated"]

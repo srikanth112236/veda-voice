@@ -1397,7 +1397,22 @@ export const api = {
     request<CalendarIntegrationStatus>("/api/v1/portal/calendar/status"),
 
   connectGoogleCalendar: () =>
-    request<{ auth_url: string; state: string }>("/api/v1/portal/calendar/connect"),
+    request<{
+      auth_url: string;
+      state: string;
+      is_configured?: boolean;
+      sandbox_connect_url?: string;
+      redirect_uri?: string;
+      message?: string;
+    }>("/api/v1/portal/calendar/connect"),
+
+  connectSandboxCalendar: () =>
+    request<{ status: string; tenant_id: string; provider: string; calendar_id: string }>(
+      "/api/v1/portal/calendar/connect-sandbox",
+      {
+        method: "POST",
+      }
+    ),
 
   disconnectGoogleCalendar: () =>
     request<{ status: string; tenant_id: string }>("/api/v1/portal/calendar/disconnect", {

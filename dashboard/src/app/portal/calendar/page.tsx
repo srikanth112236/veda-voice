@@ -22,6 +22,9 @@ import {
   Copy,
   Check,
   MessageSquare,
+  X,
+  AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import {
   api,
@@ -42,6 +45,13 @@ export default function StaffAndDispatchPage() {
   const [testingCalSync, setTestingCalSync] = useState(false);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
   const [calNotification, setCalNotification] = useState<string | null>(null);
+  const [connectingSandbox, setConnectingSandbox] = useState(false);
+  const [showOAuthModal, setShowOAuthModal] = useState(false);
+  const [copiedRedirectUri, setCopiedRedirectUri] = useState(false);
+  const [oauthSetupDetails, setOauthSetupDetails] = useState<{
+    redirect_uri?: string;
+    message?: string;
+  } | null>(null);
 
   // Calendly & Self-Serve In-Call SMS State (Phase 4)
   const [calendlyConfig, setCalendlyConfig] = useState<CalendlyConfigResponse | null>(null);
@@ -105,6 +115,13 @@ export default function StaffAndDispatchPage() {
 
   useEffect(() => {
     loadData();
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("connected") === "true") {
+        setCalNotification("Google Calendar successfully connected! Real-time two-way synchronization is active.");
+        setTimeout(() => setCalNotification(null), 5000);
+      }
+    }
   }, [targetDate]);
 
   const handleSaveCalendlyConfig = async (e: React.FormEvent) => {
@@ -152,12 +169,39 @@ export default function StaffAndDispatchPage() {
   const handleConnectGoogleCalendar = async () => {
     try {
       const res = await api.connectGoogleCalendar();
-      if (res.auth_url) {
+      if (res.is_configured && res.auth_url) {
         window.location.href = res.auth_url;
+      } else {
+        setOauthSetupDetails({
+          redirect_uri: res.redirect_uri || "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io/api/v1/portal/calendar/callback",
+          message: res.message || "Google Cloud OAuth credentials are not yet configured on this deployment.",
+        });
+        setShowOAuthModal(true);
       }
     } catch (err: any) {
       alert(`Could not initiate Google OAuth: ${err?.message || err}`);
     }
+  };
+
+  const handleConnectSandboxCalendar = async () => {
+    try {
+      setConnectingSandbox(true);
+      await api.connectSandboxCalendar();
+      setCalNotification("Instant Sandbox Calendar Connected! Live two-way slot sync and Meet links are ready.");
+      await loadData();
+      setShowOAuthModal(false);
+      setTimeout(() => setCalNotification(null), 5000);
+    } catch (err: any) {
+      alert(`Failed to connect Sandbox Calendar: ${err?.message || err}`);
+    } finally {
+      setConnectingSandbox(false);
+    }
+  };
+
+  const handleCopyRedirectUri = (uri: string) => {
+    navigator.clipboard.writeText(uri);
+    setCopiedRedirectUri(true);
+    setTimeout(() => setCopiedRedirectUri(false), 3000);
   };
 
   const handleDisconnectGoogleCalendar = async () => {
@@ -744,14 +788,26 @@ export default function StaffAndDispatchPage() {
                     </button>
                   </>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleConnectGoogleCalendar}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
-                  >
-                    <Globe className="w-4 h-4" />
-                    <span>Connect Google Calendar</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleConnectGoogleCalendar}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-semibold flex items-center gap-2 shadow-sm transition-all"
+                    >
+                      <Globe className="w-4 h-4" />
+                      <span>Connect Google Calendar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConnectSandboxCalendar}
+                      disabled={connectingSandbox}
+                      className="px-4 py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold flex items-center gap-2 transition-all shadow-sm"
+                      title="Instant 1-click test calendar: simulated busy blocks, Meet links, and conflict checking without Google Cloud credentials"
+                    >
+                      <Zap className={`w-4 h-4 text-emerald-600 ${connectingSandbox ? "animate-spin" : ""}`} />
+                      <span>{connectingSandbox ? "Connecting..." : "Connect Sandbox Calendar"}</span>
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -1092,6 +1148,103 @@ export default function StaffAndDispatchPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* GOOGLE OAUTH CONFIGURATION & SANDBOX MODAL */}
+      {showOAuthModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in-50 zoom-in-95">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900">Google Cloud OAuth Setup &amp; Sandbox</h3>
+                  <p className="text-xs text-zinc-500">Why Error 401 occurred &amp; how to connect</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOAuthModal(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900 space-y-1.5">
+              <p className="font-semibold flex items-center gap-1.5">
+                <span>The Google OAuth Client ID is not configured on this server yet.</span>
+              </p>
+              <p className="text-amber-800 leading-relaxed text-[11px]">
+                When clicking &quot;Connect with info@vedasynk.com&quot;, Google returned <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">Error 401: invalid_client</code> because <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">GOOGLE_CLIENT_ID</code> has not yet been registered in Google Cloud Console.
+              </p>
+            </div>
+
+            {/* Instant Sandbox Option */}
+            <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-emerald-950 uppercase tracking-wide">Option 1: Instant Sandbox Mode (Ready Now)</span>
+                </div>
+                <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-semibold px-2 py-0.5 rounded-full">Recommended for Testing</span>
+              </div>
+              <p className="text-xs text-emerald-900 leading-relaxed">
+                Connect the simulated calendar in 1 click. You can immediately test live voice agent slot booking, anti-double-booking locks, technician dispatch, and simulated Google Meet link generation without waiting on Google Cloud setup.
+              </p>
+              <button
+                type="button"
+                onClick={handleConnectSandboxCalendar}
+                disabled={connectingSandbox}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
+              >
+                <Zap className={`w-4 h-4 ${connectingSandbox ? "animate-spin" : ""}`} />
+                <span>{connectingSandbox ? "Connecting Sandbox..." : "Connect Instant Sandbox Calendar Now"}</span>
+              </button>
+            </div>
+
+            {/* Production Live Sync Instructions */}
+            <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 space-y-3">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-zinc-600" />
+                <span className="text-xs font-bold text-zinc-800 uppercase tracking-wide">Option 2: Live Google Calendar Setup (info@vedasynk.com)</span>
+              </div>
+              <ol className="text-xs text-zinc-600 space-y-1.5 list-decimal pl-4">
+                <li>
+                  Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-blue-600 underline font-medium">Google Cloud Console &gt; APIs &amp; Services &gt; Credentials</a>.
+                </li>
+                <li>Create <strong>OAuth Client ID</strong> &gt; Application type: <strong>Web application</strong>.</li>
+                <li>
+                  Add this <strong>Authorized Redirect URI</strong>:
+                  <div className="mt-1 flex items-center gap-1.5 bg-white border border-zinc-300 rounded-lg p-1.5 font-mono text-[11px] text-zinc-800">
+                    <span className="truncate flex-1">{oauthSetupDetails?.redirect_uri || "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io/api/v1/portal/calendar/callback"}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyRedirectUri(oauthSetupDetails?.redirect_uri || "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io/api/v1/portal/calendar/callback")}
+                      className="px-2 py-0.5 text-[10px] bg-zinc-100 hover:bg-zinc-200 rounded text-zinc-700 flex items-center gap-1 font-sans"
+                    >
+                      {copiedRedirectUri ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedRedirectUri ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                </li>
+                <li>Add <code className="bg-zinc-200 px-1 py-0.5 rounded font-mono text-[10px]">GOOGLE_CLIENT_ID</code> and <code className="bg-zinc-200 px-1 py-0.5 rounded font-mono text-[10px]">GOOGLE_CLIENT_SECRET</code> to your Azure Container App environment variables.</li>
+              </ol>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setShowOAuthModal(false)}
+                className="px-4 py-2 text-xs border border-zinc-200 rounded-xl text-zinc-600 hover:bg-zinc-50 font-medium"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
