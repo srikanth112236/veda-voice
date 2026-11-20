@@ -13,6 +13,7 @@ import {
   Trash2,
   Mic,
   Volume2,
+  VolumeX,
   ShieldCheck,
   BookOpen,
   Sparkles,
@@ -91,6 +92,88 @@ export default function ReceptionistProfilePage() {
       utterance.onend = () => setPlayingVoiceId(null);
       utterance.onerror = () => setPlayingVoiceId(null);
       window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // Test Call state
+  const [showTestCallModal, setShowTestCallModal] = useState(false);
+  const [testCallPhone, setTestCallPhone] = useState("+15125550199");
+  const [dispatchingTestCall, setDispatchingTestCall] = useState(false);
+  const [testCallResult, setTestCallResult] = useState<{
+    status: string;
+    call_id: string | null;
+    compliance_passed: boolean;
+    message: string;
+    phone_dialed?: string;
+  } | null>(null);
+
+  // Phonetic testing state
+  const [playingPhoneticIdx, setPlayingPhoneticIdx] = useState<number | null>(null);
+
+  const handlePlayPhonetic = (text: string, idx: number) => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      if (playingPhoneticIdx === idx) {
+        setPlayingPhoneticIdx(null);
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.9;
+      utterance.pitch = 1.0;
+      setPlayingPhoneticIdx(idx);
+      utterance.onend = () => setPlayingPhoneticIdx(null);
+      utterance.onerror = () => setPlayingPhoneticIdx(null);
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const handleAddPhoneticPreset = (type: "trades" | "dental" | "general") => {
+    if (!profile) return;
+    const current = profile.phonetic_glossary || [];
+    let additions: PhoneticEntry[] = [];
+    if (type === "trades") {
+      additions = [
+        { term: "HVAC", spoken_as: "H-V-A-C", note: "Heating & Air" },
+        { term: "PEX", spoken_as: "pecks", note: "Piping material" },
+        { term: "PRV", spoken_as: "P-R-V", note: "Pressure reducing valve" },
+      ];
+    } else if (type === "dental") {
+      additions = [
+        { term: "Prophylaxis", spoken_as: "pro-fil-AX-is", note: "Cleaning" },
+        { term: "Gingivitis", spoken_as: "jin-jih-VY-tis", note: "Gum care" },
+      ];
+    } else {
+      additions = [
+        { term: "VedaSynk", spoken_as: "Vay-duh Sink", note: "Platform name" },
+        { term: "Suite", spoken_as: "sweet", note: "Office suite" },
+      ];
+    }
+    const filtered = additions.filter(
+      (a) => !current.some((c) => c.term.toLowerCase() === a.term.toLowerCase())
+    );
+    setProfile({
+      ...profile,
+      phonetic_glossary: [...current, ...filtered],
+    });
+  };
+
+  const handleTriggerTestCall = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testCallPhone.trim()) return;
+    setDispatchingTestCall(true);
+    setTestCallResult(null);
+    try {
+      const res = await api.triggerAgentTestCall(testCallPhone.trim());
+      setTestCallResult(res);
+    } catch (err: any) {
+      setTestCallResult({
+        status: "error",
+        call_id: null,
+        compliance_passed: false,
+        message: err.message || "Failed to initiate test call",
+      });
+    } finally {
+      setDispatchingTestCall(false);
     }
   };
 
@@ -418,25 +501,36 @@ export default function ReceptionistProfilePage() {
           </p>
         </div>
 
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 shadow-sm"
-        >
-          {saving ? (
-            "Saving..."
-          ) : success ? (
-            <>
-              <Check className="w-4 h-4 text-emerald-400" />
-              Saved Successfully
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4" />
-              Save Changes
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowTestCallModal(true)}
+            className="px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+          >
+            <PhoneCall className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Call Me (Test Receptionist)</span>
+          </button>
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 shadow-sm"
+          >
+            {saving ? (
+              "Saving..."
+            ) : success ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-400" />
+                Saved Successfully
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Changes
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -760,18 +854,45 @@ export default function ReceptionistProfilePage() {
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleAddGlossary}
-                className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium flex items-center gap-1 transition-colors shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Term
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-1.5">
+                  <span className="text-[10px] text-zinc-400 font-mono">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleAddPhoneticPreset("trades")}
+                    className="px-2 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-medium transition-colors"
+                  >
+                    + Trades
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddPhoneticPreset("dental")}
+                    className="px-2 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-medium transition-colors"
+                  >
+                    + Dental
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddPhoneticPreset("general")}
+                    className="px-2 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-medium transition-colors"
+                  >
+                    + Platform
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAddGlossary}
+                  className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium flex items-center gap-1 transition-colors shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Term
+                </button>
+              </div>
             </div>
 
             {glossaryList.length === 0 ? (
               <div className="p-4 text-center border border-dashed border-zinc-200 rounded-xl text-xs text-zinc-500 bg-zinc-50">
-                No phonetic terms configured. Click &quot;Add Term&quot; to guide technical pronunciation.
+                No phonetic terms configured. Click &quot;Add Term&quot; or select a preset to guide technical pronunciation.
               </div>
             ) : (
               <div className="space-y-2">
@@ -802,7 +923,7 @@ export default function ReceptionistProfilePage() {
                       />
                     </div>
 
-                    <div className="sm:col-span-3 space-y-1">
+                    <div className="sm:col-span-2 space-y-1">
                       <span className="text-[10px] text-zinc-500 font-mono font-bold block">Context / Note</span>
                       <input
                         type="text"
@@ -813,7 +934,20 @@ export default function ReceptionistProfilePage() {
                       />
                     </div>
 
-                    <div className="sm:col-span-1 flex justify-end pt-4 sm:pt-0">
+                    <div className="sm:col-span-2 flex items-center justify-end gap-1.5 pt-4 sm:pt-0">
+                      <button
+                        type="button"
+                        onClick={() => handlePlayPhonetic(item.spoken_as || item.term, idx)}
+                        className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-colors ${
+                          playingPhoneticIdx === idx
+                            ? "bg-indigo-600 text-white border-indigo-600 animate-pulse"
+                            : "border-zinc-200 text-zinc-600 hover:bg-zinc-100"
+                        }`}
+                        title="Audition Phonetic Pronunciation"
+                      >
+                        {playingPhoneticIdx === idx ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                        <span className="text-[10px] hidden sm:inline">Test</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleRemoveGlossary(idx)}
@@ -1857,6 +1991,114 @@ export default function ReceptionistProfilePage() {
           </button>
         </div>
       </form>
+
+      {/* Modal: Live Test Call */}
+      {showTestCallModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-zinc-200 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <PhoneCall className="w-5 h-5 text-indigo-600" />
+                <h3 className="text-base font-bold text-zinc-900">Live AI Receptionist Test Call</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTestCallModal(false);
+                  setTestCallResult(null);
+                }}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-500">
+              Enter your phone number to receive an immediate live phone call from your AI receptionist &quot;{profile.agent_name || "Receptionist"}&quot; to audition the greeting and conversation flow.
+            </p>
+
+            <form onSubmit={handleTriggerTestCall} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-zinc-700 mb-1">
+                  Destination Phone Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={testCallPhone}
+                  onChange={(e) => setTestCallPhone(e.target.value)}
+                  placeholder="+1 512 555 0199"
+                  className="w-full text-xs font-mono rounded-xl border border-zinc-300 px-3 py-2.5 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <span className="text-[10px] text-zinc-400 block mt-1 font-mono">
+                  E.164 format with country code (e.g. +1 for US/Canada)
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+                <div className="flex items-center gap-1.5 text-zinc-700 font-semibold text-[11px]">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>10-Point TCPA Compliance Gate Active</span>
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Checks DNC, calling window (8 AM–8 PM local), and caller ID verification before dispatching trunk.
+                </p>
+              </div>
+
+              {testCallResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs space-y-1 ${
+                    testCallResult.compliance_passed
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : "bg-red-50 border-red-200 text-red-800"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold">
+                    {testCallResult.compliance_passed ? (
+                      <>
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        <span>Test Call Dispatched!</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-4 h-4 text-red-600" />
+                        <span>Call Blocked by Compliance</span>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-[11px] leading-relaxed">{testCallResult.message}</p>
+                  {testCallResult.call_id && (
+                    <div className="font-mono text-[10px] text-zinc-500 pt-1">
+                      Call ID: <strong className="text-zinc-800">{testCallResult.call_id}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestCallModal(false);
+                    setTestCallResult(null);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-zinc-200 text-zinc-700 hover:bg-zinc-50"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={dispatchingTestCall || !testCallPhone.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-50"
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  {dispatchingTestCall ? "Dispatching Call..." : "Call My Phone Now"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

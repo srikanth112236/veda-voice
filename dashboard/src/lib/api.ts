@@ -687,6 +687,19 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  triggerAgentTestCall: (phoneNumber: string) =>
+    request<{
+      status: string;
+      call_id: string | null;
+      compliance_passed: boolean;
+      reason: string | null;
+      phone_dialed: string;
+      message: string;
+    }>("/api/v1/portal/profile/test-call", {
+      method: "POST",
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    }),
+
   // Platform Admin
   getAdminStats: () => request<PlatformStats>("/api/v1/admin/stats"),
 

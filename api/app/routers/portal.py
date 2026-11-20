@@ -18,8 +18,10 @@ from api.app.core.deps import get_current_tenant, get_current_user
 from api.app.core.security import decode_access_token
 from api.app.db.session import SessionLocal, get_db
 from api.app.models.call import Call
+from api.app.models.outbound import OutboundDispatch
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
+from api.app.services.compliance import evaluate_compliance_gate_v2, normalize_e164_phone
 from api.app.services.livekit_sync import sync_tenant_to_livekit
 from api.app.services.supervisor import handle_supervisor_action, supervisor_manager
 
@@ -1584,4 +1586,121 @@ def update_agent_profile(
         notify_sms_on_emergency=True
         if getattr(profile, "notify_sms_on_emergency", None) is None
         else bool(profile.notify_sms_on_emergency),
+    )
+
+
+class TestCallRequest(BaseModel):
+    phone_number: str = Field(..., min_length=10, max_length=30)
+
+
+class TestCallResponse(BaseModel):
+    status: str
+    call_id: str | None = None
+    compliance_passed: bool
+    reason: str | None = None
+    phone_dialed: str
+    message: str
+
+
+@router.post("/profile/test-call", response_model=TestCallResponse)
+def trigger_agent_test_call(
+    req: TestCallRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> TestCallResponse:
+    """Initiate an automated test call to the tenant's number via strict compliance gate."""
+    norm_to = normalize_e164_phone(req.phone_number)
+    now = datetime.now(UTC)
+
+    # Resolve tenant active caller ID or provision test trunk
+    caller_phone = db.scalar(
+        select(PhoneNumber).where(
+            PhoneNumber.tenant_id == tenant.id,
+            PhoneNumber.status == "active",
+        )
+    )
+    if not caller_phone:
+        caller_phone = db.scalar(select(PhoneNumber).where(PhoneNumber.tenant_id == tenant.id))
+    if not caller_phone:
+        caller_phone = PhoneNumber(
+            tenant_id=tenant.id,
+            e164=f"+1512{uuid.uuid4().hex[:7]}",
+            status="active",
+            label="Default Test Trunk",
+        )
+        db.add(caller_phone)
+        db.flush()
+
+    from_phone = caller_phone.e164
+
+    # Evaluate 10-point compliance gate v2 (Category B: Transactional test call)
+    compliance = evaluate_compliance_gate_v2(
+        db=db,
+        tenant_id=tenant.id,
+        to_phone=norm_to,
+        from_phone=from_phone,
+        category="B",
+        purpose="portal_test_call",
+        has_consent=True,
+        current_time=now,
+    )
+
+    call_id = f"test-{tenant.id[:8]}-{uuid.uuid4().hex[:8]}"
+
+    if not compliance.passed:
+        logger.warning(
+            "Test call for tenant %s to %s blocked by compliance gate: %s",
+            tenant.id,
+            norm_to,
+            compliance.reason,
+        )
+        dispatch = OutboundDispatch(
+            tenant_id=tenant.id,
+            call_id=call_id,
+            to_phone=norm_to,
+            from_phone=from_phone,
+            purpose="portal_test_call",
+            status="skipped_compliance",
+            compliance_passed=False,
+            compliance_verdict=compliance.to_dict(),
+            skip_reason=compliance.reason,
+            created_at=now,
+        )
+        db.add(dispatch)
+        db.commit()
+
+        msg = (
+            compliance.details.get("message") or f"Blocked by compliance gate: {compliance.reason}"
+        )
+        return TestCallResponse(
+            status="blocked_compliance",
+            call_id=None,
+            compliance_passed=False,
+            reason=compliance.reason,
+            phone_dialed=norm_to,
+            message=str(msg),
+        )
+
+    # Compliance Passed: Create queued OutboundDispatch
+    dispatch = OutboundDispatch(
+        tenant_id=tenant.id,
+        call_id=call_id,
+        to_phone=norm_to,
+        from_phone=from_phone,
+        purpose="portal_test_call",
+        status="queued",
+        compliance_passed=True,
+        compliance_verdict=compliance.to_dict(),
+        created_at=now,
+    )
+    db.add(dispatch)
+    db.commit()
+
+    return TestCallResponse(
+        status="dispatched",
+        call_id=call_id,
+        compliance_passed=True,
+        reason=None,
+        phone_dialed=norm_to,
+        message=f"Test call authorized and queued. AI receptionist will call {norm_to} from {from_phone}.",
     )
