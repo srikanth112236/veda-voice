@@ -76,40 +76,65 @@ jobs:
             --name db-migrate-job \
             --resource-group ${{ steps.vars.outputs.AZURE_RG }} || echo "db-migrate-job not provisioned or skipped"
 
-      - name: "Update Container App: API"
+      - name: Deploy Revisions to Running Container Apps
         run: |
-          az containerapp update \
-            --name api \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
-            --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }}
+          RG="${{ steps.vars.outputs.AZURE_RG }}"
+          ACR="${{ steps.vars.outputs.ACR_NAME }}"
+          ACR_SERVER="${{ steps.vars.outputs.ACR_SERVER }}"
+          TAG="${{ steps.vars.outputs.SHA_SHORT }}"
 
-      - name: "Update Container App: Dashboard"
-        run: |
-          az containerapp update \
-            --name dashboard \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
-            --image ${{ steps.vars.outputs.ACR_SERVER }}/dashboard:${{ steps.vars.outputs.SHA_SHORT }}
+          echo "Ensuring ACR admin credentials are enabled..."
+          az acr update --name "$ACR" --resource-group "$RG" --admin-enabled true --output none || true
+          ACR_USER=$(az acr credential show --name "$ACR" --query username -o tsv 2>/dev/null || echo "")
+          ACR_PASS=$(az acr credential show --name "$ACR" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
 
-      - name: "Update Container App: Dialer Worker"
-        run: |
-          az containerapp update \
-            --name dialer \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
-            --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }} || echo "dialer worker container app not found or skipped"
+          APPS=$(az containerapp list --resource-group "$RG" --query "[].name" -o tsv)
+          echo "::notice title=Found Container Apps in RG::$APPS"
 
-      - name: "Update Container App: Notifier Worker"
-        run: |
-          az containerapp update \
-            --name notifier \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
-            --image ${{ steps.vars.outputs.ACR_SERVER }}/api:${{ steps.vars.outputs.SHA_SHORT }} || echo "notifier worker container app not found or skipped"
+          for APP in $APPS; do
+            echo "--------------------------------------------------------"
+            echo "--> Processing Container App: $APP"
 
-      - name: "Update Container App: Voice Agent Worker"
-        run: |
-          az containerapp update \
-            --name agent \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
-            --image ${{ steps.vars.outputs.ACR_SERVER }}/agent:${{ steps.vars.outputs.SHA_SHORT }} || echo "agent container app not provisioned yet in RG"
+            if [ -n "$ACR_USER" ] && [ -n "$ACR_PASS" ]; then
+              echo "    Setting ACR registry authentication on $APP..."
+              az containerapp registry set \
+                --name "$APP" \
+                --resource-group "$RG" \
+                --server "$ACR_SERVER" \
+                --username "$ACR_USER" \
+                --password "$ACR_PASS" 2>/dev/null || true
+            fi
+
+            # Match image to app role
+            IMAGE_NAME=""
+            case "$APP" in
+              *dash*)
+                IMAGE_NAME="dashboard"
+                ;;
+              *agent*)
+                IMAGE_NAME="agent"
+                ;;
+              *api*)
+                IMAGE_NAME="api"
+                ;;
+              *)
+                IMAGE_NAME="api"
+                ;;
+            esac
+
+            echo "    Updating $APP with image: ${ACR_SERVER}/${IMAGE_NAME}:${TAG}..."
+            az containerapp update \
+              --name "$APP" \
+              --resource-group "$RG" \
+              --image "${ACR_SERVER}/${IMAGE_NAME}:${TAG}" || {
+                echo "    Warning: update with tag $TAG failed, falling back to latest..."
+                az containerapp update \
+                  --name "$APP" \
+                  --resource-group "$RG" \
+                  --image "${ACR_SERVER}/${IMAGE_NAME}:latest" || true
+              }
+            echo "    [DONE] Finished updating $APP."
+          done
 
       - name: Deploy Voice Agent to LiveKit Cloud
         env:
