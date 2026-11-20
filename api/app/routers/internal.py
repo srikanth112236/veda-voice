@@ -26,6 +26,7 @@ from api.app.services.calendar.booking import (
 from api.app.services.calendar.booking import (
     cancel_booking as cancel_booking_service,
 )
+from api.app.services.crm_ingest import upsert_crm_contact_from_call
 from api.app.services.integrations.google_sheets import sync_call_result_to_sheets
 from api.app.services.integrations.sync_dispatcher import dispatch_all_crm_and_webhook_sync
 from api.app.services.intelligence import extract_post_call_intelligence
@@ -967,6 +968,23 @@ def save_call_record_from_agent(
                 estimated_cogs_usd=estimated_cogs_usd,
             )
             db.add(usage)
+
+    # Multi-Tenant Native CRM Lead & Contact Ingestion Bridge (Phase 1)
+    if call.tenant_id:
+        try:
+            upsert_crm_contact_from_call(
+                db=db,
+                tenant_id=call.tenant_id,
+                call=call,
+                payload_message=payload.message,
+            )
+        except Exception as err:
+            logger.error(
+                "Failed to upsert CRM contact for call %s: %s",
+                call.call_id,
+                err,
+                exc_info=True,
+            )
 
     db.commit()
 
