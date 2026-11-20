@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from api.app.core.security import decrypt_crm_credentials
 from api.app.db.session import SessionLocal
 from api.app.models.call import Call
 from api.app.models.crm import Contact, CRMIntegration
@@ -24,7 +25,17 @@ logger = logging.getLogger("vedavoice.integrations.sync_dispatcher")
 def get_crm_adapter(integration: CRMIntegration) -> Any | None:
     """Instantiate appropriate adapter for configured provider."""
     provider = integration.provider.lower()
-    token = integration.api_key_or_token
+    raw_token = integration.api_key_or_token
+    decrypted = decrypt_crm_credentials(integration.tenant_id, integration.provider, raw_token)
+    if isinstance(decrypted, dict):
+        token = str(
+            decrypted.get("access_token")
+            or decrypted.get("api_key")
+            or decrypted.get("token")
+            or ""
+        )
+    else:
+        token = str(decrypted)
     config = integration.config or {}
 
     if provider == "hubspot":

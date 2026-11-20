@@ -35,6 +35,9 @@ class CRMConnection(Base):
     )  # portal_id, org_id
     region_meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     token_ciphertext: Mapped[str] = mapped_column(Text, nullable=False)  # Envelope encrypted
+    key_fingerprint: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default=None
+    )  # Safe masked display (e.g. ••••3a9f)
     field_map: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

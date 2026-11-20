@@ -667,6 +667,12 @@ export default function IntegrationsPage() {
                       Portal ID: <span className="font-semibold text-zinc-800">{info.account_id}</span>
                     </div>
                   )}
+                  {isConn && info?.key_fingerprint && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                      <span>Vault: {info.key_fingerprint} (AES-256-GCM)</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2 pt-2 border-t border-zinc-100">
@@ -741,6 +747,12 @@ export default function IntegrationsPage() {
                   <p className="text-[11px] text-zinc-500 leading-relaxed">
                     Native REST API integration to push call outcomes, transcripts, and update lead stages in Zoho.
                   </p>
+                  {isConn && info?.key_fingerprint && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                      <span>Vault: {info.key_fingerprint} (AES-256-GCM)</span>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1.5 pt-2 border-t border-zinc-100">
                   {isConn ? (
@@ -811,6 +823,12 @@ export default function IntegrationsPage() {
                   {isConn && info?.account_id && (
                     <div className="text-[10px] font-mono text-zinc-600 bg-zinc-50 px-2 py-1 rounded-md border border-zinc-200 truncate">
                       Loc ID: <span className="font-semibold text-zinc-800">{info.account_id}</span>
+                    </div>
+                  )}
+                  {isConn && info?.key_fingerprint && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                      <span>Vault: {info.key_fingerprint} (AES-256-GCM)</span>
                     </div>
                   )}
                 </div>
@@ -897,6 +915,12 @@ export default function IntegrationsPage() {
                   {isConn && info?.account_id && (
                     <div className="text-[10px] font-mono text-zinc-600 bg-zinc-50 px-2 py-1 rounded-md border border-zinc-200 truncate">
                       Company ID: <span className="font-semibold text-zinc-800">{info.account_id}</span>
+                    </div>
+                  )}
+                  {isConn && info?.key_fingerprint && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                      <span>Vault: {info.key_fingerprint} (AES-256-GCM)</span>
                     </div>
                   )}
                 </div>

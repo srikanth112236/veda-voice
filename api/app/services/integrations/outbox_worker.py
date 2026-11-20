@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from api.app.core.security import decrypt_token
+from api.app.core.security import decrypt_crm_credentials
 from api.app.models.crm_sync import CRMConnection, CRMEntityLink, CRMSyncOutbox
 from api.app.services.integrations.gohighlevel import HighLevelProvider
 from api.app.services.integrations.hubspot import HubSpotProvider
@@ -104,8 +104,10 @@ async def process_outbox_batch(
             continue
 
         try:
-            # 1. Decrypt credentials
-            decrypted = decrypt_token(conn.token_ciphertext)
+            # 1. Decrypt credentials with per-tenant AES-256-GCM vault & dual-read fallback
+            decrypted = decrypt_crm_credentials(
+                conn.tenant_id, conn.provider, conn.token_ciphertext
+            )
             token_set = (
                 decrypted if isinstance(decrypted, dict) else {"access_token": str(decrypted)}
             )

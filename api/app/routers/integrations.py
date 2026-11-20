@@ -22,7 +22,12 @@ from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
 from api.app.core.deps import get_current_user
-from api.app.core.security import create_access_token, decode_access_token, encrypt_token
+from api.app.core.security import (
+    compute_key_fingerprint,
+    create_access_token,
+    decode_access_token,
+    encrypt_crm_credentials,
+)
 from api.app.db.session import get_db
 from api.app.models.crm import CRMIntegration, WebhookSubscription
 from api.app.models.crm_sync import CRMConnection, CRMSyncOutbox
@@ -128,8 +133,8 @@ async def hubspot_oauth_callback(
     provider = HubSpotProvider()
     token_data = await provider.exchange_code(code, redirect_uri=settings.HUBSPOT_REDIRECT_URI)
 
-    # Envelope encryption of OAuth token set
-    encrypted_tokens = encrypt_token(token_data)
+    # Enterprise per-tenant AES-256-GCM envelope encryption
+    encrypted_tokens, fingerprint = encrypt_crm_credentials(tenant_id, "hubspot", token_data)
     portal_id = str(token_data.get("portal_id", ""))
 
     now = datetime.now(UTC)
@@ -147,6 +152,7 @@ async def hubspot_oauth_callback(
             status="connected",
             external_account_id=portal_id,
             token_ciphertext=encrypted_tokens,
+            key_fingerprint=fingerprint,
             field_map={
                 "firstname": "name",
                 "phone": "phone",
@@ -162,6 +168,7 @@ async def hubspot_oauth_callback(
     else:
         conn.status = "connected"
         conn.token_ciphertext = encrypted_tokens
+        conn.key_fingerprint = fingerprint
         conn.external_account_id = portal_id or conn.external_account_id
         conn.last_error = None
         conn.last_sync_at = now
@@ -175,6 +182,7 @@ async def hubspot_oauth_callback(
         "provider": "hubspot",
         "status": "connected",
         "portal_id": portal_id,
+        "key_fingerprint": fingerprint,
         "message": "HubSpot connected successfully with encrypted OAuth tokens.",
     }
 
@@ -236,8 +244,8 @@ async def ghl_oauth_callback(
     provider = HighLevelProvider()
     token_data = await provider.exchange_code(code, redirect_uri=settings.GHL_REDIRECT_URI)
 
-    # Envelope encryption of OAuth token set
-    encrypted_tokens = encrypt_token(token_data)
+    # Enterprise per-tenant AES-256-GCM envelope encryption
+    encrypted_tokens, fingerprint = encrypt_crm_credentials(tenant_id, "gohighlevel", token_data)
     location_id = str(token_data.get("locationId", ""))
 
     now = datetime.now(UTC)
@@ -255,6 +263,7 @@ async def ghl_oauth_callback(
             status="connected",
             external_account_id=location_id,
             token_ciphertext=encrypted_tokens,
+            key_fingerprint=fingerprint,
             field_map={
                 "firstName": "name",
                 "phone": "phone",
@@ -269,6 +278,7 @@ async def ghl_oauth_callback(
     else:
         conn.status = "connected"
         conn.token_ciphertext = encrypted_tokens
+        conn.key_fingerprint = fingerprint
         conn.external_account_id = location_id or conn.external_account_id
         conn.last_error = None
         conn.last_sync_at = now
@@ -282,6 +292,7 @@ async def ghl_oauth_callback(
         "provider": "gohighlevel",
         "status": "connected",
         "location_id": location_id,
+        "key_fingerprint": fingerprint,
         "message": "GoHighLevel connected successfully with encrypted OAuth tokens.",
     }
 
@@ -343,8 +354,8 @@ async def pipedrive_oauth_callback(
     provider = PipedriveProvider()
     token_data = await provider.exchange_code(code, redirect_uri=settings.PIPEDRIVE_REDIRECT_URI)
 
-    # Envelope encryption of OAuth token set
-    encrypted_tokens = encrypt_token(token_data)
+    # Enterprise per-tenant AES-256-GCM envelope encryption
+    encrypted_tokens, fingerprint = encrypt_crm_credentials(tenant_id, "pipedrive", token_data)
     company_id = str(token_data.get("company_id", ""))
 
     now = datetime.now(UTC)
@@ -362,6 +373,7 @@ async def pipedrive_oauth_callback(
             status="connected",
             external_account_id=company_id,
             token_ciphertext=encrypted_tokens,
+            key_fingerprint=fingerprint,
             field_map={
                 "name": "name",
                 "phone": "phone",
@@ -376,6 +388,7 @@ async def pipedrive_oauth_callback(
     else:
         conn.status = "connected"
         conn.token_ciphertext = encrypted_tokens
+        conn.key_fingerprint = fingerprint
         conn.external_account_id = company_id or conn.external_account_id
         conn.last_error = None
         conn.last_sync_at = now
@@ -389,6 +402,7 @@ async def pipedrive_oauth_callback(
         "provider": "pipedrive",
         "status": "connected",
         "company_id": company_id,
+        "key_fingerprint": fingerprint,
         "message": "Pipedrive connected successfully with encrypted OAuth tokens.",
     }
 
@@ -536,6 +550,7 @@ def list_tenant_integrations(
                 "type": "oauth2",
                 "status": c.status,
                 "account_id": c.external_account_id,
+                "key_fingerprint": getattr(c, "key_fingerprint", None) or "••••",
                 "last_sync_at": c.last_sync_at.isoformat() if c.last_sync_at else None,
                 "last_error": c.last_error,
                 "created_at": c.created_at.isoformat(),
@@ -544,6 +559,7 @@ def list_tenant_integrations(
 
     for lc in legacy_crms:
         if lc.provider not in seen_providers:
+            fp = compute_key_fingerprint(lc.api_key_or_token or "")
             crms_merged.append(
                 {
                     "id": lc.id,
@@ -551,6 +567,7 @@ def list_tenant_integrations(
                     "type": "api_key",
                     "status": lc.status,
                     "config": lc.config,
+                    "key_fingerprint": fp,
                     "last_sync_at": lc.last_sync_at.isoformat() if lc.last_sync_at else None,
                     "created_at": lc.created_at.isoformat(),
                 }
@@ -607,20 +624,25 @@ def connect_or_update_crm(
         )
     )
 
+    # Enterprise per-tenant AES-256-GCM envelope encryption
+    encrypted_token, fingerprint = encrypt_crm_credentials(
+        tenant_id, provider, req.api_key_or_token
+    )
+
     now = datetime.now(UTC)
     if not integration:
         integration = CRMIntegration(
             tenant_id=tenant_id,
             provider=provider,
             status="connected",
-            api_key_or_token=req.api_key_or_token,
+            api_key_or_token=encrypted_token,
             config=req.config,
             created_at=now,
             updated_at=now,
         )
         db.add(integration)
     else:
-        integration.api_key_or_token = req.api_key_or_token
+        integration.api_key_or_token = encrypted_token
         integration.config = req.config
         integration.status = "connected"
         integration.updated_at = now
@@ -632,7 +654,6 @@ def connect_or_update_crm(
             CRMConnection.provider == provider,
         )
     )
-    encrypted_token = encrypt_token(req.api_key_or_token)
     ext_id = str(req.config.get("location_id") or req.config.get("company_domain") or "")
     if not conn:
         conn = CRMConnection(
@@ -641,6 +662,7 @@ def connect_or_update_crm(
             status="connected",
             external_account_id=ext_id,
             token_ciphertext=encrypted_token,
+            key_fingerprint=fingerprint,
             field_map={"name": "name", "phone": "phone", "email": "email"},
             settings=req.config,
             last_sync_at=now,
@@ -651,6 +673,7 @@ def connect_or_update_crm(
     else:
         conn.status = "connected"
         conn.token_ciphertext = encrypted_token
+        conn.key_fingerprint = fingerprint
         conn.external_account_id = ext_id or conn.external_account_id
         conn.settings = req.config
         conn.updated_at = now
@@ -663,6 +686,7 @@ def connect_or_update_crm(
         "id": integration.id,
         "provider": integration.provider,
         "status": integration.status,
+        "key_fingerprint": fingerprint,
     }
 
 
