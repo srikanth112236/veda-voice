@@ -22,7 +22,7 @@ from api.app.core.encryption import encrypt_token
 from api.app.db.session import get_db
 from api.app.models.booking import Booking, TenantIntegration
 from api.app.models.crm import Contact
-from api.app.models.tenant import Tenant
+from api.app.models.tenant import AgentProfile, Tenant
 from api.app.services.calendar.availability import _get_tenant_calendar_provider
 from api.app.services.calendar.base import ExternalEvent
 from api.app.services.calendar.booking import cancel_booking
@@ -56,6 +56,9 @@ class BookingItemResponse(BaseModel):
     call_id: str | None = None
     contact_id: str | None = None
     notes: str | None
+    is_arrival_window: bool = False
+    arrival_window_start: datetime | None = None
+    arrival_window_end: datetime | None = None
 
 
 class CreateManualBookingRequest(BaseModel):
@@ -67,6 +70,26 @@ class CreateManualBookingRequest(BaseModel):
     end_at: datetime | None = None
     notes: str | None = None
     staff_id: str | None = None
+    is_arrival_window: bool = False
+    arrival_window_start: datetime | None = None
+    arrival_window_end: datetime | None = None
+    bypass_buffer: bool = False
+
+
+class CalendarSettingsResponse(BaseModel):
+    scheduling_mode: str  # exact_time | arrival_window
+    arrival_window_hours: int  # 2 | 4
+    calendar_buffer_minutes: int  # 15 | 20 | 30 | 45
+    calendar_buffer_mode: str  # after | both
+    calendar_buffer_reason: str
+
+
+class UpdateCalendarSettingsRequest(BaseModel):
+    scheduling_mode: str | None = None
+    arrival_window_hours: int | None = None
+    calendar_buffer_minutes: int | None = None
+    calendar_buffer_mode: str | None = None
+    calendar_buffer_reason: str | None = None
 
 
 class SyncTestResponse(BaseModel):
@@ -365,9 +388,87 @@ def list_bookings(
             call_id=b.call_id,
             contact_id=contact_map.get(b.customer_phone),
             notes=b.notes,
+            is_arrival_window=getattr(b, "is_arrival_window", False) or False,
+            arrival_window_start=getattr(b, "arrival_window_start", None),
+            arrival_window_end=getattr(b, "arrival_window_end", None),
         )
         for b in bookings
     ]
+
+
+@router.get("/settings", response_model=CalendarSettingsResponse)
+def get_calendar_settings(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> CalendarSettingsResponse:
+    """Retrieve active calendar scheduling mode and buffer time protection settings."""
+    profile = db.scalar(select(AgentProfile).where(AgentProfile.tenant_id == tenant.id))
+    return CalendarSettingsResponse(
+        scheduling_mode=getattr(profile, "scheduling_mode", "exact_time") or "exact_time",
+        arrival_window_hours=getattr(profile, "arrival_window_hours", 2) or 2,
+        calendar_buffer_minutes=getattr(profile, "calendar_buffer_minutes", 15) or 15,
+        calendar_buffer_mode=getattr(profile, "calendar_buffer_mode", "after") or "after",
+        calendar_buffer_reason=getattr(profile, "calendar_buffer_reason", "travel_and_reset")
+        or "travel_and_reset",
+    )
+
+
+@router.patch("/settings", response_model=CalendarSettingsResponse)
+def update_calendar_settings(
+    req: UpdateCalendarSettingsRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> CalendarSettingsResponse:
+    """Update calendar scheduling preferences including arrival window duration and travel/reset buffer protection."""
+    profile = db.scalar(select(AgentProfile).where(AgentProfile.tenant_id == tenant.id))
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not found")
+
+    if req.scheduling_mode is not None:
+        if req.scheduling_mode not in ("exact_time", "arrival_window"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="scheduling_mode must be 'exact_time' or 'arrival_window'",
+            )
+        profile.scheduling_mode = req.scheduling_mode
+
+    if req.arrival_window_hours is not None:
+        if req.arrival_window_hours not in (2, 4):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="arrival_window_hours must be 2 or 4",
+            )
+        profile.arrival_window_hours = req.arrival_window_hours
+
+    if req.calendar_buffer_minutes is not None:
+        if req.calendar_buffer_minutes not in (15, 20, 30, 45):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="calendar_buffer_minutes must be 15, 20, 30, or 45",
+            )
+        profile.calendar_buffer_minutes = req.calendar_buffer_minutes
+
+    if req.calendar_buffer_mode is not None:
+        if req.calendar_buffer_mode not in ("after", "both"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="calendar_buffer_mode must be 'after' or 'both'",
+            )
+        profile.calendar_buffer_mode = req.calendar_buffer_mode
+
+    if req.calendar_buffer_reason is not None:
+        profile.calendar_buffer_reason = req.calendar_buffer_reason.strip()
+
+    db.commit()
+    db.refresh(profile)
+
+    return CalendarSettingsResponse(
+        scheduling_mode=profile.scheduling_mode,
+        arrival_window_hours=profile.arrival_window_hours,
+        calendar_buffer_minutes=profile.calendar_buffer_minutes,
+        calendar_buffer_mode=profile.calendar_buffer_mode,
+        calendar_buffer_reason=profile.calendar_buffer_reason,
+    )
 
 
 @router.post("/bookings/manual", response_model=BookingItemResponse)
@@ -376,7 +477,7 @@ def create_manual_booking(
     tenant: Tenant = Depends(get_current_tenant),
     db: Session = Depends(get_db),
 ) -> Any:
-    """Create a manual booking with conflict validation, Google Calendar event creation, and CRM linkage."""
+    """Create a manual booking with buffer protection, conflict validation, Google Calendar sync, and CRM linkage."""
     start_at = req.start_at
     end_at = req.end_at or (start_at + timedelta(minutes=60))
     if end_at <= start_at:
@@ -385,7 +486,7 @@ def create_manual_booking(
             detail="End time must be after start time",
         )
 
-    # Conflict check: overlapping confirmed bookings for this tenant/staff
+    # 1. Direct Time Conflict Check
     overlap_q = select(Booking).where(
         Booking.tenant_id == tenant.id,
         Booking.status.in_(["confirmed", "held"]),
@@ -401,6 +502,34 @@ def create_manual_booking(
             detail=f"Time slot conflicts with an existing booking ({conflict.customer_name} from {conflict.start_at.strftime('%H:%M')} to {conflict.end_at.strftime('%H:%M')})",
         )
 
+    # 2. Buffer Time Protection Check (unless explicitly bypassed)
+    profile = db.scalar(select(AgentProfile).where(AgentProfile.tenant_id == tenant.id))
+    buffer_mins = getattr(profile, "calendar_buffer_minutes", 15) or 15
+    buf_mode = getattr(profile, "calendar_buffer_mode", "after") or "after"
+    buf_delta = timedelta(minutes=buffer_mins)
+    buf_before = buf_delta if buf_mode == "both" else timedelta(0)
+    buf_after = buf_delta
+
+    if not req.bypass_buffer and buffer_mins > 0:
+        buffer_q = select(Booking).where(
+            Booking.tenant_id == tenant.id,
+            Booking.status.in_(["confirmed", "held"]),
+            Booking.start_at < (end_at + buf_before),
+            Booking.end_at > (start_at - buf_after),
+        )
+        if req.staff_id:
+            buffer_q = buffer_q.where(Booking.staff_id == req.staff_id)
+        buf_conflict = db.scalar(buffer_q)
+        if buf_conflict:
+            reason = (
+                getattr(profile, "calendar_buffer_reason", "travel or room reset")
+                or "travel or room reset"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Time slot violates buffer time protection ({buffer_mins} min required for {reason}). Existing booking ({buf_conflict.customer_name}) is scheduled from {buf_conflict.start_at.strftime('%H:%M')} to {buf_conflict.end_at.strftime('%H:%M')}.",
+            )
+
     meet_link: str | None = None
     cal_event_id: str | None = None
 
@@ -408,11 +537,16 @@ def create_manual_booking(
     cal_provider, cal_id = _get_tenant_calendar_provider(tenant.id, db)
     if cal_provider and cal_id:
         try:
+            window_info = (
+                f"\nArrival Window: {req.arrival_window_start.strftime('%I:%M %p')} - {req.arrival_window_end.strftime('%I:%M %p')}"
+                if req.is_arrival_window and req.arrival_window_start and req.arrival_window_end
+                else ""
+            )
             ext_ev = ExternalEvent(
                 title=f"[{tenant.name}] {req.service_type} - {req.customer_name}",
                 start=start_at,
                 end=end_at,
-                description=f"Service: {req.service_type}\nCustomer: {req.customer_name}\nPhone: {req.customer_phone}\nNotes: {req.notes or 'Manual appointment'}",
+                description=f"Service: {req.service_type}\nCustomer: {req.customer_name}\nPhone: {req.customer_phone}{window_info}\nNotes: {req.notes or 'Manual appointment'}",
             )
             created = cal_provider.create_event(cal_id, ext_ev)
             cal_event_id = created.id
@@ -433,6 +567,9 @@ def create_manual_booking(
         calendar_event_id=cal_event_id,
         staff_id=req.staff_id,
         notes=req.notes,
+        is_arrival_window=req.is_arrival_window,
+        arrival_window_start=req.arrival_window_start,
+        arrival_window_end=req.arrival_window_end,
     )
     db.add(booking)
     db.flush()
@@ -468,6 +605,9 @@ def create_manual_booking(
         call_id=booking.call_id,
         contact_id=contact.id if contact else None,
         notes=booking.notes,
+        is_arrival_window=booking.is_arrival_window,
+        arrival_window_start=booking.arrival_window_start,
+        arrival_window_end=booking.arrival_window_end,
     )
 
 

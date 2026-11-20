@@ -1534,9 +1534,22 @@ export const api = {
     end_at?: string | null;
     notes?: string | null;
     staff_id?: string | null;
+    is_arrival_window?: boolean;
+    arrival_window_start?: string | null;
+    arrival_window_end?: string | null;
+    bypass_buffer?: boolean;
   }) =>
     request<CalendarBookingItem>("/api/v1/portal/calendar/bookings/manual", {
       method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getCalendarSettings: () =>
+    request<CalendarSettingsResponse>("/api/v1/portal/calendar/settings"),
+
+  updateCalendarSettings: (payload: UpdateCalendarSettingsRequest) =>
+    request<CalendarSettingsResponse>("/api/v1/portal/calendar/settings", {
+      method: "PATCH",
       body: JSON.stringify(payload),
     }),
 
@@ -1816,6 +1829,25 @@ export interface CalendarBookingItem {
   call_id?: string | null;
   contact_id?: string | null;
   notes: string | null;
+  is_arrival_window?: boolean;
+  arrival_window_start?: string | null;
+  arrival_window_end?: string | null;
+}
+
+export interface CalendarSettingsResponse {
+  scheduling_mode: "exact_time" | "arrival_window";
+  arrival_window_hours: number;
+  calendar_buffer_minutes: number;
+  calendar_buffer_mode: "after" | "both";
+  calendar_buffer_reason: string;
+}
+
+export interface UpdateCalendarSettingsRequest {
+  scheduling_mode?: "exact_time" | "arrival_window";
+  arrival_window_hours?: number;
+  calendar_buffer_minutes?: number;
+  calendar_buffer_mode?: "after" | "both";
+  calendar_buffer_reason?: string;
 }
 
 export interface CalendarSyncTestResult {

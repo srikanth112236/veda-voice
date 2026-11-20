@@ -298,12 +298,16 @@ def create_booking_tools(call_token: str, caller_phone: str = "") -> list[Functi
             times_formatted = []
             for s in slots[:4]:
                 start_iso = s.get("start_iso", "")
-                try:
-                    dt = datetime.fromisoformat(start_iso)
-                    hour_str = dt.strftime("%I:%M %p").lstrip("0")
-                    times_formatted.append(f"{hour_str} (start_iso: {start_iso})")
-                except Exception:
-                    times_formatted.append(f"slot (start_iso: {start_iso})")
+                disp = s.get("display_time")
+                if disp:
+                    times_formatted.append(f"{disp} (start_iso: {start_iso})")
+                else:
+                    try:
+                        dt = datetime.fromisoformat(start_iso)
+                        hour_str = dt.strftime("%I:%M %p").lstrip("0")
+                        times_formatted.append(f"{hour_str} (start_iso: {start_iso})")
+                    except Exception:
+                        times_formatted.append(f"slot (start_iso: {start_iso})")
 
             return (
                 f"Available openings on {normalized_date}: {', '.join(times_formatted)}. "

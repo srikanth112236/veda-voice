@@ -135,6 +135,22 @@ class AgentProfile(Base):
         Boolean, default=True, nullable=False
     )
     disconnect_recovery_sms_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    # Calendar Scheduling & Buffer Time Protection Suite
+    scheduling_mode: Mapped[str] = mapped_column(
+        String(32), default="exact_time", nullable=False
+    )  # exact_time | arrival_window
+    arrival_window_hours: Mapped[int] = mapped_column(Integer, default=2, nullable=False)  # 2 | 4
+    calendar_buffer_minutes: Mapped[int] = mapped_column(
+        Integer, default=15, nullable=False
+    )  # 15 | 20 | 30 | 45
+    calendar_buffer_mode: Mapped[str] = mapped_column(
+        String(32), default="after", nullable=False
+    )  # after | both
+    calendar_buffer_reason: Mapped[str] = mapped_column(
+        String(64), default="travel_and_reset", nullable=False
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

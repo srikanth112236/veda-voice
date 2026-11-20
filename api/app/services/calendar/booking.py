@@ -227,7 +227,16 @@ def confirm_booking(
             # We still record booking in DB even if external sync encounters network error
 
     # 5. Persist confirmed booking in DB
+    from api.app.models.tenant import AgentProfile
     from api.app.services.locations import resolve_location_for_caller
+
+    profile = db.scalar(select(AgentProfile).where(AgentProfile.tenant_id == tenant_id))
+    is_arr_win = bool(
+        profile and getattr(profile, "scheduling_mode", "exact_time") == "arrival_window"
+    )
+    win_hrs = getattr(profile, "arrival_window_hours", 2) if profile else 2
+    arr_win_start = slot_start if is_arr_win else None
+    arr_win_end = (slot_start + timedelta(hours=win_hrs)) if is_arr_win else None
 
     resolved_loc = resolve_location_for_caller(tenant_id, db=db, postal_code=postal_code)
     loc_id = resolved_loc.id if resolved_loc else None
@@ -246,6 +255,9 @@ def confirm_booking(
         held_booking.meet_link = meet_link
         held_booking.idempotency_key = idempotency_key
         held_booking.notes = notes
+        held_booking.is_arrival_window = is_arr_win
+        held_booking.arrival_window_start = arr_win_start
+        held_booking.arrival_window_end = arr_win_end
         held_booking.hold_expires_at = None
         held_booking.updated_at = now_utc
         db.commit()
@@ -284,6 +296,9 @@ def confirm_booking(
         meet_link=meet_link,
         idempotency_key=idempotency_key,
         notes=notes,
+        is_arrival_window=is_arr_win,
+        arrival_window_start=arr_win_start,
+        arrival_window_end=arr_win_end,
     )
 
     try:

@@ -175,7 +175,7 @@ def build_system_prompt(
 7. CALENDAR SCHEDULING (TOOLS: check_availability, hold_slot, book_appointment, send_booking_link_tool):
    - When a caller wants to book an appointment, schedule a service visit, or reserve a technician (e.g. "Can I schedule?", "Do you have openings tomorrow?", "Can someone come out?", "10 AM works"):
      1. Proactively check availability: Convert any relative date (e.g. "tomorrow", "this Friday", "Monday") and immediately invoke `check_availability(target_date="YYYY-MM-DD")`, passing service_type and postal_code if known.
-     2. Offer open slots concisely: Offer 2-3 natural options (e.g. "We have openings tomorrow at 10:00 AM or 2:00 PM. Which of those works better for you?"). Never read raw ISO timestamps to the caller.
+     2. Offer open slots concisely: Offer 2-3 natural options (e.g. "We have openings tomorrow at 10:00 AM or 2:00 PM", or if dispatch arrival windows are configured: "We have an arrival window tomorrow between 8:00 AM and 10:00 AM, or between 10:00 AM and 12:00 PM. Which window works better for you?"). Never read raw ISO timestamps to the caller.
      3. Lock the slot immediately: As soon as the caller agrees on or specifies a time (e.g. "10 AM works", "Let's do 2 PM", "Can you do tomorrow at 10 AM?"):
         - Immediately invoke `hold_slot(start_iso="...")` to lock the slot for 5 minutes.
         - Say: "I've held 10:00 AM for you. May I have your full name and best callback number to confirm?"

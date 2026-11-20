@@ -36,6 +36,8 @@ import {
   Scale,
   Building2,
   Briefcase,
+  Timer,
+  Truck,
 } from "lucide-react";
 import {
   api,
@@ -45,6 +47,8 @@ import {
   CalendarIntegrationStatus,
   CalendarBookingItem,
   CalendlyConfigResponse,
+  CalendarSettingsResponse,
+  UpdateCalendarSettingsRequest,
 } from "@/lib/api";
 import {
   resolveIndustrySemantics,
@@ -98,6 +102,21 @@ export default function StaffAndDispatchPage() {
   const [newBookingStaffId, setNewBookingStaffId] = useState("");
   const [newBookingNotes, setNewBookingNotes] = useState("");
 
+  // Scheduling Model & Buffer Protection Suite State
+  const [calendarSettings, setCalendarSettings] = useState<CalendarSettingsResponse | null>(null);
+  const [schedulingMode, setSchedulingMode] = useState<"exact_time" | "arrival_window">("exact_time");
+  const [arrivalWindowHours, setArrivalWindowHours] = useState<2 | 4>(2);
+  const [calendarBufferMinutes, setCalendarBufferMinutes] = useState<15 | 20 | 30 | 45>(15);
+  const [calendarBufferMode, setCalendarBufferMode] = useState<"after" | "both">("after");
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSavedToast, setSettingsSavedToast] = useState(false);
+
+  // Manual Booking Modal Arrival Window State
+  const [isManualArrivalWindow, setIsManualArrivalWindow] = useState(false);
+  const [manualArrivalWindowStart, setManualArrivalWindowStart] = useState("08:00");
+  const [manualArrivalWindowHours, setManualArrivalWindowHours] = useState<2 | 4>(2);
+  const [bypassBuffer, setBypassBuffer] = useState(false);
+
   // Calendly & Self-Serve In-Call SMS State (Phase 4)
   const [calendlyConfig, setCalendlyConfig] = useState<CalendlyConfigResponse | null>(null);
   const [calendlyInput, setCalendlyInput] = useState("");
@@ -136,13 +155,14 @@ export default function StaffAndDispatchPage() {
     setLoading(true);
     setError(null);
     try {
-      const [staffData, scheduleData, calData, bookingsData, calyRes, tenantPack] = await Promise.all([
+      const [staffData, scheduleData, calData, bookingsData, calyRes, tenantPack, calSettings] = await Promise.all([
         api.listStaffMembers(true).catch(() => []),
         api.getRosterSchedule(targetDate).catch(() => []),
         api.getCalendarStatus().catch(() => null),
         api.listCalendarBookings(50).catch(() => []),
         api.getCalendlyConfig().catch(() => null),
         api.getCurrentAppliedPack().catch(() => null),
+        api.getCalendarSettings().catch(() => null),
       ]);
       setStaffList(staffData);
       setRosterSchedule(scheduleData);
@@ -151,6 +171,15 @@ export default function StaffAndDispatchPage() {
       if (calyRes) {
         setCalendlyConfig(calyRes);
         setCalendlyInput(calyRes.calendly_url || "");
+      }
+      if (calSettings) {
+        setCalendarSettings(calSettings);
+        setSchedulingMode(calSettings.scheduling_mode);
+        setArrivalWindowHours(calSettings.arrival_window_hours as 2 | 4);
+        setCalendarBufferMinutes(calSettings.calendar_buffer_minutes as 15 | 20 | 30 | 45);
+        setCalendarBufferMode(calSettings.calendar_buffer_mode);
+        setIsManualArrivalWindow(calSettings.scheduling_mode === "arrival_window");
+        setManualArrivalWindowHours(calSettings.arrival_window_hours as 2 | 4);
       }
       if (tenantPack && tenantPack.pack_slug) {
         setSelectedNiche(tenantPack.pack_slug);
@@ -345,6 +374,31 @@ export default function StaffAndDispatchPage() {
     setCurrentWeekStart(monday);
   };
 
+  const handleSaveCalendarSettings = async (override?: Partial<UpdateCalendarSettingsRequest>) => {
+    setSavingSettings(true);
+    try {
+      const payload: UpdateCalendarSettingsRequest = {
+        scheduling_mode: override?.scheduling_mode ?? schedulingMode,
+        arrival_window_hours: override?.arrival_window_hours ?? arrivalWindowHours,
+        calendar_buffer_minutes: override?.calendar_buffer_minutes ?? calendarBufferMinutes,
+        calendar_buffer_mode: override?.calendar_buffer_mode ?? calendarBufferMode,
+        calendar_buffer_reason: override?.calendar_buffer_reason ?? semantics.bufferReasonDefault,
+      };
+      const res = await api.updateCalendarSettings(payload);
+      setCalendarSettings(res);
+      setSchedulingMode(res.scheduling_mode);
+      setArrivalWindowHours(res.arrival_window_hours as 2 | 4);
+      setCalendarBufferMinutes(res.calendar_buffer_minutes as 15 | 20 | 30 | 45);
+      setCalendarBufferMode(res.calendar_buffer_mode);
+      setSettingsSavedToast(true);
+      setTimeout(() => setSettingsSavedToast(false), 3000);
+    } catch (err: any) {
+      alert(err?.message || "Failed to update calendar buffer settings.");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   const handleCreateManualBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustName.trim() || !newCustPhone.trim()) {
@@ -354,10 +408,20 @@ export default function StaffAndDispatchPage() {
     setCreatingBooking(true);
     setBookingError(null);
     try {
-      const [hours, minutes] = newBookingTime.split(":").map(Number);
-      const startDateTime = new Date(`${newBookingDate}T00:00:00`);
-      startDateTime.setHours(hours, minutes, 0, 0);
-      const endDateTime = new Date(startDateTime.getTime() + newBookingDuration * 60 * 1000);
+      let startDateTime: Date;
+      let endDateTime: Date;
+
+      if (isManualArrivalWindow) {
+        const [hours, minutes] = manualArrivalWindowStart.split(":").map(Number);
+        startDateTime = new Date(`${newBookingDate}T00:00:00`);
+        startDateTime.setHours(hours, minutes, 0, 0);
+        endDateTime = new Date(startDateTime.getTime() + manualArrivalWindowHours * 60 * 60 * 1000);
+      } else {
+        const [hours, minutes] = newBookingTime.split(":").map(Number);
+        startDateTime = new Date(`${newBookingDate}T00:00:00`);
+        startDateTime.setHours(hours, minutes, 0, 0);
+        endDateTime = new Date(startDateTime.getTime() + newBookingDuration * 60 * 1000);
+      }
 
       const created = await api.createManualBooking({
         customer_name: newCustName.trim(),
@@ -368,6 +432,10 @@ export default function StaffAndDispatchPage() {
         end_at: endDateTime.toISOString(),
         notes: newBookingNotes.trim() || null,
         staff_id: newBookingStaffId || null,
+        is_arrival_window: isManualArrivalWindow,
+        arrival_window_start: isManualArrivalWindow ? startDateTime.toISOString() : null,
+        arrival_window_end: isManualArrivalWindow ? endDateTime.toISOString() : null,
+        bypass_buffer: bypassBuffer,
       });
 
       setShowNewBookingModal(false);
@@ -378,6 +446,7 @@ export default function StaffAndDispatchPage() {
       setNewCustPhone("");
       setNewCustEmail("");
       setNewBookingNotes("");
+      setBypassBuffer(false);
       await loadData();
       setSelectedBooking(created);
     } catch (err: any) {
@@ -497,6 +566,16 @@ export default function StaffAndDispatchPage() {
                 ))}
               </select>
             </div>
+
+            {/* Scheduling Model & Buffer Protection Indicator */}
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-xs">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>
+                {schedulingMode === "arrival_window"
+                  ? `${arrivalWindowHours}-Hr Window • ${calendarBufferMinutes}m Buffer`
+                  : `Exact Time • ${calendarBufferMinutes}m Buffer`}
+              </span>
+            </div>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 mt-1">
             Appointments, Live Calendar &amp; Scheduling
@@ -581,6 +660,208 @@ export default function StaffAndDispatchPage() {
             {bookingsList.filter((b) => Boolean(b.call_id)).length}
           </div>
           <div className="text-[10.5px] text-zinc-400 font-mono">From Phone Calls</div>
+        </div>
+      </div>
+
+      {/* Buffer Time Protection & Arrival Window Dispatch Preferences Suite */}
+      <div className="bg-white rounded-2xl border border-zinc-200/90 p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-zinc-900">
+                  Buffer Time Protection &amp; Arrival Window Dispatch
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  {semantics.bufferTitle}
+                </span>
+              </div>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Protect your {semantics.staffSingular.toLowerCase()} schedule with customizable 15–45 min travel/reset buffers, or switch between exact appointment times and 2-to-4 hour dispatch arrival windows.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {settingsSavedToast && (
+              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg animate-in fade-in flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" /> Rules Saved!
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={savingSettings}
+              onClick={() => handleSaveCalendarSettings()}
+              className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition shadow-xs flex items-center gap-1.5"
+            >
+              {savingSettings ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <span>Save Scheduling Rules</span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-3 border-t border-zinc-100">
+          {/* 1. Scheduling Model: Exact Time vs Arrival Window */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-zinc-600" />
+                <span>Scheduling Model</span>
+              </label>
+              <span className="text-[10px] font-mono uppercase text-zinc-400 font-semibold">Voice &amp; Web</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedulingMode("exact_time");
+                  handleSaveCalendarSettings({ scheduling_mode: "exact_time" });
+                }}
+                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-left flex flex-col ${
+                  schedulingMode === "exact_time"
+                    ? "bg-white border-zinc-900 text-zinc-900 shadow-xs"
+                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                }`}
+              >
+                <span className="font-bold">Exact Time</span>
+                <span className="text-[10px] text-zinc-500 font-normal">Fixed start (e.g. 10:00 AM)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSchedulingMode("arrival_window");
+                  handleSaveCalendarSettings({ scheduling_mode: "arrival_window" });
+                }}
+                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-left flex flex-col ${
+                  schedulingMode === "arrival_window"
+                    ? "bg-white border-emerald-700 text-emerald-900 shadow-xs"
+                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                }`}
+              >
+                <span className="font-bold flex items-center gap-1">
+                  <Truck className="w-3 h-3 text-emerald-600" /> Arrival Windows
+                </span>
+                <span className="text-[10px] text-zinc-500 font-normal">2-Hr / 4-Hr arrival windows</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 2. Arrival Window Span (if Arrival Window selected) */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5 text-zinc-600" />
+                <span>Arrival Window Duration</span>
+              </label>
+              <span className="text-[10px] font-mono text-zinc-400">Dispatch Window</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={schedulingMode !== "arrival_window"}
+                onClick={() => {
+                  setArrivalWindowHours(2);
+                  handleSaveCalendarSettings({ arrival_window_hours: 2 });
+                }}
+                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-center disabled:opacity-40 ${
+                  arrivalWindowHours === 2 && schedulingMode === "arrival_window"
+                    ? "bg-white border-emerald-700 text-emerald-900 font-bold shadow-xs"
+                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                }`}
+              >
+                2-Hour Windows
+                <span className="block text-[10px] text-zinc-400 font-normal">8-10, 10-12, 12-2, 2-4</span>
+              </button>
+              <button
+                type="button"
+                disabled={schedulingMode !== "arrival_window"}
+                onClick={() => {
+                  setArrivalWindowHours(4);
+                  handleSaveCalendarSettings({ arrival_window_hours: 4 });
+                }}
+                className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-center disabled:opacity-40 ${
+                  arrivalWindowHours === 4 && schedulingMode === "arrival_window"
+                    ? "bg-white border-emerald-700 text-emerald-900 font-bold shadow-xs"
+                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                }`}
+              >
+                4-Hour Windows
+                <span className="block text-[10px] text-zinc-400 font-normal">Morning (8-12), Afternoon (12-4)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 3. Customizable Buffer Protection (15, 20, 30, 45 mins) */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Buffer Protection Time</span>
+              </label>
+              <span className="text-[10px] font-mono text-emerald-700 font-semibold">{semantics.bufferTitle}</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {([15, 20, 30, 45] as const).map((mins) => (
+                <button
+                  key={mins}
+                  type="button"
+                  onClick={() => {
+                    setCalendarBufferMinutes(mins);
+                    handleSaveCalendarSettings({ calendar_buffer_minutes: mins });
+                  }}
+                  className={`py-2 text-xs font-bold rounded-lg border transition text-center font-mono ${
+                    calendarBufferMinutes === mins
+                      ? "bg-emerald-700 text-white border-emerald-700 shadow-xs"
+                      : "bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-100"
+                  }`}
+                >
+                  {mins}m
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-1">
+              <span>Applied to:</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalendarBufferMode("after");
+                    handleSaveCalendarSettings({ calendar_buffer_mode: "after" });
+                  }}
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                    calendarBufferMode === "after"
+                      ? "bg-zinc-900 text-white"
+                      : "text-zinc-600 hover:bg-zinc-200"
+                  }`}
+                >
+                  After Visit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalendarBufferMode("both");
+                    handleSaveCalendarSettings({ calendar_buffer_mode: "both" });
+                  }}
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
+                    calendarBufferMode === "both"
+                      ? "bg-zinc-900 text-white"
+                      : "text-zinc-600 hover:bg-zinc-200"
+                  }`}
+                >
+                  Before &amp; After
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1553,6 +1834,12 @@ export default function StaffAndDispatchPage() {
                             {new Date(b.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
                             {new Date(b.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </div>
+                          {b.is_arrival_window && b.arrival_window_start && b.arrival_window_end && (
+                            <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                              <Truck className="w-2.5 h-2.5" />
+                              Arrival: {new Date(b.arrival_window_start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} – {new Date(b.arrival_window_end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -1890,58 +2177,143 @@ export default function StaffAndDispatchPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Appointment Date *</label>
-                  <input
-                    type="date"
-                    required
-                    value={newBookingDate}
-                    onChange={(e) => setNewBookingDate(e.target.value)}
-                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Start Time *</label>
-                  <select
-                    value={newBookingTime}
-                    onChange={(e) => setNewBookingTime(e.target.value)}
-                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+              {/* Model Choice: Exact Time vs Arrival Window */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-50 border border-zinc-200">
+                <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5">
+                  <Timer className="w-3.5 h-3.5 text-zinc-500" />
+                  Booking Time Model:
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsManualArrivalWindow(false)}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition ${
+                      !isManualArrivalWindow
+                        ? "bg-zinc-900 text-white shadow-xs"
+                        : "text-zinc-600 hover:bg-zinc-200"
+                    }`}
                   >
-                    {[
-                      { value: "08:00", label: "8:00 AM" },
-                      { value: "09:00", label: "9:00 AM" },
-                      { value: "10:00", label: "10:00 AM" },
-                      { value: "11:00", label: "11:00 AM" },
-                      { value: "12:00", label: "12:00 PM" },
-                      { value: "13:00", label: "1:00 PM" },
-                      { value: "14:00", label: "2:00 PM" },
-                      { value: "15:00", label: "3:00 PM" },
-                      { value: "16:00", label: "4:00 PM" },
-                      { value: "17:00", label: "5:00 PM" },
-                      { value: "18:00", label: "6:00 PM" },
-                    ].map((slot) => (
-                      <option key={slot.value} value={slot.value}>
-                        {slot.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Duration</label>
-                  <select
-                    value={newBookingDuration}
-                    onChange={(e) => setNewBookingDuration(Number(e.target.value))}
-                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                    Exact Time
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsManualArrivalWindow(true)}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition flex items-center gap-1 ${
+                      isManualArrivalWindow
+                        ? "bg-emerald-700 text-white shadow-xs"
+                        : "text-zinc-600 hover:bg-zinc-200"
+                    }`}
                   >
-                    <option value={30}>30 mins</option>
-                    <option value={45}>45 mins</option>
-                    <option value={60}>60 mins (1 hr)</option>
-                    <option value={90}>90 mins</option>
-                    <option value={120}>120 mins (2 hrs)</option>
-                  </select>
+                    <Truck className="w-3 h-3" />
+                    Arrival Window
+                  </button>
                 </div>
               </div>
+
+              {!isManualArrivalWindow ? (
+                /* Exact Time Appointment Grid */
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Appointment Date *</label>
+                    <input
+                      type="date"
+                      required
+                      value={newBookingDate}
+                      onChange={(e) => setNewBookingDate(e.target.value)}
+                      className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Start Time *</label>
+                    <select
+                      value={newBookingTime}
+                      onChange={(e) => setNewBookingTime(e.target.value)}
+                      className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                    >
+                      {[
+                        { value: "08:00", label: "8:00 AM" },
+                        { value: "09:00", label: "9:00 AM" },
+                        { value: "10:00", label: "10:00 AM" },
+                        { value: "11:00", label: "11:00 AM" },
+                        { value: "12:00", label: "12:00 PM" },
+                        { value: "13:00", label: "1:00 PM" },
+                        { value: "14:00", label: "2:00 PM" },
+                        { value: "15:00", label: "3:00 PM" },
+                        { value: "16:00", label: "4:00 PM" },
+                        { value: "17:00", label: "5:00 PM" },
+                        { value: "18:00", label: "6:00 PM" },
+                      ].map((slot) => (
+                        <option key={slot.value} value={slot.value}>
+                          {slot.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Duration</label>
+                    <select
+                      value={newBookingDuration}
+                      onChange={(e) => setNewBookingDuration(Number(e.target.value))}
+                      className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                    >
+                      <option value={30}>30 mins</option>
+                      <option value={45}>45 mins</option>
+                      <option value={60}>60 mins (1 hr)</option>
+                      <option value={90}>90 mins</option>
+                      <option value={120}>120 mins (2 hrs)</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                /* Dispatch Arrival Window Grid */
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Target Date *</label>
+                    <input
+                      type="date"
+                      required
+                      value={newBookingDate}
+                      onChange={(e) => setNewBookingDate(e.target.value)}
+                      className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Arrival Window *</label>
+                    <select
+                      value={manualArrivalWindowStart}
+                      onChange={(e) => setManualArrivalWindowStart(e.target.value)}
+                      className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                    >
+                      {manualArrivalWindowHours === 2 ? (
+                        <>
+                          <option value="08:00">8:00 AM – 10:00 AM (Early Morning)</option>
+                          <option value="10:00">10:00 AM – 12:00 PM (Mid-Day)</option>
+                          <option value="12:00">12:00 PM – 2:00 PM (Early Afternoon)</option>
+                          <option value="14:00">2:00 PM – 4:00 PM (Late Afternoon)</option>
+                          <option value="16:00">4:00 PM – 6:00 PM (Evening)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="08:00">8:00 AM – 12:00 PM (Morning Window)</option>
+                          <option value="12:00">12:00 PM – 4:00 PM (Afternoon Window)</option>
+                          <option value="16:00">4:00 PM – 8:00 PM (Evening Window)</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-700 mb-1">Window Span</label>
+                    <select
+                      value={manualArrivalWindowHours}
+                      onChange={(e) => setManualArrivalWindowHours(Number(e.target.value) as 2 | 4)}
+                      className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                    >
+                      <option value={2}>2-Hour Window</option>
+                      <option value={4}>4-Hour Window</option>
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 mb-1">Assigned {semantics.staffSingular}</label>
@@ -1968,6 +2340,28 @@ export default function StaffAndDispatchPage() {
                   placeholder="Service requirements, access details, expectations..."
                   className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900"
                 />
+              </div>
+
+              {/* Buffer Protection Notice & Emergency Override */}
+              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/80 space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-emerald-950 font-semibold">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>Buffer Protected: {calendarBufferMinutes}m required for {semantics.bufferTitle.toLowerCase()}</span>
+                  </span>
+                  <span className="text-[10.5px] font-mono text-emerald-800">
+                    Mode: {calendarBufferMode === "both" ? "Before & After" : "After Visit"}
+                  </span>
+                </div>
+                <label className="flex items-center gap-2 text-[11px] text-zinc-600 cursor-pointer pt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={bypassBuffer}
+                    onChange={(e) => setBypassBuffer(e.target.checked)}
+                    className="rounded text-emerald-700 focus:ring-0"
+                  />
+                  <span>Emergency override: bypass buffer conflict check if urgent booking</span>
+                </label>
               </div>
 
               <div className="pt-3 border-t border-zinc-200 flex items-center justify-end gap-2">

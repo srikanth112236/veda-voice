@@ -79,6 +79,13 @@ class Booking(Base):
     )
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_arrival_window: Mapped[bool] = mapped_column(default=False, nullable=False)
+    arrival_window_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    arrival_window_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(32), default="confirmed", nullable=False
     )  # held, confirmed, completed, cancelled, no_show, rescheduled

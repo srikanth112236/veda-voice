@@ -42,6 +42,11 @@ export interface IndustrySemanticProfile {
   simulationExplainText: string;
   simulationResultRoleLabel: string;
   simulationPoolLabel: string;
+  // Buffer & Arrival Window Customization
+  bufferTitle: string;
+  bufferReasonDefault: string;
+  arrivalWindowLabel: string;
+  defaultSchedulingMode: "exact_time" | "arrival_window";
 }
 
 export const INDUSTRY_SEMANTIC_PROFILES: Record<string, IndustrySemanticProfile> = {
@@ -83,6 +88,10 @@ export const INDUSTRY_SEMANTIC_PROFILES: Record<string, IndustrySemanticProfile>
     simulationExplainText: "Simulate an incoming voice call: test which technicians match the trade skill and postal code territory, and observe the round-robin dispatch decision.",
     simulationResultRoleLabel: "Dispatched Technician",
     simulationPoolLabel: "Eligible Technicians",
+    bufferTitle: "Travel & Transit Buffer",
+    bufferReasonDefault: "travel_and_transit",
+    arrivalWindowLabel: "Dispatch Arrival Windows (2-Hr or 4-Hr)",
+    defaultSchedulingMode: "arrival_window",
   },
   dental_clinic: {
     slug: "dental_clinic",
@@ -122,6 +131,10 @@ export const INDUSTRY_SEMANTIC_PROFILES: Record<string, IndustrySemanticProfile>
     simulationExplainText: "Simulate an incoming patient call: test which provider matches the clinical treatment specialty and operatory chair, and observe the intelligent triage decision.",
     simulationResultRoleLabel: "Matched Clinical Provider",
     simulationPoolLabel: "Eligible Providers",
+    bufferTitle: "Operatory Turnover & Sanitization",
+    bufferReasonDefault: "operatory_sanitization",
+    arrivalWindowLabel: "Exact Clinical Appointment Slots",
+    defaultSchedulingMode: "exact_time",
   },
   legal_intake: {
     slug: "legal_intake",
@@ -161,6 +174,10 @@ export const INDUSTRY_SEMANTIC_PROFILES: Record<string, IndustrySemanticProfile>
     simulationExplainText: "Simulate an incoming client call: test which attorney matches the practice area and legal jurisdiction, and observe the round-robin consultation assignment.",
     simulationResultRoleLabel: "Matched Legal Counsel",
     simulationPoolLabel: "Eligible Attorneys",
+    bufferTitle: "Case Prep & Conflict Check Buffer",
+    bufferReasonDefault: "case_prep_and_conflict_check",
+    arrivalWindowLabel: "Exact Consultation Schedule",
+    defaultSchedulingMode: "exact_time",
   },
   beauty_wellness: {
     slug: "beauty_wellness",
@@ -200,6 +217,10 @@ export const INDUSTRY_SEMANTIC_PROFILES: Record<string, IndustrySemanticProfile>
     simulationExplainText: "Simulate an incoming client call: test which specialist matches the treatment modality and room equipment, and observe the booking assignment.",
     simulationResultRoleLabel: "Assigned Specialist",
     simulationPoolLabel: "Eligible Specialists",
+    bufferTitle: "Treatment Room Sterilization & Reset",
+    bufferReasonDefault: "room_sterilization_and_reset",
+    arrivalWindowLabel: "Exact Session Schedule",
+    defaultSchedulingMode: "exact_time",
   },
   general: {
     slug: "general",
@@ -238,6 +259,10 @@ export const INDUSTRY_SEMANTIC_PROFILES: Record<string, IndustrySemanticProfile>
     simulationExplainText: "Simulate an incoming voice call: test which staff member matches the appointment type and location, and observe the round-robin scheduling decision.",
     simulationResultRoleLabel: "Assigned Staff Member",
     simulationPoolLabel: "Eligible Team Members",
+    bufferTitle: "Meeting Prep & Transition Buffer",
+    bufferReasonDefault: "transition_and_prep",
+    arrivalWindowLabel: "Appointment Scheduling Mode",
+    defaultSchedulingMode: "exact_time",
   },
 };
 

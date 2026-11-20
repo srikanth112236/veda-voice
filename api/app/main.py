@@ -779,6 +779,36 @@ def init_db() -> None:
                         "ALTER TABLE agent_profiles ADD COLUMN disconnect_recovery_sms_text TEXT DEFAULT '' NOT NULL"
                     )
                 )
+            if "scheduling_mode" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN scheduling_mode VARCHAR(32) DEFAULT 'exact_time' NOT NULL"
+                    )
+                )
+            if "arrival_window_hours" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN arrival_window_hours INTEGER DEFAULT 2 NOT NULL"
+                    )
+                )
+            if "calendar_buffer_minutes" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN calendar_buffer_minutes INTEGER DEFAULT 15 NOT NULL"
+                    )
+                )
+            if "calendar_buffer_mode" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN calendar_buffer_mode VARCHAR(32) DEFAULT 'after' NOT NULL"
+                    )
+                )
+            if "calendar_buffer_reason" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN calendar_buffer_reason VARCHAR(64) DEFAULT 'travel_and_reset' NOT NULL"
+                    )
+                )
 
             # Tenants table capacity columns
             cursor = conn.execute(text("PRAGMA table_info(tenants)"))
@@ -1091,6 +1121,20 @@ def init_db() -> None:
                         "ALTER TABLE bookings ADD COLUMN location_id VARCHAR(36) NULL REFERENCES locations(id) ON DELETE SET NULL"
                     )
                 )
+            if "is_arrival_window" not in existing_booking_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE bookings ADD COLUMN is_arrival_window BOOLEAN DEFAULT 0 NOT NULL"
+                    )
+                )
+            if "arrival_window_start" not in existing_booking_cols:
+                conn.execute(
+                    text("ALTER TABLE bookings ADD COLUMN arrival_window_start DATETIME NULL")
+                )
+            if "arrival_window_end" not in existing_booking_cols:
+                conn.execute(
+                    text("ALTER TABLE bookings ADD COLUMN arrival_window_end DATETIME NULL")
+                )
 
             # Multi-Location columns (Milestone M11)
             cursor = conn.execute(text("PRAGMA table_info(phone_numbers)"))
@@ -1206,6 +1250,14 @@ def init_db() -> None:
                 "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS mid_call_sms_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
                 "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS disconnect_recovery_sms_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
                 "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS disconnect_recovery_sms_text TEXT DEFAULT '' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS scheduling_mode VARCHAR(32) DEFAULT 'exact_time' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS arrival_window_hours INTEGER DEFAULT 2 NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_minutes INTEGER DEFAULT 15 NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_mode VARCHAR(32) DEFAULT 'after' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_reason VARCHAR(64) DEFAULT 'travel_and_reset' NOT NULL;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_arrival_window BOOLEAN DEFAULT FALSE NOT NULL;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS arrival_window_start TIMESTAMP WITH TIME ZONE NULL;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS arrival_window_end TIMESTAMP WITH TIME ZONE NULL;",
             ]
             for stmt in pg_statements:
                 try:
