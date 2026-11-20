@@ -78,62 +78,50 @@ jobs:
 
       - name: Deploy Revisions to Running Container Apps
         run: |
-          RG="${{ steps.vars.outputs.AZURE_RG }}"
-          ACR="${{ steps.vars.outputs.ACR_NAME }}"
           ACR_SERVER="${{ steps.vars.outputs.ACR_SERVER }}"
           TAG="${{ steps.vars.outputs.SHA_SHORT }}"
 
-          echo "Ensuring ACR admin credentials are enabled..."
-          az acr update --name "$ACR" --resource-group "$RG" --admin-enabled true --output none || true
-          ACR_USER=$(az acr credential show --name "$ACR" --query username -o tsv 2>/dev/null || echo "")
-          ACR_PASS=$(az acr credential show --name "$ACR" --query "passwords[0].value" -o tsv 2>/dev/null || echo "")
+          echo "Querying all Container Apps across subscription..."
+          APPS_INFO=$(az containerapp list --query "[].{name:name, rg:resourceGroup}" -o tsv)
+          echo "::warning title=Discovered Container Apps::$(echo "$APPS_INFO" | tr '\n' ' ')"
 
-          APPS=$(az containerapp list --resource-group "$RG" --query "[].name" -o tsv)
-          echo "::notice title=Found Container Apps in RG::$APPS"
+          if [ -z "$APPS_INFO" ]; then
+            echo "::error title=No Container Apps Found::az containerapp list returned empty"
+            exit 1
+          fi
 
-          for APP in $APPS; do
-            echo "--------------------------------------------------------"
-            echo "--> Processing Container App: $APP"
+          echo "$APPS_INFO" | while read -r APP RG; do
+            [ -z "$APP" ] && continue
+            echo "========================================================"
+            echo "--> Updating Container App: $APP in Resource Group: $RG"
 
-            if [ -n "$ACR_USER" ] && [ -n "$ACR_PASS" ]; then
-              echo "    Setting ACR registry authentication on $APP..."
-              az containerapp registry set \
-                --name "$APP" \
-                --resource-group "$RG" \
-                --server "$ACR_SERVER" \
-                --username "$ACR_USER" \
-                --password "$ACR_PASS" 2>/dev/null || true
-            fi
-
-            # Match image to app role
-            IMAGE_NAME=""
+            IMAGE_ROLE="api"
             case "$APP" in
               *dash*)
-                IMAGE_NAME="dashboard"
+                IMAGE_ROLE="dashboard"
                 ;;
               *agent*)
-                IMAGE_NAME="agent"
+                IMAGE_ROLE="agent"
                 ;;
               *api*)
-                IMAGE_NAME="api"
-                ;;
-              *)
-                IMAGE_NAME="api"
+                IMAGE_ROLE="api"
                 ;;
             esac
 
-            echo "    Updating $APP with image: ${ACR_SERVER}/${IMAGE_NAME}:${TAG}..."
+            TARGET_IMAGE="${ACR_SERVER}/${IMAGE_ROLE}:${TAG}"
+            echo "    Target image: $TARGET_IMAGE"
+
             az containerapp update \
               --name "$APP" \
               --resource-group "$RG" \
-              --image "${ACR_SERVER}/${IMAGE_NAME}:${TAG}" || {
-                echo "    Warning: update with tag $TAG failed, falling back to latest..."
+              --image "$TARGET_IMAGE" || {
+                echo "    Falling back to :latest..."
                 az containerapp update \
                   --name "$APP" \
                   --resource-group "$RG" \
-                  --image "${ACR_SERVER}/${IMAGE_NAME}:latest" || true
+                  --image "${ACR_SERVER}/${IMAGE_ROLE}:latest"
               }
-            echo "    [DONE] Finished updating $APP."
+            echo "    [SUCCESS] Updated $APP"
           done
 
       - name: Deploy Voice Agent to LiveKit Cloud
