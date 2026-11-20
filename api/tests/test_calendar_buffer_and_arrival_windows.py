@@ -112,9 +112,12 @@ def test_buffer_protection_window_enforcement() -> None:
             days_ahead = 7
         target_date = today + timedelta(days=days_ahead)
 
-        # Insert an existing booking: 10:00 AM to 11:00 AM
-        start_dt = datetime.combine(target_date, time(10, 0), tzinfo=UTC)
-        end_dt = datetime.combine(target_date, time(11, 0), tzinfo=UTC)
+        # Insert an existing booking: 10:00 AM to 11:00 AM in the tenant's timezone
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(tenant.timezone)
+        start_dt = datetime.combine(target_date, time(10, 0), tzinfo=tz)
+        end_dt = datetime.combine(target_date, time(11, 0), tzinfo=tz)
 
         b = Booking(
             tenant_id=tenant_id,

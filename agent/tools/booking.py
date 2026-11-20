@@ -20,6 +20,70 @@ from livekit.agents import FunctionTool, function_tool
 logger = logging.getLogger("receptionist.tools.booking")
 
 
+def _execute_in_process_calendar_call(
+    endpoint_path: str,
+    payload: dict[str, Any],
+    call_token: str,
+) -> dict[str, Any]:
+    """Execute internal calendar operation in-process."""
+    from api.app.db.session import SessionLocal
+    from api.app.routers.internal import (
+        BookSlotRequest,
+        CancelBookingRequest,
+        CheckAvailabilityRequest,
+        HoldSlotRequest,
+        SendBookingLinkRequest,
+        cancel_appointment_booking,
+        confirm_appointment_booking,
+        get_slot_availability,
+        hold_appointment_slot,
+        send_self_serve_booking_link_sync,
+    )
+
+    with SessionLocal() as db:
+        auth_hdr = f"Bearer {call_token}"
+        clean_endpoint = endpoint_path.strip("/").split("/")[-1]
+        if clean_endpoint == "availability":
+            res = get_slot_availability(
+                payload=CheckAvailabilityRequest(**payload),
+                authorization=auth_hdr,
+                db=db,
+            )
+            return cast(
+                dict[str, Any],
+                res.model_dump() if hasattr(res, "model_dump") else dict(res),
+            )
+        if clean_endpoint == "hold":
+            res_hold = hold_appointment_slot(
+                payload=HoldSlotRequest(**payload),
+                authorization=auth_hdr,
+                db=db,
+            )
+            return dict(res_hold)
+        if clean_endpoint == "book":
+            res_book = confirm_appointment_booking(
+                payload=BookSlotRequest(**payload),
+                authorization=auth_hdr,
+                db=db,
+            )
+            return dict(res_book)
+        if clean_endpoint == "cancel":
+            res_cancel = cancel_appointment_booking(
+                payload=CancelBookingRequest(**payload),
+                authorization=auth_hdr,
+                db=db,
+            )
+            return dict(res_cancel)
+        if clean_endpoint == "send-link":
+            res_send = send_self_serve_booking_link_sync(
+                payload=SendBookingLinkRequest(**payload),
+                authorization=auth_hdr,
+                db=db,
+            )
+            return dict(res_send)
+    return {}
+
+
 def _call_internal_calendar_api(
     endpoint_path: str,
     payload: dict[str, Any],
@@ -32,39 +96,7 @@ def _call_internal_calendar_api(
     # In-process execution when running under pytest
     if api_base_url is None and "pytest" in sys.modules:
         try:
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import (
-                BookSlotRequest,
-                CancelBookingRequest,
-                CheckAvailabilityRequest,
-                HoldSlotRequest,
-                cancel_appointment_booking,
-                confirm_appointment_booking,
-                get_slot_availability,
-                hold_appointment_slot,
-            )
-
-            db = SessionLocal()
-            try:
-                auth = f"Bearer {call_token}"
-                res: Any = None
-                if endpoint_path.endswith("availability"):
-                    res = get_slot_availability(CheckAvailabilityRequest(**payload), auth, db)
-                elif endpoint_path.endswith("hold"):
-                    res = hold_appointment_slot(HoldSlotRequest(**payload), auth, db)
-                elif endpoint_path.endswith("book"):
-                    res = confirm_appointment_booking(BookSlotRequest(**payload), auth, db)
-                elif endpoint_path.endswith("cancel"):
-                    res = cancel_appointment_booking(CancelBookingRequest(**payload), auth, db)
-
-                if res and hasattr(res, "model_dump"):
-                    dumped: dict[str, Any] = res.model_dump()
-                    return dumped
-                if isinstance(res, dict):
-                    return res
-                return {}
-            finally:
-                db.close()
+            return _execute_in_process_calendar_call(endpoint_path, payload, call_token)
         except Exception as in_proc_err:
             logger.error("In-process internal calendar call failed: %s", in_proc_err)
             return {"error": str(in_proc_err), "slots": []}
@@ -89,70 +121,11 @@ def _call_internal_calendar_api(
             return dict(data) if isinstance(data, dict) else {}
     except Exception as e:
         logger.debug("HTTP call to internal calendar endpoint failed: %s; trying in-process", e)
-        # In-process fallback when running in tests or within same Python interpreter
         try:
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import (
-                BookSlotRequest,
-                CancelBookingRequest,
-                CheckAvailabilityRequest,
-                HoldSlotRequest,
-                cancel_appointment_booking,
-                confirm_appointment_booking,
-                get_slot_availability,
-                hold_appointment_slot,
-            )
-
-            with SessionLocal() as db:
-                auth_hdr = f"Bearer {call_token}"
-                if endpoint_path == "availability":
-                    res = get_slot_availability(
-                        payload=CheckAvailabilityRequest(**payload),
-                        authorization=auth_hdr,
-                        db=db,
-                    )
-                    return cast(
-                        dict[str, Any],
-                        res.model_dump() if hasattr(res, "model_dump") else dict(res),
-                    )
-                if endpoint_path == "hold":
-                    res_hold = hold_appointment_slot(
-                        payload=HoldSlotRequest(**payload),
-                        authorization=auth_hdr,
-                        db=db,
-                    )
-                    return dict(res_hold)
-                if endpoint_path == "book":
-                    res_book = confirm_appointment_booking(
-                        payload=BookSlotRequest(**payload),
-                        authorization=auth_hdr,
-                        db=db,
-                    )
-                    return dict(res_book)
-                if endpoint_path == "cancel":
-                    res_cancel = cancel_appointment_booking(
-                        payload=CancelBookingRequest(**payload),
-                        authorization=auth_hdr,
-                        db=db,
-                    )
-                    return dict(res_cancel)
-                if endpoint_path == "send-link":
-                    from api.app.routers.internal import (
-                        SendBookingLinkRequest,
-                        send_self_serve_booking_link_sync,
-                    )
-
-                    res_send = send_self_serve_booking_link_sync(
-                        payload=SendBookingLinkRequest(**payload),
-                        authorization=auth_hdr,
-                        db=db,
-                    )
-                    return dict(res_send)
+            return _execute_in_process_calendar_call(endpoint_path, payload, call_token)
         except Exception as inner_e:
             logger.error("In-process internal calendar execution failed: %s", inner_e)
             raise inner_e
-
-        raise e
 
 
 def check_availability(
