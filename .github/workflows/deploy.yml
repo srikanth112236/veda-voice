@@ -49,7 +49,6 @@ jobs:
         run: |
           az acr build \
             --registry ${{ steps.vars.outputs.ACR_NAME }} \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image api:${{ steps.vars.outputs.SHA_SHORT }} \
             --image api:latest \
             --file api/Dockerfile .
@@ -58,7 +57,6 @@ jobs:
         run: |
           az acr build \
             --registry ${{ steps.vars.outputs.ACR_NAME }} \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image dashboard:${{ steps.vars.outputs.SHA_SHORT }} \
             --image dashboard:latest \
             --file dashboard/Dockerfile .
@@ -67,7 +65,6 @@ jobs:
         run: |
           az acr build \
             --registry ${{ steps.vars.outputs.ACR_NAME }} \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} \
             --image agent:${{ steps.vars.outputs.SHA_SHORT }} \
             --image agent:latest \
             --file agent/Dockerfile .
