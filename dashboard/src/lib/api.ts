@@ -1445,6 +1445,21 @@ export const api = {
   listCalendarBookings: (limit = 50) =>
     request<CalendarBookingItem[]>(`/api/v1/portal/calendar/bookings?limit=${limit}`),
 
+  createManualBooking: (payload: {
+    customer_name: string;
+    customer_phone: string;
+    customer_email?: string | null;
+    service_type?: string;
+    start_at: string;
+    end_at?: string | null;
+    notes?: string | null;
+    staff_id?: string | null;
+  }) =>
+    request<CalendarBookingItem>("/api/v1/portal/calendar/bookings/manual", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   cancelCalendarBooking: (bookingId: string) =>
     request<{ success: boolean; booking_id: string; status: string; calendar_event_deleted: boolean }>(
       `/api/v1/portal/calendar/bookings/${bookingId}/cancel`,
@@ -1718,6 +1733,8 @@ export interface CalendarBookingItem {
   meet_link: string | null;
   calendar_event_id: string | null;
   staff_id: string | null;
+  call_id?: string | null;
+  contact_id?: string | null;
   notes: string | null;
 }
 

@@ -25,6 +25,13 @@ import {
   X,
   AlertTriangle,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Phone,
+  Mail,
+  User,
+  AlertCircle,
 } from "lucide-react";
 import {
   api,
@@ -37,7 +44,7 @@ import {
 } from "@/lib/api";
 
 export default function StaffAndDispatchPage() {
-  const [activeTab, setActiveTab] = useState<"roster" | "simulator" | "schedule" | "google_sync">("roster");
+  const [activeTab, setActiveTab] = useState<"calendar" | "bookings" | "schedule" | "roster" | "simulator" | "google_sync">("calendar");
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [rosterSchedule, setRosterSchedule] = useState<RosterSchedule[]>([]);
   const [calStatus, setCalStatus] = useState<CalendarIntegrationStatus | null>(null);
@@ -52,6 +59,33 @@ export default function StaffAndDispatchPage() {
     redirect_uri?: string;
     message?: string;
   } | null>(null);
+
+  // Visual Interactive Schedule Grid State
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(now.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  });
+  const [selectedBooking, setSelectedBooking] = useState<CalendarBookingItem | null>(null);
+  const [bookingSearchQuery, setBookingSearchQuery] = useState("");
+  const [bookingStatusFilter, setBookingStatusFilter] = useState("all");
+
+  // Manual Booking Modal State
+  const [showNewBookingModal, setShowNewBookingModal] = useState(false);
+  const [creatingBooking, setCreatingBooking] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [newCustName, setNewCustName] = useState("");
+  const [newCustPhone, setNewCustPhone] = useState("");
+  const [newCustEmail, setNewCustEmail] = useState("");
+  const [newServiceType, setNewServiceType] = useState("Water Heater Repair");
+  const [newBookingDate, setNewBookingDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [newBookingTime, setNewBookingTime] = useState("10:00");
+  const [newBookingDuration, setNewBookingDuration] = useState(60);
+  const [newBookingStaffId, setNewBookingStaffId] = useState("");
+  const [newBookingNotes, setNewBookingNotes] = useState("");
 
   // Calendly & Self-Serve In-Call SMS State (Phase 4)
   const [calendlyConfig, setCalendlyConfig] = useState<CalendlyConfigResponse | null>(null);
@@ -259,6 +293,79 @@ export default function StaffAndDispatchPage() {
     }
   };
 
+  const getDaysOfWeek = (startDate: Date) => {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(startDate);
+      d.setDate(startDate.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  };
+
+  const handlePrevWeek = () => {
+    const prev = new Date(currentWeekStart);
+    prev.setDate(prev.getDate() - 7);
+    setCurrentWeekStart(prev);
+  };
+
+  const handleNextWeek = () => {
+    const next = new Date(currentWeekStart);
+    next.setDate(next.getDate() + 7);
+    setCurrentWeekStart(next);
+  };
+
+  const handleTodayWeek = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(now.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    setCurrentWeekStart(monday);
+  };
+
+  const handleCreateManualBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustName.trim() || !newCustPhone.trim()) {
+      setBookingError("Customer name and phone number are required.");
+      return;
+    }
+    setCreatingBooking(true);
+    setBookingError(null);
+    try {
+      const [hours, minutes] = newBookingTime.split(":").map(Number);
+      const startDateTime = new Date(`${newBookingDate}T00:00:00`);
+      startDateTime.setHours(hours, minutes, 0, 0);
+      const endDateTime = new Date(startDateTime.getTime() + newBookingDuration * 60 * 1000);
+
+      const created = await api.createManualBooking({
+        customer_name: newCustName.trim(),
+        customer_phone: newCustPhone.trim(),
+        customer_email: newCustEmail.trim() || null,
+        service_type: newServiceType,
+        start_at: startDateTime.toISOString(),
+        end_at: endDateTime.toISOString(),
+        notes: newBookingNotes.trim() || null,
+        staff_id: newBookingStaffId || null,
+      });
+
+      setShowNewBookingModal(false);
+      setCalNotification(`Appointment booked successfully for ${created.customer_name}!`);
+      setTimeout(() => setCalNotification(null), 4000);
+      // Reset form
+      setNewCustName("");
+      setNewCustPhone("");
+      setNewCustEmail("");
+      setNewBookingNotes("");
+      await loadData();
+      setSelectedBooking(created);
+    } catch (err: any) {
+      setBookingError(err?.message || "Failed to create appointment.");
+    } finally {
+      setCreatingBooking(false);
+    }
+  };
+
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim() || !newEmail.trim()) return;
@@ -338,24 +445,31 @@ export default function StaffAndDispatchPage() {
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-              Milestone M10b
+              Live Control Plane
             </span>
-            <span className="text-xs font-mono text-zinc-500">FR-CAL-9 to 15</span>
+            <span className="text-xs font-mono text-zinc-500">Google Calendar Two-Way Active</span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 mt-1">
-            Staff Rosters & Dispatch Routing
+            Appointments, Live Calendar & Dispatch
           </h1>
           <p className="text-sm text-zinc-500 mt-0.5">
-            Manage multi-technician dispatch calendars, skill-based trade routing, and territory zip codes.
+            Interactive weekly schedule, two-way Google Calendar synchronization, technician dispatching, and manual booking creation.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-zinc-900 text-white rounded-lg text-xs font-semibold hover:bg-zinc-800 transition"
+            onClick={() => setShowNewBookingModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition shadow-xs"
           >
             <Plus className="w-4 h-4" />
-            Add Technician
+            New Appointment
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-zinc-900 text-white rounded-lg text-xs font-semibold hover:bg-zinc-800 transition shadow-xs"
+          >
+            <Users className="w-4 h-4" />
+            Add Staff
           </button>
           <button
             onClick={loadData}
@@ -367,44 +481,98 @@ export default function StaffAndDispatchPage() {
         </div>
       </div>
 
+      {/* KPI Stats Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+            <span>Total Appointments</span>
+            <CalendarIcon className="w-4 h-4 text-purple-600" />
+          </div>
+          <div className="text-2xl font-extrabold text-zinc-900 font-mono">{bookingsList.length}</div>
+          <div className="text-[10.5px] text-zinc-400 font-mono">
+            {bookingsList.filter((b) => b.status === "confirmed").length} Confirmed
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+            <span>Google Calendar</span>
+            <Globe className="w-4 h-4 text-blue-600" />
+          </div>
+          <div className="text-base font-bold text-zinc-900 font-mono flex items-center gap-1.5 mt-1">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                calStatus?.is_connected ? "bg-emerald-500 animate-pulse" : "bg-zinc-300"
+              }`}
+            />
+            <span>{calStatus?.is_connected ? "Active Two-Way" : "Disconnected"}</span>
+          </div>
+          <div className="text-[10.5px] text-zinc-400 font-mono truncate">
+            {calStatus?.calendar_id || "None configured"}
+          </div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+            <span>Active Technicians</span>
+            <Users className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div className="text-2xl font-extrabold text-zinc-900 font-mono">
+            {staffList.filter((s) => s.is_active).length}
+          </div>
+          <div className="text-[10.5px] text-emerald-600 font-mono font-medium">Ready for Dispatch</div>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+            <span>Voice Agent Bookings</span>
+            <Sparkles className="w-4 h-4 text-amber-500" />
+          </div>
+          <div className="text-2xl font-extrabold text-zinc-900 font-mono">
+            {bookingsList.filter((b) => Boolean(b.call_id)).length}
+          </div>
+          <div className="text-[10.5px] text-zinc-400 font-mono">From Phone Calls</div>
+        </div>
+      </div>
+
       {/* Tabs */}
-      <div className="flex border-b border-zinc-200 gap-6 text-sm font-medium">
+      <div className="flex border-b border-zinc-200 gap-6 text-sm font-medium overflow-x-auto">
         <button
-          onClick={() => setActiveTab("roster")}
-          className={`pb-3 border-b-2 flex items-center gap-2 transition ${
-            activeTab === "roster"
-              ? "border-zinc-900 text-zinc-900 font-bold"
-              : "border-transparent text-zinc-500 hover:text-zinc-800"
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          Technician Rosters ({staffList.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("simulator")}
-          className={`pb-3 border-b-2 flex items-center gap-2 transition ${
-            activeTab === "simulator"
-              ? "border-zinc-900 text-zinc-900 font-bold"
-              : "border-transparent text-zinc-500 hover:text-zinc-800"
-          }`}
-        >
-          <Zap className="w-4 h-4 text-amber-500" />
-          Dispatch Simulator
-        </button>
-        <button
-          onClick={() => setActiveTab("schedule")}
-          className={`pb-3 border-b-2 flex items-center gap-2 transition ${
-            activeTab === "schedule"
-              ? "border-zinc-900 text-zinc-900 font-bold"
+          onClick={() => setActiveTab("calendar")}
+          className={`pb-3 border-b-2 flex items-center gap-2 whitespace-nowrap transition ${
+            activeTab === "calendar"
+              ? "border-emerald-600 text-emerald-700 font-bold"
               : "border-transparent text-zinc-500 hover:text-zinc-800"
           }`}
         >
           <CalendarIcon className="w-4 h-4" />
-          Daily Schedule Matrix
+          Live Schedule Grid
+        </button>
+        <button
+          onClick={() => setActiveTab("bookings")}
+          className={`pb-3 border-b-2 flex items-center gap-2 whitespace-nowrap transition ${
+            activeTab === "bookings"
+              ? "border-purple-600 text-purple-700 font-bold"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          All Appointments ({bookingsList.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("schedule")}
+          className={`pb-3 border-b-2 flex items-center gap-2 whitespace-nowrap transition ${
+            activeTab === "schedule"
+              ? "border-indigo-600 text-indigo-700 font-bold"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          <CalendarIcon className="w-4 h-4 text-indigo-600" />
+          Daily Staff Matrix
         </button>
         <button
           onClick={() => setActiveTab("google_sync")}
-          className={`pb-3 border-b-2 flex items-center gap-2 transition ${
+          className={`pb-3 border-b-2 flex items-center gap-2 whitespace-nowrap transition ${
             activeTab === "google_sync"
               ? "border-blue-600 text-blue-600 font-bold"
               : "border-transparent text-zinc-500 hover:text-zinc-800"
@@ -417,6 +585,28 @@ export default function StaffAndDispatchPage() {
           ) : (
             <span className="w-2 h-2 rounded-full bg-zinc-300"></span>
           )}
+        </button>
+        <button
+          onClick={() => setActiveTab("roster")}
+          className={`pb-3 border-b-2 flex items-center gap-2 whitespace-nowrap transition ${
+            activeTab === "roster"
+              ? "border-zinc-900 text-zinc-900 font-bold"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Technicians ({staffList.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("simulator")}
+          className={`pb-3 border-b-2 flex items-center gap-2 whitespace-nowrap transition ${
+            activeTab === "simulator"
+              ? "border-zinc-900 text-zinc-900 font-bold"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          <Zap className="w-4 h-4 text-amber-500" />
+          Dispatch Simulator
         </button>
       </div>
 
@@ -431,6 +621,343 @@ export default function StaffAndDispatchPage() {
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs flex items-center gap-2">
           <ShieldAlert className="w-4 h-4 shrink-0" />
           {error}
+        </div>
+      )}
+
+      {/* TAB 0: LIVE INTERACTIVE SCHEDULE GRID */}
+      {activeTab === "calendar" && (
+        <div className="space-y-4">
+          {/* Calendar Toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-zinc-200/90 shadow-xs">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePrevWeek}
+                className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition"
+                title="Previous Week"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleTodayWeek}
+                className="px-3 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-xs font-semibold text-zinc-700 transition"
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={handleNextWeek}
+                className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition"
+                title="Next Week"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <span className="text-xs sm:text-sm font-bold text-zinc-900 ml-2 font-mono">
+                {(() => {
+                  const days = getDaysOfWeek(currentWeekStart);
+                  return `${days[0].toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })} – ${days[6].toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}`;
+                })()}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-4 text-xs font-mono">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span className="text-zinc-600">Confirmed</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                <span className="text-zinc-600">Held (Soft)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Video className="w-3.5 h-3.5 text-blue-600" />
+                <span className="text-zinc-600">Google Meet</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Weekly Schedule Grid */}
+          <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs overflow-x-auto">
+            <div className="min-w-[900px]">
+              {/* Day Columns Header */}
+              <div className="grid grid-cols-8 border-b border-zinc-200 text-xs bg-zinc-50/80">
+                <div className="p-3 text-center text-zinc-400 font-mono font-medium border-r border-zinc-200/80 text-[11px]">
+                  Time (UTC)
+                </div>
+                {getDaysOfWeek(currentWeekStart).map((day, idx) => {
+                  const isToday = day.toDateString() === new Date().toDateString();
+                  return (
+                    <div
+                      key={idx}
+                      className={`p-3 text-center border-r last:border-r-0 border-zinc-200/80 ${
+                        isToday ? "bg-purple-50/80 font-bold text-purple-900" : "text-zinc-700"
+                      }`}
+                    >
+                      <div className="text-[11px] uppercase font-mono text-zinc-400">
+                        {day.toLocaleDateString(undefined, { weekday: "short" })}
+                      </div>
+                      <div className={`text-sm ${isToday ? "font-bold text-purple-700" : "font-bold text-zinc-800"}`}>
+                        {day.getDate()}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Hourly Time Slots (8 AM to 6 PM) */}
+              <div className="divide-y divide-zinc-100">
+                {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((hour) => {
+                  const hourLabel = `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? "PM" : "AM"}`;
+                  return (
+                    <div key={hour} className="grid grid-cols-8 min-h-[72px]">
+                      {/* Hour Label Column */}
+                      <div className="p-2 border-r border-zinc-200/80 text-[11px] font-mono text-zinc-400 text-right pr-3 bg-zinc-50/40 select-none flex items-start justify-end">
+                        {hourLabel}
+                      </div>
+
+                      {/* Day Cells for this Hour */}
+                      {getDaysOfWeek(currentWeekStart).map((day, dIdx) => {
+                        const cellDateStr = day.toISOString().split("T")[0];
+                        const cellBookings = bookingsList.filter((b) => {
+                          const bDate = new Date(b.start_at);
+                          const bDateStr = bDate.toISOString().split("T")[0];
+                          return bDateStr === cellDateStr && bDate.getHours() === hour;
+                        });
+
+                        return (
+                          <div
+                            key={dIdx}
+                            className="p-1 border-r last:border-r-0 border-zinc-100 relative group transition-colors hover:bg-zinc-50/50 flex flex-col gap-1"
+                          >
+                            {cellBookings.length === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewBookingDate(cellDateStr);
+                                  setNewBookingTime(`${hour.toString().padStart(2, "0")}:00`);
+                                  setShowNewBookingModal(true);
+                                }}
+                                className="w-full h-full min-h-[56px] rounded-lg border border-dashed border-transparent group-hover:border-zinc-300 text-[10px] text-zinc-400 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all"
+                              >
+                                + Book
+                              </button>
+                            ) : (
+                              cellBookings.map((b) => {
+                                const isConfirmed = b.status === "confirmed";
+                                const isHeld = b.status === "held";
+                                return (
+                                  <div
+                                    key={b.id}
+                                    onClick={() => setSelectedBooking(b)}
+                                    className={`p-2 rounded-xl border text-left cursor-pointer transition shadow-xs space-y-1 ${
+                                      isConfirmed
+                                        ? "bg-emerald-50/90 border-emerald-300 hover:border-emerald-500 text-emerald-950"
+                                        : isHeld
+                                        ? "bg-amber-50/90 border-amber-300 hover:border-amber-500 text-amber-950"
+                                        : "bg-zinc-100 border-zinc-200 text-zinc-600 line-through opacity-70"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className="font-bold text-xs truncate leading-tight">
+                                        {b.customer_name}
+                                      </span>
+                                      {b.meet_link && (
+                                        <span title="Google Meet Video Link">
+                                          <Video className="w-3 h-3 text-blue-600 shrink-0" />
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] font-mono opacity-80 truncate">
+                                      {new Date(b.start_at).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}{" "}
+                                      -{" "}
+                                      {new Date(b.end_at).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </div>
+                                    <div className="text-[9.5px] px-1.5 py-0.2 rounded bg-white/80 border border-zinc-200/50 inline-block truncate max-w-full font-medium capitalize">
+                                      {b.service_type.replace(/_/g, " ")}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 0.5: ALL APPOINTMENTS DIRECTORY */}
+      {activeTab === "bookings" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search by customer name, phone, email, service..."
+                value={bookingSearchQuery}
+                onChange={(e) => setBookingSearchQuery(e.target.value)}
+                className="w-full text-xs pl-9 pr-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 text-xs font-medium">
+              <span className="text-zinc-400 text-[11px] mr-1">Filter:</span>
+              {["all", "confirmed", "held", "cancelled"].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setBookingStatusFilter(st)}
+                  className={`px-3 py-1 rounded-lg capitalize transition text-xs font-semibold ${
+                    bookingStatusFilter === st
+                      ? "bg-zinc-900 text-white"
+                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 uppercase font-mono text-[10px]">
+                <tr>
+                  <th className="px-4 py-3">Customer</th>
+                  <th className="px-4 py-3">Service</th>
+                  <th className="px-4 py-3">Scheduled Window</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Google Meet</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 font-mono">
+                {bookingsList
+                  .filter((b) => {
+                    const matchesQuery =
+                      !bookingSearchQuery ||
+                      b.customer_name.toLowerCase().includes(bookingSearchQuery.toLowerCase()) ||
+                      b.customer_phone.includes(bookingSearchQuery) ||
+                      (b.customer_email && b.customer_email.toLowerCase().includes(bookingSearchQuery.toLowerCase())) ||
+                      b.service_type.toLowerCase().includes(bookingSearchQuery.toLowerCase());
+                    const matchesStatus =
+                      bookingStatusFilter === "all" || b.status === bookingStatusFilter;
+                    return matchesQuery && matchesStatus;
+                  })
+                  .map((b) => (
+                    <tr key={b.id} className="hover:bg-zinc-50/70 transition">
+                      <td className="px-4 py-3">
+                        <div className="font-bold text-zinc-900">{b.customer_name}</div>
+                        <div className="text-[11px] text-zinc-500">{b.customer_phone}</div>
+                        {b.customer_email && <div className="text-[10px] text-zinc-400">{b.customer_email}</div>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="capitalize text-zinc-800 font-medium font-sans">
+                          {b.service_type.replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-700">
+                        <div>{new Date(b.start_at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
+                        <div className="text-[11px] text-zinc-400">
+                          {new Date(b.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
+                          {new Date(b.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            b.status === "confirmed"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : b.status === "held"
+                              ? "bg-amber-50 text-amber-700 border border-amber-200"
+                              : "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                          }`}
+                        >
+                          {b.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {b.meet_link ? (
+                          <a
+                            href={b.meet_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold hover:bg-blue-100"
+                          >
+                            <Video className="w-3 h-3 text-blue-600" />
+                            Join Meet
+                            <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-zinc-400 italic">In-Person Dispatch</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5 font-sans">
+                          {b.call_id ? (
+                            <a
+                              href={`/portal/calls?call_id=${encodeURIComponent(b.call_id)}&autoplay=true`}
+                              className="px-2 py-1 rounded border border-purple-200 hover:bg-purple-50 text-purple-700 text-[11px] font-semibold flex items-center gap-1 transition"
+                              title="Listen to call that booked this slot"
+                            >
+                              <Play className="w-2.5 h-2.5" />
+                              <span>Play Call</span>
+                            </a>
+                          ) : (
+                            <a
+                              href={`/portal/calls?search=${encodeURIComponent(b.customer_phone)}&autoplay=true`}
+                              className="px-2 py-1 rounded border border-zinc-200 hover:bg-zinc-100 text-zinc-600 text-[11px] font-semibold flex items-center gap-1 transition"
+                              title="Look up call logs by phone"
+                            >
+                              <Play className="w-2.5 h-2.5" />
+                              <span>Calls</span>
+                            </a>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBooking(b)}
+                            className="px-2.5 py-1 rounded border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-[11px] font-semibold transition"
+                          >
+                            Details
+                          </button>
+
+                          {b.status !== "cancelled" && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelBooking(b.id)}
+                              disabled={cancellingBookingId === b.id}
+                              className="px-2 py-1 rounded border border-red-200 hover:bg-red-50 text-red-600 text-[11px] font-semibold transition"
+                            >
+                              {cancellingBookingId === b.id ? "Cancelling..." : "Cancel"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -1024,6 +1551,386 @@ export default function StaffAndDispatchPage() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* APPOINTMENT DETAIL INSPECTOR DRAWER */}
+      {selectedBooking && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex justify-end animate-in fade-in duration-150">
+          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col p-6 space-y-6 animate-in slide-in-from-right duration-200 overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-zinc-200">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      selectedBooking.status === "confirmed"
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        : selectedBooking.status === "held"
+                        ? "bg-amber-50 text-amber-700 border border-amber-200"
+                        : "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                    }`}
+                  >
+                    {selectedBooking.status}
+                  </span>
+                  <span className="text-xs font-mono text-zinc-400">ID: {selectedBooking.id.slice(0, 8)}</span>
+                </div>
+                <h3 className="text-xl font-bold text-zinc-900 mt-1">{selectedBooking.customer_name}</h3>
+                <p className="text-xs text-zinc-500 font-mono capitalize">
+                  {selectedBooking.service_type.replace(/_/g, " ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedBooking(null)}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Contact & Scheduled Time */}
+            <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200/90 space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono block">Phone Number</span>
+                  <span className="font-bold text-zinc-900 font-mono flex items-center gap-1.5 mt-0.5">
+                    <Phone className="w-3.5 h-3.5 text-zinc-400" />
+                    {selectedBooking.customer_phone}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono block">Customer Email</span>
+                  <span className="font-semibold text-zinc-700 flex items-center gap-1.5 mt-0.5 truncate">
+                    <Mail className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                    <span className="truncate">{selectedBooking.customer_email || "None recorded"}</span>
+                  </span>
+                </div>
+                <div>
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono block">Date &amp; Day</span>
+                  <span className="font-bold text-zinc-900 flex items-center gap-1.5 mt-0.5">
+                    <CalendarIcon className="w-3.5 h-3.5 text-purple-600" />
+                    {new Date(selectedBooking.start_at).toLocaleDateString([], {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono block">Time Window</span>
+                  <span className="font-bold text-zinc-900 font-mono flex items-center gap-1.5 mt-0.5">
+                    <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                    {new Date(selectedBooking.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} –{" "}
+                    {new Date(selectedBooking.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              </div>
+
+              {selectedBooking.notes && (
+                <div className="pt-2 border-t border-zinc-200 text-xs text-zinc-600">
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono block">Booking Notes</span>
+                  <p className="mt-0.5">{selectedBooking.notes}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Google Calendar Video Meet Link */}
+            {selectedBooking.meet_link ? (
+              <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Video className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-bold text-blue-950 font-mono uppercase">Google Meet Video Room</span>
+                  </div>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                    Active
+                  </span>
+                </div>
+                <p className="text-xs text-blue-800">
+                  A dedicated Google Meet room was automatically generated and attached to this booking.
+                </p>
+                <a
+                  href={selectedBooking.meet_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs"
+                >
+                  <Video className="w-3.5 h-3.5" />
+                  <span>Join Google Meet Video</span>
+                  <ExternalLink className="w-3 h-3 opacity-70 ml-1" />
+                </a>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 text-xs text-zinc-500 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-zinc-400 shrink-0" />
+                <span>In-Person On-Site Dispatch Appointment</span>
+              </div>
+            )}
+
+            {/* Cross-Navigation Actions: Call Recording & CRM Profile */}
+            <div className="space-y-3 pt-2">
+              <h4 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
+                Two-Way Cross Links
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {selectedBooking.call_id ? (
+                  <a
+                    href={`/portal/calls?call_id=${encodeURIComponent(selectedBooking.call_id)}&autoplay=true`}
+                    className="p-3 rounded-xl border border-purple-200 bg-purple-50/50 hover:bg-purple-100/70 text-purple-900 transition flex items-center justify-between group"
+                    title="Open call recording in Call Explorer and autoplay"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold flex items-center gap-1.5 text-purple-950">
+                        <Play className="w-3.5 h-3.5 text-purple-700 group-hover:scale-110 transition" />
+                        <span>Play Call Audio</span>
+                      </div>
+                      <div className="text-[10px] text-purple-700 font-mono">Deep-link Autoplay</div>
+                    </div>
+                    <ExternalLink className="w-3.5 h-3.5 text-purple-400 group-hover:text-purple-700" />
+                  </a>
+                ) : (
+                  <a
+                    href={`/portal/calls?search=${encodeURIComponent(selectedBooking.customer_phone)}&autoplay=true`}
+                    className="p-3 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-900 transition flex items-center justify-between group"
+                    title="Search calls for this phone number"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-bold flex items-center gap-1.5 text-zinc-800">
+                        <Play className="w-3.5 h-3.5 text-zinc-600" />
+                        <span>Call Explorer</span>
+                      </div>
+                      <div className="text-[10px] text-zinc-500 font-mono">Search Phone Number</div>
+                    </div>
+                    <ExternalLink className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700" />
+                  </a>
+                )}
+
+                <a
+                  href={`/portal/crm?search=${encodeURIComponent(selectedBooking.customer_phone)}`}
+                  className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 hover:bg-blue-100/70 text-blue-900 transition flex items-center justify-between group"
+                  title="Open customer contact profile in CRM"
+                >
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold flex items-center gap-1.5 text-blue-950">
+                      <User className="w-3.5 h-3.5 text-blue-700 group-hover:scale-110 transition" />
+                      <span>View in CRM</span>
+                    </div>
+                    <div className="text-[10px] text-blue-700 font-mono">Pipeline &amp; History</div>
+                  </div>
+                  <ExternalLink className="w-3.5 h-3.5 text-blue-400 group-hover:text-blue-700" />
+                </a>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="pt-4 border-t border-zinc-200 flex items-center justify-between mt-auto">
+              {selectedBooking.status !== "cancelled" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCancelBooking(selectedBooking.id);
+                    setSelectedBooking(null);
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl border border-rose-200 transition flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Cancel Appointment</span>
+                </button>
+              ) : (
+                <span className="text-xs text-zinc-400 font-mono">Appointment Cancelled</span>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedBooking(null)}
+                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs"
+              >
+                Close Drawer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: MANUAL NEW APPOINTMENT */}
+      {showNewBookingModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between border-b border-zinc-200 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4 text-emerald-600" />
+                  Schedule New Appointment
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Manual telephone or walk-in booking with two-way Google Calendar sync.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewBookingModal(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {bookingError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{bookingError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateManualBooking} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Customer Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newCustName}
+                    onChange={(e) => setNewCustName(e.target.value)}
+                    placeholder="e.g. Eleanor Vance"
+                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Phone Number (E.164) *</label>
+                  <input
+                    type="tel"
+                    required
+                    value={newCustPhone}
+                    onChange={(e) => setNewCustPhone(e.target.value)}
+                    placeholder="+1 (512) 555-0199"
+                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Customer Email</label>
+                  <input
+                    type="email"
+                    value={newCustEmail}
+                    onChange={(e) => setNewCustEmail(e.target.value)}
+                    placeholder="customer@domain.com"
+                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Service Type</label>
+                  <select
+                    value={newServiceType}
+                    onChange={(e) => setNewServiceType(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                  >
+                    <option value="Water Heater Repair">Water Heater Repair</option>
+                    <option value="Drain Cleaning">Drain Cleaning &amp; Snaking</option>
+                    <option value="Boiler Service">Boiler Inspection &amp; Service</option>
+                    <option value="Pipe Leak Repair">Pipe Leak Detection &amp; Repair</option>
+                    <option value="Emergency Burst">🚨 Emergency Burst Pipe</option>
+                    <option value="General Appointment">General Service Diagnostic</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Appointment Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={newBookingDate}
+                    onChange={(e) => setNewBookingDate(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Start Time *</label>
+                  <select
+                    value={newBookingTime}
+                    onChange={(e) => setNewBookingTime(e.target.value)}
+                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                  >
+                    {["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"].map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-700 mb-1">Duration</label>
+                  <select
+                    value={newBookingDuration}
+                    onChange={(e) => setNewBookingDuration(Number(e.target.value))}
+                    className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900 font-mono"
+                  >
+                    <option value={30}>30 mins</option>
+                    <option value={45}>45 mins</option>
+                    <option value={60}>60 mins (1 hr)</option>
+                    <option value={90}>90 mins</option>
+                    <option value={120}>120 mins (2 hrs)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">Assigned Technician</label>
+                <select
+                  value={newBookingStaffId}
+                  onChange={(e) => setNewBookingStaffId(e.target.value)}
+                  className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                >
+                  <option value="">Auto-Assign / Next Available</option>
+                  {staffList.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.role.replace(/_/g, " ")})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">Notes &amp; Access Details</label>
+                <textarea
+                  rows={2}
+                  value={newBookingNotes}
+                  onChange={(e) => setNewBookingNotes(e.target.value)}
+                  placeholder="Gate code, issue details, diagnostic expectations..."
+                  className="w-full text-xs px-3 py-2 border border-zinc-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-zinc-200 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={creatingBooking}
+                  onClick={() => setShowNewBookingModal(false)}
+                  className="px-4 py-2 text-xs border border-zinc-200 rounded-xl text-zinc-600 hover:bg-zinc-50 font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingBooking}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center gap-1.5"
+                >
+                  {creatingBooking ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Scheduling &amp; Syncing...</span>
+                    </>
+                  ) : (
+                    <span>Confirm &amp; Schedule</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

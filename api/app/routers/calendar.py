@@ -53,7 +53,20 @@ class BookingItemResponse(BaseModel):
     meet_link: str | None
     calendar_event_id: str | None = None
     staff_id: str | None = None
+    call_id: str | None = None
+    contact_id: str | None = None
     notes: str | None
+
+
+class CreateManualBookingRequest(BaseModel):
+    customer_name: str
+    customer_phone: str
+    customer_email: str | None = None
+    service_type: str = "General Appointment"
+    start_at: datetime
+    end_at: datetime | None = None
+    notes: str | None = None
+    staff_id: str | None = None
 
 
 class SyncTestResponse(BaseModel):
@@ -316,13 +329,25 @@ def list_bookings(
     tenant: Tenant = Depends(get_current_tenant),
     db: Session = Depends(get_db),
 ) -> Any:
-    """List confirmed and held customer bookings for tenant."""
+    """List confirmed and held customer bookings for tenant with CRM and Call Explorer cross-links."""
     bookings = db.scalars(
         select(Booking)
         .where(Booking.tenant_id == tenant.id)
         .order_by(Booking.start_at.desc())
         .limit(limit)
     ).all()
+
+    # Batch resolve contact_ids by phone to avoid N+1 queries
+    phones = {b.customer_phone for b in bookings if b.customer_phone}
+    contact_map: dict[str, str] = {}
+    if phones:
+        contacts = db.execute(
+            select(Contact.phone, Contact.id).where(
+                Contact.tenant_id == tenant.id,
+                Contact.phone.in_(phones),
+            )
+        ).all()
+        contact_map = {row[0]: row[1] for row in contacts}
 
     return [
         BookingItemResponse(
@@ -337,10 +362,113 @@ def list_bookings(
             meet_link=b.meet_link,
             calendar_event_id=b.calendar_event_id,
             staff_id=b.staff_id,
+            call_id=b.call_id,
+            contact_id=contact_map.get(b.customer_phone),
             notes=b.notes,
         )
         for b in bookings
     ]
+
+
+@router.post("/bookings/manual", response_model=BookingItemResponse)
+def create_manual_booking(
+    req: CreateManualBookingRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Create a manual booking with conflict validation, Google Calendar event creation, and CRM linkage."""
+    start_at = req.start_at
+    end_at = req.end_at or (start_at + timedelta(minutes=60))
+    if end_at <= start_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="End time must be after start time",
+        )
+
+    # Conflict check: overlapping confirmed bookings for this tenant/staff
+    overlap_q = select(Booking).where(
+        Booking.tenant_id == tenant.id,
+        Booking.status.in_(["confirmed", "held"]),
+        Booking.start_at < end_at,
+        Booking.end_at > start_at,
+    )
+    if req.staff_id:
+        overlap_q = overlap_q.where(Booking.staff_id == req.staff_id)
+    conflict = db.scalar(overlap_q)
+    if conflict:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Time slot conflicts with an existing booking ({conflict.customer_name} from {conflict.start_at.strftime('%H:%M')} to {conflict.end_at.strftime('%H:%M')})",
+        )
+
+    meet_link: str | None = None
+    cal_event_id: str | None = None
+
+    # If Google Calendar is connected, sync event
+    cal_provider, cal_id = _get_tenant_calendar_provider(tenant.id, db)
+    if cal_provider and cal_id:
+        try:
+            ext_ev = ExternalEvent(
+                title=f"[{tenant.name}] {req.service_type} - {req.customer_name}",
+                start=start_at,
+                end=end_at,
+                description=f"Service: {req.service_type}\nCustomer: {req.customer_name}\nPhone: {req.customer_phone}\nNotes: {req.notes or 'Manual appointment'}",
+            )
+            created = cal_provider.create_event(cal_id, ext_ev)
+            cal_event_id = created.id
+            meet_link = created.meet_link
+        except Exception as e:
+            logger.warning("Could not sync manual booking to external calendar: %s", e)
+
+    booking = Booking(
+        tenant_id=tenant.id,
+        customer_name=req.customer_name.strip(),
+        customer_phone=req.customer_phone.strip(),
+        customer_email=req.customer_email.strip() if req.customer_email else None,
+        service_type=req.service_type,
+        start_at=start_at,
+        end_at=end_at,
+        status="confirmed",
+        meet_link=meet_link,
+        calendar_event_id=cal_event_id,
+        staff_id=req.staff_id,
+        notes=req.notes,
+    )
+    db.add(booking)
+    db.flush()
+
+    # Link booking to CRM Contact
+    from api.app.services.crm_ingest import link_booking_to_crm
+
+    contact = link_booking_to_crm(
+        db=db,
+        tenant_id=tenant.id,
+        booking=booking,
+        customer_phone=booking.customer_phone,
+        customer_name=booking.customer_name,
+        customer_email=booking.customer_email,
+        service_type=booking.service_type,
+    )
+
+    db.commit()
+    db.refresh(booking)
+
+    return BookingItemResponse(
+        id=booking.id,
+        customer_name=booking.customer_name,
+        customer_phone=booking.customer_phone,
+        customer_email=booking.customer_email,
+        service_type=booking.service_type,
+        start_at=booking.start_at,
+        end_at=booking.end_at,
+        status=booking.status,
+        meet_link=booking.meet_link,
+        calendar_event_id=booking.calendar_event_id,
+        staff_id=booking.staff_id,
+        call_id=booking.call_id,
+        contact_id=contact.id if contact else None,
+        notes=booking.notes,
+    )
 
 
 @router.post("/sync-test", response_model=SyncTestResponse)
