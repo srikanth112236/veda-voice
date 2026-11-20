@@ -766,6 +766,12 @@ def init_db() -> None:
                 conn.execute(
                     text("ALTER TABLE calls ADD COLUMN is_followed_up BOOLEAN DEFAULT 0 NOT NULL")
                 )
+            if "recording_channels" not in existing_call_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE calls ADD COLUMN recording_channels INTEGER DEFAULT 2 NOT NULL"
+                    )
+                )
 
             # Usage records table columns
             cursor = conn.execute(text("PRAGMA table_info(usage_records)"))
@@ -1081,6 +1087,23 @@ def init_db() -> None:
                 )
 
             conn.commit()
+
+    if "postgresql" in str(engine.url) or "psycopg" in str(engine.url):
+        with engine.connect() as conn:
+            from sqlalchemy import text
+
+            pg_statements = [
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS is_followed_up BOOLEAN DEFAULT FALSE NOT NULL;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_channels INTEGER DEFAULT 2 NOT NULL;",
+                "ALTER TABLE crm_connections ADD COLUMN IF NOT EXISTS key_fingerprint VARCHAR(32) NULL;",
+            ]
+            for stmt in pg_statements:
+                try:
+                    conn.execute(text(stmt))
+                    conn.commit()
+                except Exception:
+                    pass
+
     seed_initial_data()
 
 
