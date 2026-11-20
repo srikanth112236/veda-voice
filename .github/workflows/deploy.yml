@@ -43,13 +43,29 @@ jobs:
           fi
           echo "AZURE_RG=${RG}" >> $GITHUB_OUTPUT
 
+      - name: Debug Azure ACR & Permissions
+        run: |
+          echo "### Azure ACR Diagnostics" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resource Group**: ${{ steps.vars.outputs.AZURE_RG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target ACR**: ${{ steps.vars.outputs.ACR_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "#### Available Registries in RG:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          az acr list --resource-group ${{ steps.vars.outputs.AZURE_RG }} --query "[].{name:name, loginServer:loginServer, location:location}" -o table 2>&1 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
       - name: Build & Push API Image to ACR
         run: |
           az acr build \
             --registry ${{ steps.vars.outputs.ACR_NAME }} \
             --image api:${{ steps.vars.outputs.SHA_SHORT }} \
             --image api:latest \
-            --file api/Dockerfile .
+            --file api/Dockerfile . 2>&1 | tee acr_api_build.log || {
+              echo "### ACR API Build Error" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat acr_api_build.log >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              exit 1
+            }
 
       - name: Build & Push Dashboard Image to ACR
         run: |
