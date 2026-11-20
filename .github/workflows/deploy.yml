@@ -13,7 +13,6 @@ jobs:
   build-and-deploy:
     name: Build & Deploy Production
     runs-on: ubuntu-latest
-    if: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_TENANT_ID != '' }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -100,9 +99,9 @@ jobs:
             --image ${{ steps.vars.outputs.ACR_SERVER }}/agent:${{ steps.vars.outputs.SHA_SHORT }} || echo "agent container app not provisioned yet in RG"
 
       - name: Deploy Voice Agent to LiveKit Cloud
-        if: ${{ secrets.LIVEKIT_ACCESS_TOKEN != '' }}
         env:
           LIVEKIT_ACCESS_TOKEN: ${{ secrets.LIVEKIT_ACCESS_TOKEN }}
+        if: env.LIVEKIT_ACCESS_TOKEN != ''
         run: |
           curl -sSL https://get.livekit.io/cli | bash
           cd agent
@@ -110,9 +109,9 @@ jobs:
           lk agent deploy
 
       - name: Run Production Smoke Tests
-        if: ${{ secrets.PROD_API_URL != '' }}
         env:
           PROD_API_URL: ${{ secrets.PROD_API_URL }}
+        if: env.PROD_API_URL != ''
         run: |
           python -m pip install httpx pytest
-          python scripts/smoke_test_prod.py --base-url "${{ secrets.PROD_API_URL }}"
+          python scripts/smoke_test_prod.py --base-url "${{ env.PROD_API_URL }}"
