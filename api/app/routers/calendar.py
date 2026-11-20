@@ -59,6 +59,7 @@ class BookingItemResponse(BaseModel):
     is_arrival_window: bool = False
     arrival_window_start: datetime | None = None
     arrival_window_end: datetime | None = None
+    timezone: str = "America/New_York"
 
 
 class CreateManualBookingRequest(BaseModel):
@@ -82,6 +83,7 @@ class CalendarSettingsResponse(BaseModel):
     calendar_buffer_minutes: int  # 15 | 20 | 30 | 45
     calendar_buffer_mode: str  # after | both
     calendar_buffer_reason: str
+    timezone: str = "America/New_York"
 
 
 class UpdateCalendarSettingsRequest(BaseModel):
@@ -391,6 +393,7 @@ def list_bookings(
             is_arrival_window=getattr(b, "is_arrival_window", False) or False,
             arrival_window_start=getattr(b, "arrival_window_start", None),
             arrival_window_end=getattr(b, "arrival_window_end", None),
+            timezone=tenant.timezone or "America/New_York",
         )
         for b in bookings
     ]
@@ -410,6 +413,7 @@ def get_calendar_settings(
         calendar_buffer_mode=getattr(profile, "calendar_buffer_mode", "after") or "after",
         calendar_buffer_reason=getattr(profile, "calendar_buffer_reason", "travel_and_reset")
         or "travel_and_reset",
+        timezone=tenant.timezone or "America/New_York",
     )
 
 
@@ -468,6 +472,7 @@ def update_calendar_settings(
         calendar_buffer_minutes=profile.calendar_buffer_minutes,
         calendar_buffer_mode=profile.calendar_buffer_mode,
         calendar_buffer_reason=profile.calendar_buffer_reason,
+        timezone=tenant.timezone or "America/New_York",
     )
 
 
@@ -608,6 +613,7 @@ def create_manual_booking(
         is_arrival_window=booking.is_arrival_window,
         arrival_window_start=booking.arrival_window_start,
         arrival_window_end=booking.arrival_window_end,
+        timezone=tenant.timezone or "America/New_York",
     )
 
 

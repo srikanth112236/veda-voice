@@ -55,6 +55,23 @@ import {
   INDUSTRY_SEMANTIC_PROFILES,
   IndustrySemanticProfile,
 } from "@/lib/industry-semantics";
+import {
+  DEFAULT_US_TIMEZONE,
+  getTimezoneAbbr,
+  getTimezoneFriendlyName,
+  getUS12HourParts,
+  formatUS12Hour,
+  formatUS12HourWithTz,
+  formatUSTimeRange,
+  formatUSArrivalWindow,
+  formatUSDate,
+  formatUSDateAndRange,
+  getHourInTimezone,
+  getDateStringInTimezone,
+  USTimeBadge,
+  USTimeRangeBadge,
+  TimezoneIndicatorPill,
+} from "@/lib/time-format";
 
 export default function StaffAndDispatchPage() {
   const [activeTab, setActiveTab] = useState<"calendar" | "bookings" | "schedule" | "roster" | "simulator" | "google_sync">("calendar");
@@ -104,6 +121,7 @@ export default function StaffAndDispatchPage() {
 
   // Scheduling Model & Buffer Protection Suite State
   const [calendarSettings, setCalendarSettings] = useState<CalendarSettingsResponse | null>(null);
+  const [tenantTimezone, setTenantTimezone] = useState<string>(DEFAULT_US_TIMEZONE);
   const [schedulingMode, setSchedulingMode] = useState<"exact_time" | "arrival_window">("exact_time");
   const [arrivalWindowHours, setArrivalWindowHours] = useState<2 | 4>(2);
   const [calendarBufferMinutes, setCalendarBufferMinutes] = useState<15 | 20 | 30 | 45>(15);
@@ -180,6 +198,12 @@ export default function StaffAndDispatchPage() {
         setCalendarBufferMode(calSettings.calendar_buffer_mode);
         setIsManualArrivalWindow(calSettings.scheduling_mode === "arrival_window");
         setManualArrivalWindowHours(calSettings.arrival_window_hours as 2 | 4);
+        if (calSettings.timezone) {
+          setTenantTimezone(calSettings.timezone);
+        }
+      }
+      if (bookingsData && bookingsData.length > 0 && bookingsData[0]?.timezone) {
+        setTenantTimezone(bookingsData[0].timezone);
       }
       if (tenantPack && tenantPack.pack_slug) {
         setSelectedNiche(tenantPack.pack_slug);
@@ -576,6 +600,9 @@ export default function StaffAndDispatchPage() {
                   : `Exact Time • ${calendarBufferMinutes}m Buffer`}
               </span>
             </div>
+
+            {/* US Operational Timezone Indicator Pill */}
+            <TimezoneIndicatorPill timeZone={tenantTimezone} />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900 mt-1">
             Appointments, Live Calendar &amp; Scheduling
@@ -983,18 +1010,18 @@ export default function StaffAndDispatchPage() {
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-              <span className="text-xs sm:text-sm font-bold text-zinc-900 ml-2 font-mono">
-                {(() => {
-                  const days = getDaysOfWeek(currentWeekStart);
-                  return `${days[0].toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })} – ${days[6].toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}`;
-                })()}
+              <span className="text-xs sm:text-sm font-bold text-zinc-900 ml-2 font-mono flex items-center gap-1.5">
+                <span>
+                  {(() => {
+                    const days = getDaysOfWeek(currentWeekStart);
+                    const startStr = formatUSDate(days[0], tenantTimezone, { weekday: "short", includeYear: false });
+                    const endStr = formatUSDate(days[6], tenantTimezone, { weekday: "short", includeYear: true });
+                    return `${startStr} – ${endStr}`;
+                  })()}
+                </span>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-zinc-200">
+                  {getTimezoneAbbr(currentWeekStart, tenantTimezone)}
+                </span>
               </span>
             </div>
 
@@ -1019,11 +1046,16 @@ export default function StaffAndDispatchPage() {
             <div className="min-w-[900px]">
               {/* Day Columns Header */}
               <div className="grid grid-cols-8 border-b border-zinc-200 text-xs bg-zinc-50/80">
-                <div className="p-3 text-center text-zinc-400 font-mono font-medium border-r border-zinc-200/80 text-[11px]">
-                  Time (UTC)
+                <div className="p-2.5 text-center text-zinc-600 font-mono font-semibold border-r border-zinc-200/80 text-[11px] flex flex-col items-center justify-center">
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold">TIME</span>
+                  <span className="text-[10.5px] font-bold text-zinc-800 bg-zinc-200/70 px-1.5 py-0.5 rounded mt-0.5 border border-zinc-300/60">
+                    {getTimezoneAbbr(currentWeekStart, tenantTimezone)}
+                  </span>
                 </div>
                 {getDaysOfWeek(currentWeekStart).map((day, idx) => {
-                  const isToday = day.toDateString() === new Date().toDateString();
+                  const isToday =
+                    getDateStringInTimezone(day, tenantTimezone) ===
+                    getDateStringInTimezone(new Date(), tenantTimezone);
                   return (
                     <div
                       key={idx}
@@ -1032,10 +1064,10 @@ export default function StaffAndDispatchPage() {
                       }`}
                     >
                       <div className="text-[11px] uppercase font-mono text-zinc-400">
-                        {day.toLocaleDateString(undefined, { weekday: "short" })}
+                        {formatUSDate(day, tenantTimezone, { weekday: "short", includeYear: false }).split(",")[0]}
                       </div>
                       <div className={`text-sm ${isToday ? "font-bold text-purple-700" : "font-bold text-zinc-800"}`}>
-                        {day.getDate()}
+                        {new Intl.DateTimeFormat("en-US", { day: "numeric", timeZone: tenantTimezone }).format(day)}
                       </div>
                     </div>
                   );
@@ -1045,21 +1077,23 @@ export default function StaffAndDispatchPage() {
               {/* Hourly Time Slots (8 AM to 6 PM) */}
               <div className="divide-y divide-zinc-100">
                 {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((hour) => {
-                  const hourLabel = `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour >= 12 ? "PM" : "AM"}`;
+                  const hourLabel = `${hour % 12 === 0 ? 12 : hour % 12}:00`;
+                  const hourAmPm = hour >= 12 ? "PM" : "AM";
                   return (
                     <div key={hour} className="grid grid-cols-8 min-h-[72px]">
-                      {/* Hour Label Column */}
-                      <div className="p-2 border-r border-zinc-200/80 text-[11px] font-mono text-zinc-400 text-right pr-3 bg-zinc-50/40 select-none flex items-start justify-end">
-                        {hourLabel}
+                      {/* Hour Label Column with clean US 12-hour tabular typography */}
+                      <div className="p-2 border-r border-zinc-200/80 text-[11px] font-mono text-right pr-3 bg-zinc-50/40 select-none flex items-start justify-end gap-1">
+                        <span className="font-bold tabular-nums text-zinc-700">{hourLabel}</span>
+                        <span className="text-[9.5px] font-bold text-zinc-400 uppercase">{hourAmPm}</span>
                       </div>
 
-                      {/* Day Cells for this Hour */}
+                      {/* Day Cells for this Hour in Tenant Timezone */}
                       {getDaysOfWeek(currentWeekStart).map((day, dIdx) => {
-                        const cellDateStr = day.toISOString().split("T")[0];
+                        const cellDateStr = getDateStringInTimezone(day, tenantTimezone);
                         const cellBookings = bookingsList.filter((b) => {
-                          const bDate = new Date(b.start_at);
-                          const bDateStr = bDate.toISOString().split("T")[0];
-                          return bDateStr === cellDateStr && bDate.getHours() === hour;
+                          const bDateStr = getDateStringInTimezone(b.start_at, tenantTimezone);
+                          const bHour = getHourInTimezone(b.start_at, tenantTimezone);
+                          return bDateStr === cellDateStr && bHour === hour;
                         });
 
                         return (
@@ -1105,16 +1139,13 @@ export default function StaffAndDispatchPage() {
                                         </span>
                                       )}
                                     </div>
-                                    <div className="text-[10px] font-mono opacity-80 truncate">
-                                      {new Date(b.start_at).toLocaleTimeString([], {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                      })}{" "}
-                                      -{" "}
-                                      {new Date(b.end_at).toLocaleTimeString([], {
-                                        hour: "2-digit",
-                                        minute: "2-digit",
-                                      })}
+                                    <div className="text-[10px] font-mono opacity-90 truncate flex items-center gap-1">
+                                      <span>{formatUS12Hour(b.start_at, tenantTimezone)}</span>
+                                      <span>-</span>
+                                      <span>{formatUS12Hour(b.end_at, tenantTimezone)}</span>
+                                      <span className="text-[9px] uppercase font-bold text-zinc-600 bg-black/5 px-1 rounded">
+                                        {getTimezoneAbbr(b.start_at, tenantTimezone)}
+                                      </span>
                                     </div>
                                     <div className="text-[9.5px] px-1.5 py-0.2 rounded bg-white/80 border border-zinc-200/50 inline-block truncate max-w-full font-medium capitalize">
                                       {b.service_type.replace(/_/g, " ")}
@@ -1206,10 +1237,18 @@ export default function StaffAndDispatchPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-zinc-700">
-                        <div>{new Date(b.start_at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
-                        <div className="text-[11px] text-zinc-400">
-                          {new Date(b.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                          {new Date(b.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        <div className="font-semibold text-zinc-900 text-xs font-sans">
+                          {formatUSDate(b.start_at, tenantTimezone, { weekday: "short", includeYear: true })}
+                        </div>
+                        <div className="mt-0.5">
+                          <USTimeRangeBadge
+                            start={b.start_at}
+                            end={b.end_at}
+                            timeZone={tenantTimezone}
+                            isArrivalWindow={Boolean(b.arrival_window_start && b.arrival_window_end)}
+                            arrivalStart={b.arrival_window_start}
+                            arrivalEnd={b.arrival_window_end}
+                          />
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -1397,7 +1436,7 @@ export default function StaffAndDispatchPage() {
                       <span>Bookings Today: {staff.today_bookings_count}</span>
                       <span>
                         {staff.last_assigned_at
-                          ? `Last: ${new Date(staff.last_assigned_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                          ? `Last: ${formatUS12HourWithTz(staff.last_assigned_at, tenantTimezone)}`
                           : "Never assigned"}
                       </span>
                     </div>
@@ -1526,7 +1565,7 @@ export default function StaffAndDispatchPage() {
                       <div className="text-[10px] text-zinc-400">
                         Last Assigned:{" "}
                         {t.last_assigned_at
-                          ? new Date(t.last_assigned_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                          ? formatUS12HourWithTz(t.last_assigned_at, tenantTimezone)
                           : "None"}
                       </div>
                     </div>
@@ -1581,9 +1620,8 @@ export default function StaffAndDispatchPage() {
                         <div key={b.id} className="p-2.5 rounded bg-zinc-50 border border-zinc-200 text-xs font-mono">
                           <div className="font-bold text-zinc-900 truncate">{b.customer_name}</div>
                           <div className="text-[11px] text-zinc-500">{b.service_type.replace("_", " ")}</div>
-                          <div className="text-[10px] text-zinc-400 mt-1">
-                            {new Date(b.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                            {new Date(b.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          <div className="mt-1">
+                            <USTimeRangeBadge start={b.start_at} end={b.end_at} timeZone={tenantTimezone} />
                           </div>
                           {b.postal_code && <div className="text-[10px] text-blue-600 mt-0.5">Zip: {b.postal_code}</div>}
                         </div>
@@ -1829,17 +1867,19 @@ export default function StaffAndDispatchPage() {
                           <span className="capitalize text-zinc-800">{b.service_type.replace("_", " ")}</span>
                         </td>
                         <td className="px-4 py-3 text-zinc-700">
-                          <div>{new Date(b.start_at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
-                          <div className="text-[11px] text-zinc-400">
-                            {new Date(b.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                            {new Date(b.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          <div className="font-semibold text-zinc-900 text-xs font-sans">
+                            {formatUSDate(b.start_at, tenantTimezone, { weekday: "short", includeYear: true })}
                           </div>
-                          {b.is_arrival_window && b.arrival_window_start && b.arrival_window_end && (
-                            <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                              <Truck className="w-2.5 h-2.5" />
-                              Arrival: {new Date(b.arrival_window_start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} – {new Date(b.arrival_window_end).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                            </span>
-                          )}
+                          <div className="mt-0.5">
+                            <USTimeRangeBadge
+                              start={b.start_at}
+                              end={b.end_at}
+                              timeZone={tenantTimezone}
+                              isArrivalWindow={Boolean(b.arrival_window_start && b.arrival_window_end)}
+                              arrivalStart={b.arrival_window_start}
+                              arrivalEnd={b.arrival_window_end}
+                            />
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -1950,22 +1990,33 @@ export default function StaffAndDispatchPage() {
                   <span className="text-zinc-400 text-[10px] uppercase font-mono block">Date &amp; Day</span>
                   <span className="font-bold text-zinc-900 flex items-center gap-1.5 mt-0.5">
                     <CalendarIcon className="w-3.5 h-3.5 text-purple-600" />
-                    {new Date(selectedBooking.start_at).toLocaleDateString([], {
+                    {formatUSDate(selectedBooking.start_at, tenantTimezone, {
                       weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
+                      includeYear: true,
                     })}
                   </span>
                 </div>
                 <div>
-                  <span className="text-zinc-400 text-[10px] uppercase font-mono block">Time Window</span>
-                  <span className="font-bold text-zinc-900 font-mono flex items-center gap-1.5 mt-0.5">
-                    <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                    {new Date(selectedBooking.start_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} –{" "}
-                    {new Date(selectedBooking.end_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono block">
+                    Time Window ({getTimezoneAbbr(selectedBooking.start_at, tenantTimezone)})
                   </span>
+                  <div className="mt-0.5">
+                    <USTimeRangeBadge
+                      start={selectedBooking.start_at}
+                      end={selectedBooking.end_at}
+                      timeZone={tenantTimezone}
+                      isArrivalWindow={Boolean(selectedBooking.arrival_window_start && selectedBooking.arrival_window_end)}
+                      arrivalStart={selectedBooking.arrival_window_start}
+                      arrivalEnd={selectedBooking.arrival_window_end}
+                    />
+                  </div>
                 </div>
+              </div>
+
+              {/* Timezone Context Details */}
+              <div className="text-[11px] font-mono text-zinc-500 bg-zinc-50 border border-zinc-200/80 rounded-xl p-2.5 flex items-center justify-between">
+                <span className="text-zinc-400">Timezone Context:</span>
+                <span className="font-semibold text-zinc-800">{getTimezoneFriendlyName(tenantTimezone)}</span>
               </div>
 
               {selectedBooking.notes && (
@@ -2208,6 +2259,18 @@ export default function StaffAndDispatchPage() {
                     Arrival Window
                   </button>
                 </div>
+              </div>
+
+              {/* Operational Timezone Notice */}
+              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-xs font-mono">
+                <div className="flex items-center gap-1.5 text-zinc-600">
+                  <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Timezone:</span>
+                  <span className="font-bold text-zinc-900">{getTimezoneFriendlyName(tenantTimezone)}</span>
+                </div>
+                <span className="text-[10px] font-bold text-zinc-700 bg-zinc-200/80 px-2 py-0.5 rounded border border-zinc-300/70 uppercase">
+                  {getTimezoneAbbr(new Date(), tenantTimezone)}
+                </span>
               </div>
 
               {!isManualArrivalWindow ? (

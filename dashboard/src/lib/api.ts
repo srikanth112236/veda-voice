@@ -1832,6 +1832,7 @@ export interface CalendarBookingItem {
   is_arrival_window?: boolean;
   arrival_window_start?: string | null;
   arrival_window_end?: string | null;
+  timezone?: string;
 }
 
 export interface CalendarSettingsResponse {
@@ -1840,6 +1841,7 @@ export interface CalendarSettingsResponse {
   calendar_buffer_minutes: number;
   calendar_buffer_mode: "after" | "both";
   calendar_buffer_reason: string;
+  timezone?: string;
 }
 
 export interface UpdateCalendarSettingsRequest {
