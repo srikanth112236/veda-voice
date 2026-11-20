@@ -256,8 +256,8 @@ class ResendEmailDispatcher:
     """Delivers email notifications via Resend REST API."""
 
     def __init__(self, api_key: str | None = None, from_email: str | None = None) -> None:
-        self.api_key = api_key or settings.RESEND_API_KEY
-        self.from_email = from_email or settings.RESEND_FROM_EMAIL
+        self.api_key = api_key if api_key is not None else settings.RESEND_API_KEY
+        self.from_email = from_email if from_email is not None else settings.RESEND_FROM_EMAIL
 
     def send(
         self,

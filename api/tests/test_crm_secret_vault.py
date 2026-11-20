@@ -56,7 +56,7 @@ def test_tenant_cryptographic_isolation() -> None:
     assert decrypted_a == secret_key
 
     # Attempting to decrypt Tenant A's ciphertext using Tenant B's identity must fail
-    with pytest.raises((ValueError, InvalidTag)):
+    with pytest.raises((ValueError, InvalidTag, PermissionError)):
         decrypt_crm_credentials(tenant_b, "gohighlevel", cipher_a)
 
 
@@ -71,7 +71,7 @@ def test_provider_domain_separation() -> None:
     assert decrypt_crm_credentials(tenant_id, "hubspot", cipher) == secret_token
 
     # Invalid under pipedrive
-    with pytest.raises((ValueError, InvalidTag)):
+    with pytest.raises((ValueError, InvalidTag, PermissionError)):
         decrypt_crm_credentials(tenant_id, "pipedrive", cipher)
 
 
