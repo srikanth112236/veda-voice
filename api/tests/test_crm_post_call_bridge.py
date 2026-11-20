@@ -11,7 +11,7 @@ from api.app.core.security import create_access_token
 from api.app.db.session import SessionLocal
 from api.app.main import app, init_db
 from api.app.models.call import Call
-from api.app.models.crm import ContactTimelineEvent
+from api.app.models.crm import Contact, ContactTimelineEvent
 from api.app.models.outbound import ConsentRecord
 from api.app.models.tenant import Tenant
 from api.app.models.user import User
@@ -222,3 +222,90 @@ def test_internal_complete_endpoint_ingests_contact(tenant_fixture):
         assert pipe_resp.status_code == 200
         stages = pipe_resp.json().get("stages", {})
         assert len(stages.get("qualified", [])) >= 1
+
+
+def test_calendar_booking_flow_links_crm_contact_and_advances_stage(tenant_fixture, db_session):
+    tenant_id = tenant_fixture["tenant_id"]
+    user_token = tenant_fixture["user_token"]
+    call_id = f"booking-call-{uuid.uuid4().hex[:8]}"
+
+    # Pre-register in-progress call
+    call = Call(
+        tenant_id=tenant_id,
+        call_id=call_id,
+        caller_number="+15125557788",
+        direction="inbound",
+        outcome="in_progress",
+    )
+    db_session.add(call)
+    db_session.commit()
+
+    agent_call_token = create_access_token(
+        {
+            "sub": "livekit-agent",
+            "role": "agent",
+            "tenant_id": tenant_id,
+            "call_id": call_id,
+        }
+    )
+
+    with TestClient(app) as client:
+        # Book slot via internal agent API
+        book_payload = {
+            "start_iso": "2026-11-26T14:00:00-05:00",
+            "duration_minutes": 60,
+            "customer_name": "Benjamin Franklin",
+            "customer_phone": "+15125557788",
+            "customer_email": "ben@franklin.test",
+            "service_type": "drain_clearing",
+            "notes": "Basement floor drain backing up.",
+            "postal_code": "02108",
+        }
+
+        resp = client.post(
+            "/api/v1/internal/calendar/book",
+            json=book_payload,
+            headers={"Authorization": f"Bearer {agent_call_token}"},
+        )
+        assert resp.status_code == 200
+        booking_data = resp.json()
+        assert booking_data["status"] == "confirmed"
+
+        # Verify contact in CRM has stage 'booked'
+        contact = db_session.scalar(
+            select(Contact).where(
+                Contact.tenant_id == tenant_id,
+                Contact.phone == "+15125557788",
+            )
+        )
+        assert contact is not None
+        assert contact.name == "Benjamin Franklin"
+        assert contact.stage == "booked"
+        assert "appointment_booked" in contact.tags
+        assert "drain_clearing" in contact.tags
+
+        # Verify call is linked and marked appointment_booked
+        db_session.refresh(call)
+        assert call.contact_id == contact.id
+        assert call.outcome == "appointment_booked"
+
+        # Verify timeline event
+        timeline = db_session.scalars(
+            select(ContactTimelineEvent).where(
+                ContactTimelineEvent.contact_id == contact.id,
+                ContactTimelineEvent.event_type == "booking_created",
+            )
+        ).all()
+        assert len(timeline) >= 1
+        assert "Appointment Booked" in timeline[0].title
+
+        # Verify revenue recovered analytics
+        rev_resp = client.get(
+            "/api/v1/crm/analytics/revenue-recovered",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+        assert rev_resp.status_code == 200
+        rev_data = rev_resp.json()
+        assert rev_data["booked_count"] >= 1
+        assert rev_data["total_conversions"] >= 1
+        assert rev_data["total_revenue_recovered"] >= 250.0

@@ -26,7 +26,7 @@ from api.app.services.calendar.booking import (
 from api.app.services.calendar.booking import (
     cancel_booking as cancel_booking_service,
 )
-from api.app.services.crm_ingest import upsert_crm_contact_from_call
+from api.app.services.crm_ingest import link_booking_to_crm, upsert_crm_contact_from_call
 from api.app.services.integrations.google_sheets import sync_call_result_to_sheets
 from api.app.services.integrations.sync_dispatcher import dispatch_all_crm_and_webhook_sync
 from api.app.services.intelligence import extract_post_call_intelligence
@@ -1165,6 +1165,29 @@ def confirm_appointment_booking(
             staff_id=payload.staff_id,
             db=db,
         )
+
+        # Multi-Tenant Native CRM Appointment Linkage (Phase 2)
+        try:
+            link_booking_to_crm(
+                db=db,
+                tenant_id=tenant_id,
+                booking=booking,
+                customer_phone=payload.customer_phone,
+                customer_name=payload.customer_name,
+                customer_email=payload.customer_email,
+                service_type=payload.service_type,
+                call_id=call_id,
+                postal_code=payload.postal_code,
+            )
+            db.commit()
+        except Exception as err:
+            logger.error(
+                "Failed to link booking %s to CRM: %s",
+                getattr(booking, "id", ""),
+                err,
+                exc_info=True,
+            )
+
         return {
             "status": "confirmed",
             "booking_id": booking.id,

@@ -306,3 +306,172 @@ def upsert_crm_contact_from_call(
         contact.stage,
     )
     return contact
+
+
+def link_booking_to_crm(
+    db: Session,
+    tenant_id: str,
+    booking: Any,
+    customer_phone: str,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+    service_type: str = "general_appointment",
+    call_id: str | None = None,
+    postal_code: str | None = None,
+) -> Contact:
+    """Link confirmed appointment booking to CRM Contact and advance pipeline stage to 'booked'."""
+    raw_phone = customer_phone or ""
+    phone = normalize_e164_phone(raw_phone)
+    if not phone:
+        clean_str = re.sub(r"[^\w+]", "", raw_phone.strip())
+        phone = (
+            clean_str
+            if len(clean_str) >= 4
+            else f"+1000{abs(hash(str(getattr(booking, 'id', '')))) % 10000000:07d}"
+        )
+
+    contact = db.scalar(
+        select(Contact).where(
+            Contact.tenant_id == tenant_id,
+            Contact.phone == phone,
+        )
+    )
+
+    now_dt = datetime.now(UTC)
+    clean_name = (customer_name or "").strip()
+    if not clean_name:
+        clean_name = (
+            contact.name
+            if contact and contact.name not in ("Unknown Lead", "Prospective Lead", "")
+            else f"Customer ({phone[-4:] if len(phone) >= 4 else 'New'})"
+        )
+
+    tags_set = set(contact.tags or []) if contact else set()
+    tags_set.add("appointment_booked")
+    if service_type:
+        tags_set.add(service_type)
+
+    custom_fields = dict(contact.custom_fields or {}) if contact else {}
+    custom_fields["last_booking_id"] = str(getattr(booking, "id", ""))
+    booking_start = getattr(booking, "start_at", now_dt)
+    custom_fields["last_booking_time"] = (
+        booking_start.isoformat() if hasattr(booking_start, "isoformat") else str(booking_start)
+    )
+    if postal_code:
+        custom_fields["service_address"] = postal_code
+
+    start_str = (
+        booking_start.strftime("%A, %B %d at %I:%M %p")
+        if hasattr(booking_start, "strftime")
+        else str(booking_start)
+    )
+    note_line = (
+        f"[{now_dt.strftime('%Y-%m-%d %H:%M')}] Appointment Booked for {start_str} ({service_type})"
+    )
+    notes = f"{contact.notes}\n{note_line}".strip() if contact and contact.notes else note_line
+
+    if contact:
+        contact.name = clean_name
+        if customer_email and not contact.email:
+            contact.email = customer_email
+        contact.stage = "booked"  # Advance stage to booked
+        contact.tags = sorted(tags_set)
+        contact.custom_fields = custom_fields
+        contact.notes = notes
+        contact.lead_score = max(float(contact.lead_score or 50.0), 90.0)
+        contact.last_contact_at = now_dt
+        contact.updated_at = now_dt
+    else:
+        contact = Contact(
+            tenant_id=tenant_id,
+            name=clean_name,
+            phone=phone,
+            email=customer_email,
+            source="inbound_call",
+            stage="booked",
+            tags=sorted(tags_set),
+            custom_fields=custom_fields,
+            notes=notes,
+            lead_score=90.0,
+            is_callable=True,
+            first_contact_at=now_dt,
+            last_contact_at=now_dt,
+            created_at=now_dt,
+            updated_at=now_dt,
+        )
+        db.add(contact)
+        db.flush()
+
+    # Link call if call_id provided
+    if call_id:
+        call = db.scalar(select(Call).where((Call.call_id == call_id) | (Call.id == call_id)))
+        if call:
+            call.contact_id = contact.id
+            call.outcome = "appointment_booked"
+            call_tags = set(call.tags or [])
+            call_tags.add("appointment_booked")
+            call.tags = sorted(call_tags)
+
+    # Timeline event
+    service_label = service_type.replace("_", " ").title()
+    staff_id = getattr(booking, "staff_id", None)
+    meet_link = getattr(booking, "meet_link", None)
+    timeline_event = ContactTimelineEvent(
+        tenant_id=tenant_id,
+        contact_id=contact.id,
+        event_type="booking_created",
+        title=f"Appointment Booked: {service_label}",
+        description=(
+            f"Confirmed appointment on {start_str}. "
+            f"Staff: {staff_id or 'Assigned tech'}. "
+            f"Meet link: {meet_link or 'On-site dispatch'}."
+        ),
+        payload={
+            "booking_id": str(getattr(booking, "id", "")),
+            "call_id": call_id,
+            "start_at": (
+                booking_start.isoformat()
+                if hasattr(booking_start, "isoformat")
+                else str(booking_start)
+            ),
+            "end_at": (
+                booking.end_at.isoformat()
+                if hasattr(getattr(booking, "end_at", None), "isoformat")
+                else ""
+            ),
+            "service_type": service_type,
+            "meet_link": meet_link,
+            "postal_code": postal_code,
+        },
+        created_at=now_dt,
+    )
+    db.add(timeline_event)
+
+    # Ensure TCPA consent record exists
+    existing_consent = db.scalar(
+        select(ConsentRecord).where(
+            ConsentRecord.tenant_id == tenant_id,
+            ConsentRecord.phone_number == contact.phone,
+        )
+    )
+    if not existing_consent:
+        tenant_obj = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+        seller_name = tenant_obj.name if tenant_obj else "Our Business"
+        consent_proof = ConsentRecord(
+            tenant_id=tenant_id,
+            phone_number=contact.phone,
+            category="B",
+            ai_voice_disclosed=True,
+            method="verbal_recorded",
+            source="inbound_call",
+            seller_name=seller_name,
+        )
+        db.add(consent_proof)
+
+    logger.info(
+        "Linked booking %s to CRM Contact %s (%s) - stage set to 'booked'",
+        getattr(booking, "id", ""),
+        contact.id,
+        contact.name,
+    )
+    return contact
