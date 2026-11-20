@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from api.app.core.deps import get_current_tenant
 from api.app.db.session import get_db
 from api.app.models.knowledge import KnowledgeChunk, KnowledgeDocument
-from api.app.models.tenant import Tenant
+from api.app.models.tenant import AgentProfile, Tenant
 from api.app.services.knowledge import (
     _compute_dense_vector,
     chunk_text_recursively,
@@ -67,6 +68,81 @@ class RAGQueryResponse(BaseModel):
     latency_ms: float
     top_matches: list[dict[str, Any]]
     grounding_prompt: str
+
+
+class FAQItemModel(BaseModel):
+    id: str
+    question: str
+    answer: str
+    category: str = "general"
+    alternate_phrasings: list[str] = Field(default_factory=list)
+
+
+class CreateFAQItemRequest(BaseModel):
+    question: str
+    answer: str
+    category: str = "general"
+    alternate_phrasings: list[str] = Field(default_factory=list)
+
+
+def _sync_tenant_faqs_to_chunks(tenant_id: str, faqs: list[dict[str, Any]], db: Session) -> None:
+    """Synchronize direct tenant FAQs into searchable KnowledgeChunk records for sub-15ms hybrid RAG."""
+    # Find or create virtual document
+    doc = db.scalar(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.tenant_id == tenant_id,
+            KnowledgeDocument.filename == "Direct Business FAQs & Policies",
+        )
+    )
+    if not doc:
+        doc = KnowledgeDocument(
+            tenant_id=tenant_id,
+            filename="Direct Business FAQs & Policies",
+            file_size_bytes=sum(len(f.get("question", "") + f.get("answer", "")) for f in faqs),
+            mime_type="application/json",
+            status="indexed",
+            chunk_count=len(faqs),
+        )
+        db.add(doc)
+        db.flush()
+
+    # Clear previous chunks for this document
+    db.execute(
+        delete(KnowledgeChunk).where(
+            KnowledgeChunk.document_id == doc.id,
+            KnowledgeChunk.tenant_id == tenant_id,
+        )
+    )
+
+    # Insert a structured chunk per FAQ
+    for idx, item in enumerate(faqs):
+        q = str(item.get("question", "")).strip()
+        a = str(item.get("answer", "")).strip()
+        cat = str(item.get("category", "General")).strip()
+        alts = item.get("alternate_phrasings", [])
+        alt_str = f" Alternate phrasings: {', '.join(alts)}." if alts else ""
+        content = f"Question: {q}\nAnswer: {a}\nCategory: {cat}.{alt_str}"
+        embedding_vec = _compute_dense_vector(content)
+
+        chunk = KnowledgeChunk(
+            tenant_id=tenant_id,
+            document_id=doc.id,
+            chunk_index=idx,
+            content=content,
+            token_count=max(1, len(content) // 4),
+            chunk_metadata={
+                "faq_id": item.get("id"),
+                "category": cat,
+                "question": q,
+                "source": "direct_faq",
+            },
+            embedding=embedding_vec,
+        )
+        db.add(chunk)
+
+    doc.chunk_count = len(faqs)
+    doc.file_size_bytes = sum(len(f.get("question", "") + f.get("answer", "")) for f in faqs)
+    db.commit()
 
 
 @router.post("/upload", response_model=KnowledgeDocumentSummary)
@@ -270,3 +346,93 @@ def test_rag_query(
         top_matches=result["top_matches"],
         grounding_prompt=result["grounding_prompt"],
     )
+
+
+@router.get("/faqs", response_model=list[FAQItemModel])
+def list_direct_faqs(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> list[FAQItemModel]:
+    """Retrieve all direct FAQs configured for the tenant."""
+    profile = tenant.agent_profile
+    if not profile or not profile.faq:
+        return []
+
+    return [
+        FAQItemModel(
+            id=f.get("id") or str(uuid.uuid4()),
+            question=f.get("question", ""),
+            answer=f.get("answer", ""),
+            category=f.get("category", "General"),
+            alternate_phrasings=f.get("alternate_phrasings", []),
+        )
+        for f in profile.faq
+        if isinstance(f, dict) and f.get("question")
+    ]
+
+
+@router.post("/faqs", response_model=FAQItemModel)
+def create_or_update_direct_faq(
+    req: CreateFAQItemRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> FAQItemModel:
+    """Create a new business FAQ and immediately synchronize it to the RAG vector search index."""
+    profile = tenant.agent_profile
+    if not profile:
+        profile = AgentProfile(tenant_id=tenant.id)
+        db.add(profile)
+        db.flush()
+
+    faq_list = list(profile.faq or [])
+    new_id = str(uuid.uuid4())
+    new_item = {
+        "id": new_id,
+        "question": req.question.strip(),
+        "answer": req.answer.strip(),
+        "category": req.category.strip() or "General",
+        "alternate_phrasings": [a.strip() for a in req.alternate_phrasings if a.strip()],
+    }
+
+    faq_list.append(new_item)
+    profile.faq = faq_list
+    db.commit()
+
+    # Automatically synchronize all FAQs to KnowledgeChunk vector index
+    _sync_tenant_faqs_to_chunks(tenant.id, faq_list, db)
+
+    return FAQItemModel(
+        id=new_id,
+        question=new_item["question"],  # type: ignore[arg-type]
+        answer=new_item["answer"],  # type: ignore[arg-type]
+        category=new_item["category"],  # type: ignore[arg-type]
+        alternate_phrasings=new_item["alternate_phrasings"],  # type: ignore[arg-type]
+    )
+
+
+@router.delete("/faqs/{faq_id}")
+def delete_direct_faq(
+    faq_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Delete a direct FAQ and update the RAG vector index."""
+    profile = tenant.agent_profile
+    if not profile or not profile.faq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ not found")
+
+    original_len = len(profile.faq)
+    updated_faqs = [
+        f
+        for f in profile.faq
+        if isinstance(f, dict) and f.get("id") != faq_id and f.get("question") != faq_id
+    ]
+
+    if len(updated_faqs) == original_len:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ item not found")
+
+    profile.faq = updated_faqs
+    db.commit()
+
+    _sync_tenant_faqs_to_chunks(tenant.id, updated_faqs, db)
+    return {"status": "deleted", "faq_id": faq_id}

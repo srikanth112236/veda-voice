@@ -1378,6 +1378,20 @@ export const api = {
       body: JSON.stringify({ query, top_k, confidence_threshold }),
     }),
 
+  listDirectFAQs: () =>
+    request<FAQItem[]>("/api/v1/portal/knowledge/faqs"),
+
+  createDirectFAQ: (data: { question: string; answer: string; category?: string; alternate_phrasings?: string[] }) =>
+    request<FAQItem>("/api/v1/portal/knowledge/faqs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  deleteDirectFAQ: (faqId: string) =>
+    request<{ status: string; faq_id: string }>(`/api/v1/portal/knowledge/faqs/${encodeURIComponent(faqId)}`, {
+      method: "DELETE",
+    }),
+
   // Multi-Staff Calendar Scheduling & Round-Robin Dispatch (Milestone M10b)
   listStaffMembers: (includeInactive = false) =>
     request<StaffMember[]>(`/api/v1/portal/calendar/staff${includeInactive ? "?include_inactive=true" : ""}`),
