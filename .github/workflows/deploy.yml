@@ -45,13 +45,15 @@ jobs:
 
       - name: Debug Azure ACR & Permissions
         run: |
-          echo "### Azure ACR Diagnostics" >> $GITHUB_STEP_SUMMARY
-          echo "- **Resource Group**: ${{ steps.vars.outputs.AZURE_RG }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Target ACR**: ${{ steps.vars.outputs.ACR_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "#### Available Registries in RG:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          az acr list --resource-group ${{ steps.vars.outputs.AZURE_RG }} --query "[].{name:name, loginServer:loginServer, location:location}" -o table 2>&1 >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          REGS=$(az acr list --query "[].name" -o tsv 2>&1 | tr '\n' ' ' || true)
+          echo "::warning title=Found Registries::$REGS"
+
+          RG_LIST=$(az group list --query "[].name" -o tsv 2>&1 | tr '\n' ' ' || true)
+          echo "::warning title=Found Resource Groups::$RG_LIST"
+
+          ACR_BUILD_TEST=$(az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image test:latest --file api/Dockerfile . 2>&1 || true)
+          FIRST_LINE=$(echo "$ACR_BUILD_TEST" | head -n 10 | tr '\n' ' ')
+          echo "::error title=ACR Build Error::$FIRST_LINE"
 
       - name: Build & Push API Image to ACR
         run: |
