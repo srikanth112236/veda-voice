@@ -1264,7 +1264,7 @@ def init_db() -> None:
                     conn.execute(text(stmt))
                     conn.commit()
                 except Exception:
-                    pass
+                    conn.rollback()
 
     seed_initial_data()
 
