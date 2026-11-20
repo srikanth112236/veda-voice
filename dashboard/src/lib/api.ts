@@ -252,6 +252,37 @@ export interface PriceItem {
   conditions?: string;
 }
 
+export interface IntakeQuestionItem {
+  id: string;
+  label: string;
+  required: boolean;
+  category?: string;
+  hint?: string;
+}
+
+export interface TrunkDiagnosticItem {
+  phone_id: string;
+  e164: string;
+  provider: string;
+  label: string;
+  status: string;
+  trunk_id: string;
+  sip_tls_encrypted: boolean;
+  stir_shaken_attestation: string;
+  round_trip_ms: number;
+  health_status: string;
+}
+
+export interface CarrierDiagnosticsResponse {
+  carrier_status: string;
+  default_provider: string;
+  total_trunks: number;
+  active_inbound_lines: number;
+  stir_shaken_ready: boolean;
+  emergency_e911_registered: boolean;
+  trunks: TrunkDiagnosticItem[];
+}
+
 export interface AgentProfile {
   business_name: string;
   agent_name?: string;
@@ -277,6 +308,25 @@ export interface AgentProfile {
   service_cities?: string[];
   after_hours_policy?: "take_message_all" | "emergency_only" | "informational_only";
   out_of_area_policy?: "polite_decline" | "strict_decline" | "travel_surcharge";
+  notification_email?: string;
+  notification_phone?: string;
+  notify_on_all_calls?: boolean;
+  notify_sms_on_emergency?: boolean;
+  bilingual_spanish_enabled?: boolean;
+  patience_cadence?: "urgent_fast" | "balanced" | "relaxed_elderly" | string;
+  silence_timeout_ms?: number;
+  speech_barge_in?: boolean;
+  adaptive_empathy?: boolean;
+  background_ambience?: "studio_clean" | "subtle_office" | "hvac_field" | string;
+  barred_phrases?: string[];
+  intake_questions?: IntakeQuestionItem[];
+  office_override_mode?: "normal" | "weather_closure" | "holiday_after_hours" | string;
+  office_override_announcement?: string;
+  vip_returning_caller_enabled?: boolean;
+  vip_returning_greeting?: string;
+  mid_call_sms_enabled?: boolean;
+  disconnect_recovery_sms_enabled?: boolean;
+  disconnect_recovery_sms_text?: string;
 }
 
 export interface AvailableNumberItem {
@@ -699,6 +749,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ phone_number: phoneNumber }),
     }),
+
+  getCarrierDiagnostics: () =>
+    request<CarrierDiagnosticsResponse>("/api/v1/portal/profile/carrier-diagnostics"),
 
   // Platform Admin
   getAdminStats: () => request<PlatformStats>("/api/v1/admin/stats"),

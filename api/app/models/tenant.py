@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.app.models.base import Base
@@ -110,6 +110,31 @@ class AgentProfile(Base):
     notification_phone: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     notify_on_all_calls: Mapped[bool] = mapped_column(default=True, nullable=False)
     notify_sms_on_emergency: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+    # 360° Profile & Conversational Customizations Suite
+    bilingual_spanish_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    patience_cadence: Mapped[str] = mapped_column(String(32), default="balanced", nullable=False)
+    silence_timeout_ms: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
+    speech_barge_in: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    adaptive_empathy: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    background_ambience: Mapped[str] = mapped_column(
+        String(64), default="studio_clean", nullable=False
+    )
+    barred_phrases: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    intake_questions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    office_override_mode: Mapped[str] = mapped_column(String(32), default="normal", nullable=False)
+    office_override_announcement: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    vip_returning_caller_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
+    vip_returning_greeting: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    mid_call_sms_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    disconnect_recovery_sms_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
+    disconnect_recovery_sms_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

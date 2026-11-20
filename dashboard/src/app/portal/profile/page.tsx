@@ -1,7 +1,15 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { api, AgentProfile, PhoneticEntry, FAQItem, PriceItem } from "@/lib/api";
+import React, { useEffect, useState, useRef } from "react";
+import Link from "next/link";
+import {
+  api,
+  AgentProfile,
+  PhoneticEntry,
+  PriceItem,
+  IntakeQuestionItem,
+  CarrierDiagnosticsResponse,
+} from "@/lib/api";
 import { LIVEKIT_VOICE_CATALOG, LiveKitVoice } from "@/lib/voice-catalog";
 import {
   Settings2,
@@ -33,16 +41,73 @@ import {
   Globe,
   Sliders,
   PhoneCall,
+  PhoneOff,
+  MessageSquare,
+  Send,
+  Smartphone,
+  Activity,
+  Wifi,
+  CheckCircle2,
+  ArrowRight,
+  Lock,
+  UserCheck,
+  Play,
+  Square,
+  RotateCcw,
+  FileText,
+  CloudRain,
+  Snowflake,
+  Sun,
 } from "lucide-react";
 
-const FAQ_CATEGORIES = [
-  { id: "all", label: "All Topics" },
-  { id: "hours_availability", label: "Hours & Availability" },
-  { id: "service_scope", label: "Service Scope" },
-  { id: "licensing_insurance", label: "Licensing & Credentials" },
-  { id: "booking_procedures", label: "Booking & Dispatch" },
-  { id: "pricing", label: "Pricing & Estimates" },
-  { id: "general", label: "General" },
+export type TabType =
+  | "persona"
+  | "pacing"
+  | "guardrails"
+  | "intake"
+  | "pricing"
+  | "emergency"
+  | "schedule"
+  | "sms";
+
+const CADENCE_PRESETS = [
+  {
+    id: "urgent_fast",
+    label: "Urgent & Rapid",
+    silenceMs: 350,
+    desc: "Crisp sub-400ms cadence. Ideal for 24/7 HVAC, plumbing emergencies, and fast call turnover.",
+    badge: "350ms Pause",
+  },
+  {
+    id: "balanced",
+    label: "Balanced Professional",
+    silenceMs: 500,
+    desc: "Standard natural conversational flow. Suitable for general field service, contractors, and retail.",
+    badge: "500ms Pause",
+  },
+  {
+    id: "relaxed_elderly",
+    label: "Patient & Relaxed",
+    silenceMs: 800,
+    desc: "Deliberate pacing with patient 800ms endpointing. Designed for elderly callers and medical intake.",
+    badge: "800ms Pause",
+  },
+];
+
+const AMBIENCE_OPTIONS = [
+  { id: "studio_clean", label: "Studio Clean (Silent)", desc: "Pure digital voice with zero background noise." },
+  { id: "subtle_office", label: "Subtle Quiet Office", desc: "Gentle low-volume indoor acoustic presence." },
+  { id: "hvac_field", label: "Dispatch Desk & Field Van", desc: "Realistic light radio and office activity." },
+];
+
+const DEFAULT_INTAKE_ITEMS: IntakeQuestionItem[] = [
+  { id: "iq-name", label: "Caller Full Name", required: true, category: "identity", hint: "Mandatory for CRM contact record creation" },
+  { id: "iq-phone", label: "Callback Phone Number", required: true, category: "identity", hint: "Mandatory for dispatch verification" },
+  { id: "iq-address", label: "Service Property Address & Unit", required: true, category: "location", hint: "Property where work is to be performed" },
+  { id: "iq-issue", label: "Symptom & Problem Description", required: true, category: "technical", hint: "Details of pipe leak, AC failure, or request" },
+  { id: "iq-urgency", label: "Urgency Rating (Active Leak / Routine)", required: true, category: "triage", hint: "Distinguishes immediate dispatch from standard appointments" },
+  { id: "iq-equipment", label: "HVAC Unit / Appliance Brand & Age", required: false, category: "equipment", hint: "Optional equipment context for the field technician" },
+  { id: "iq-access", label: "Gate Access Code & Pet Notice", required: false, category: "access", hint: "Property entry notes for arrival" },
 ];
 
 export default function ReceptionistProfilePage() {
@@ -52,32 +117,150 @@ export default function ReceptionistProfilePage() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  // Tabbed Navigation state (5 command tabs)
-  const [activeTab, setActiveTab] = useState<"persona" | "faq" | "pricing" | "emergency" | "schedule">("persona");
+  // Unified 8-Module Command Suite Tab State
+  const [activeTab, setActiveTab] = useState<TabType>("persona");
 
-  // Module 2 FAQ Filter & Search state
-  const [activeFaqCategory, setActiveFaqCategory] = useState("all");
-  const [faqSearchQuery, setFaqSearchQuery] = useState("");
-  const [newTriggerInputs, setNewTriggerInputs] = useState<Record<number, string>>({});
+  // Carrier Diagnostics Telemetry State
+  const [carrierData, setCarrierData] = useState<CarrierDiagnosticsResponse | null>(null);
+  const [showCarrierModal, setShowCarrierModal] = useState(false);
 
-  // Module 3 Pricing items state
+  // In-Browser Mic Simulator State
+  const [showMicModal, setShowMicModal] = useState(false);
+  const [simState, setSimState] = useState<"idle" | "listening" | "processing" | "speaking">("idle");
+  const [simInterimText, setSimInterimText] = useState("");
+  const [simMessages, setSimMessages] = useState<
+    Array<{ sender: "user" | "agent"; text: string; time: string }>
+  >([]);
+  const recognitionRef = useRef<any>(null);
+
+  // Audition Greeting State
+  const [isPlayingGreeting, setIsPlayingGreeting] = useState(false);
+  const [isPlayingOverride, setIsPlayingOverride] = useState(false);
+
+  // Voice Catalog State
+  const [voiceProviderFilter, setVoiceProviderFilter] = useState<string>("all");
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+
+  // Phone Test Call Modal State
+  const [showTestCallModal, setShowTestCallModal] = useState(false);
+  const [testCallPhone, setTestCallPhone] = useState("+15125550199");
+  const [dispatchingTestCall, setDispatchingTestCall] = useState(false);
+  const [testCallResult, setTestCallResult] = useState<{
+    status: string;
+    call_id: string | null;
+    compliance_passed: boolean;
+    message: string;
+    phone_dialed?: string;
+  } | null>(null);
+
+  // Module Specific State
+  const [playingPhoneticIdx, setPlayingPhoneticIdx] = useState<number | null>(null);
+  const [newBarredInput, setNewBarredInput] = useState("");
+  const [newIntakeLabel, setNewIntakeLabel] = useState("");
+  const [newIntakeCategory, setNewIntakeCategory] = useState("general");
+  const [newIntakeRequired, setNewIntakeRequired] = useState(false);
   const [newPriceItem, setNewPriceItem] = useState<PriceItem>({
     service: "",
     amount: "",
     type: "fixed",
     conditions: "",
   });
-
-  // Module 4 Emergency state
   const [newKeywordInput, setNewKeywordInput] = useState("");
-
-  // Module 5 Geofence state
   const [newCityInput, setNewCityInput] = useState("");
 
-  // Voice Catalog state
-  const [voiceProviderFilter, setVoiceProviderFilter] = useState<string>("all");
-  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  // ---------------------------------------------------------------------------
+  // Load Profile & Carrier Diagnostics on Mount
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    Promise.all([api.getPortalProfile(), api.getCarrierDiagnostics()])
+      .then(([profRes, carrierRes]) => {
+        setProfile({
+          ...profRes,
+          agent_name: profRes.agent_name || "receptionist",
+          bilingual_spanish_enabled: Boolean(profRes.bilingual_spanish_enabled),
+          patience_cadence: profRes.patience_cadence || "balanced",
+          silence_timeout_ms: profRes.silence_timeout_ms || 500,
+          speech_barge_in: profRes.speech_barge_in !== false,
+          adaptive_empathy: profRes.adaptive_empathy !== false,
+          background_ambience: profRes.background_ambience || "studio_clean",
+          barred_phrases: profRes.barred_phrases || [
+            "I am an AI robot",
+            "That is not my job",
+            "cheap estimate",
+          ],
+          intake_questions:
+            profRes.intake_questions && profRes.intake_questions.length > 0
+              ? profRes.intake_questions
+              : DEFAULT_INTAKE_ITEMS,
+          office_override_mode: profRes.office_override_mode || "normal",
+          office_override_announcement:
+            profRes.office_override_announcement ||
+            "Attention: Our office is currently operating under emergency weather protocols. Urgent leak dispatch is active.",
+          vip_returning_caller_enabled: profRes.vip_returning_caller_enabled !== false,
+          vip_returning_greeting:
+            profRes.vip_returning_greeting ||
+            "Welcome back! Are you calling regarding your ongoing service request?",
+          mid_call_sms_enabled: profRes.mid_call_sms_enabled !== false,
+          disconnect_recovery_sms_enabled: profRes.disconnect_recovery_sms_enabled !== false,
+          disconnect_recovery_sms_text:
+            profRes.disconnect_recovery_sms_text ||
+            "We noticed our call disconnected! Tap here to resume your service request or view technician status: https://app.vedavoice.com/resume",
+          pricing_mode: profRes.pricing_mode || "no_quote",
+          price_items:
+            profRes.price_items && profRes.price_items.length > 0
+              ? profRes.price_items
+              : [
+                  {
+                    service: "Diagnostic Inspection Trip Fee",
+                    amount: "$89",
+                    type: "fixed",
+                    conditions: "Credited toward any approved repair",
+                  },
+                  {
+                    service: "Standard Drain Snaking (up to 50ft)",
+                    amount: "$150 - $250",
+                    type: "range",
+                    conditions: "Excludes main sewer line camera scope",
+                  },
+                ],
+        });
+        setCarrierData(carrierRes);
+      })
+      .catch((err) => {
+        setError(err.message || "Failed to load agent profile and carrier telemetry.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
 
+  // ---------------------------------------------------------------------------
+  // Save Handler
+  // ---------------------------------------------------------------------------
+  const handleSave = async () => {
+    if (!profile) return;
+    setSaving(true);
+    setSuccess(false);
+    setError("");
+
+    try {
+      const updated = await api.updatePortalProfile(profile);
+      setProfile((prev) => ({
+        ...prev,
+        ...updated,
+      }));
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3500);
+    } catch (err: any) {
+      setError(err.message || "Failed to save profile changes.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Audition Speech Synthesis
+  // ---------------------------------------------------------------------------
   const handlePlayVoicePreview = (voice: LiveKitVoice) => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
@@ -95,68 +278,214 @@ export default function ReceptionistProfilePage() {
     }
   };
 
-  // Test Call state
-  const [showTestCallModal, setShowTestCallModal] = useState(false);
-  const [testCallPhone, setTestCallPhone] = useState("+15125550199");
-  const [dispatchingTestCall, setDispatchingTestCall] = useState(false);
-  const [testCallResult, setTestCallResult] = useState<{
-    status: string;
-    call_id: string | null;
-    compliance_passed: boolean;
-    message: string;
-    phone_dialed?: string;
-  } | null>(null);
-
-  // Phonetic testing state
-  const [playingPhoneticIdx, setPlayingPhoneticIdx] = useState<number | null>(null);
-
-  const handlePlayPhonetic = (text: string, idx: number) => {
+  const handleAuditionGreeting = () => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      if (playingPhoneticIdx === idx) {
-        setPlayingPhoneticIdx(null);
+      if (isPlayingGreeting) {
+        window.speechSynthesis.cancel();
+        setIsPlayingGreeting(false);
         return;
       }
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      setPlayingPhoneticIdx(idx);
-      utterance.onend = () => setPlayingPhoneticIdx(null);
-      utterance.onerror = () => setPlayingPhoneticIdx(null);
+      const utterance = new SpeechSynthesisUtterance(profile?.greeting || "");
+      const selectedVoice = LIVEKIT_VOICE_CATALOG.find((v) => v.id === profile?.voice_id);
+      utterance.rate =
+        profile?.patience_cadence === "relaxed_elderly"
+          ? 0.88
+          : profile?.patience_cadence === "urgent_fast"
+          ? 1.08
+          : selectedVoice?.rate || 0.98;
+      utterance.pitch = selectedVoice?.pitch || 1.0;
+      setIsPlayingGreeting(true);
+      utterance.onend = () => setIsPlayingGreeting(false);
+      utterance.onerror = () => setIsPlayingGreeting(false);
       window.speechSynthesis.speak(utterance);
     }
   };
 
-  const handleAddPhoneticPreset = (type: "trades" | "dental" | "general") => {
-    if (!profile) return;
-    const current = profile.phonetic_glossary || [];
-    let additions: PhoneticEntry[] = [];
-    if (type === "trades") {
-      additions = [
-        { term: "HVAC", spoken_as: "H-V-A-C", note: "Heating & Air" },
-        { term: "PEX", spoken_as: "pecks", note: "Piping material" },
-        { term: "PRV", spoken_as: "P-R-V", note: "Pressure reducing valve" },
-      ];
-    } else if (type === "dental") {
-      additions = [
-        { term: "Prophylaxis", spoken_as: "pro-fil-AX-is", note: "Cleaning" },
-        { term: "Gingivitis", spoken_as: "jin-jih-VY-tis", note: "Gum care" },
-      ];
-    } else {
-      additions = [
-        { term: "VedaSynk", spoken_as: "Vay-duh Sink", note: "Platform name" },
-        { term: "Suite", spoken_as: "sweet", note: "Office suite" },
-      ];
+  const handleAuditionOverride = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      if (isPlayingOverride) {
+        window.speechSynthesis.cancel();
+        setIsPlayingOverride(false);
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(profile?.office_override_announcement || "");
+      const selectedVoice = LIVEKIT_VOICE_CATALOG.find((v) => v.id === profile?.voice_id);
+      utterance.rate = selectedVoice?.rate || 0.95;
+      utterance.pitch = selectedVoice?.pitch || 1.0;
+      setIsPlayingOverride(true);
+      utterance.onend = () => setIsPlayingOverride(false);
+      utterance.onerror = () => setIsPlayingOverride(false);
+      window.speechSynthesis.speak(utterance);
     }
-    const filtered = additions.filter(
-      (a) => !current.some((c) => c.term.toLowerCase() === a.term.toLowerCase())
-    );
-    setProfile({
-      ...profile,
-      phonetic_glossary: [...current, ...filtered],
-    });
   };
 
+  // ---------------------------------------------------------------------------
+  // In-Browser Mic Simulator
+  // ---------------------------------------------------------------------------
+  const handleOpenMicSimulator = () => {
+    setShowMicModal(true);
+    if (simMessages.length === 0) {
+      const greetingText =
+        profile?.office_override_mode !== "normal" && profile?.office_override_announcement
+          ? `${profile.office_override_announcement} ${profile?.greeting || ""}`
+          : profile?.greeting || "Thanks for calling! How can I assist you today?";
+      setSimMessages([
+        {
+          sender: "agent",
+          text: greetingText,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
+    }
+  };
+
+  const handleStartMicListening = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSimInterimText("Web Speech API not supported in this browser. Use the prompt chips below!");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = profile?.bilingual_spanish_enabled ? "es-US" : "en-US";
+
+      recognition.onstart = () => {
+        setSimState("listening");
+        setSimInterimText("");
+      };
+
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            const final = event.results[i][0].transcript;
+            handleSimUserSpeech(final);
+          } else {
+            interim += event.results[i][0].transcript;
+            setSimInterimText(interim);
+          }
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        setSimState("idle");
+      };
+
+      recognition.onend = () => {
+        if (simState === "listening") {
+          setSimState("idle");
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      setSimState("idle");
+    }
+  };
+
+  const handleStopMicListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setSimState("idle");
+  };
+
+  const handleSimUserSpeech = (userText: string) => {
+    if (!userText.trim()) return;
+    setSimInterimText("");
+    setSimState("processing");
+    const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    setSimMessages((prev) => [...prev, { sender: "user", text: userText, time: timeStr }]);
+
+    // Contextual Receptionist Agent Response Engine
+    setTimeout(() => {
+      let reply = "";
+      const lower = userText.toLowerCase();
+
+      // Check barred phrases safety guardrail
+      const matchedBarred = (profile?.barred_phrases || []).find((b) =>
+        lower.includes(b.toLowerCase())
+      );
+      if (matchedBarred) {
+        reply = `I apologize, but our policy ensures all recommendations adhere strictly to certified standards. May I gather your address to dispatch an on-site specialist?`;
+      } else if (
+        lower.includes("emergency") ||
+        lower.includes("leak") ||
+        lower.includes("flood") ||
+        lower.includes("burst") ||
+        lower.includes("gas")
+      ) {
+        reply =
+          profile?.approved_safety_script ||
+          profile?.emergency_advice ||
+          "For active water leaks, locate and shut off your main shutoff valve immediately. I am alerting our emergency dispatch technician right now.";
+      } else if (
+        lower.includes("price") ||
+        lower.includes("cost") ||
+        lower.includes("fee") ||
+        lower.includes("estimate") ||
+        lower.includes("how much")
+      ) {
+        if (profile?.pricing_mode === "no_quote") {
+          reply = `We charge a standard diagnostic inspection fee of $89 to evaluate the issue in person and deliver a guaranteed upfront price before starting.`;
+        } else {
+          reply = `Our standard diagnostic fee is $89, with drain service typically starting at $150 to $250. Our technician confirms exact costs upon arrival.`;
+        }
+      } else if (
+        lower.includes("hour") ||
+        lower.includes("open") ||
+        lower.includes("weekend") ||
+        lower.includes("available")
+      ) {
+        reply = `Our regular service hours are ${profile?.hours || "Monday to Friday, 8:00 AM to 6:00 PM"}. For urgent situations, our emergency technician team is available 24/7.`;
+      } else if (lower.includes("spanish") || lower.includes("espanol") || lower.includes("hola")) {
+        reply = `¡Hola! Sí, le puedo ayudar en español. ¿En qué le puedo colaborar hoy?`;
+      } else {
+        reply = `Thanks for reaching out to ${profile?.business_name || "us"}. I can definitely assist you with scheduling. Could you please share your service property address?`;
+      }
+
+      setSimMessages((prev) => [
+        ...prev,
+        {
+          sender: "agent",
+          text: reply,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
+      setSimState("speaking");
+
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utt = new SpeechSynthesisUtterance(reply);
+        const selectedVoice = LIVEKIT_VOICE_CATALOG.find((v) => v.id === profile?.voice_id);
+        utt.rate =
+          profile?.patience_cadence === "relaxed_elderly"
+            ? 0.88
+            : profile?.patience_cadence === "urgent_fast"
+            ? 1.08
+            : selectedVoice?.rate || 0.98;
+        utt.pitch = selectedVoice?.pitch || 1.0;
+        utt.onend = () => setSimState("idle");
+        utt.onerror = () => setSimState("idle");
+        window.speechSynthesis.speak(utt);
+      } else {
+        setSimState("idle");
+      }
+    }, 400);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Test Call Trigger
+  // ---------------------------------------------------------------------------
   const handleTriggerTestCall = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testCallPhone.trim()) return;
@@ -177,356 +506,79 @@ export default function ReceptionistProfilePage() {
     }
   };
 
-  useEffect(() => {
-    api
-      .getPortalProfile()
-      .then((res) => {
-        setProfile({
-          ...res,
-          agent_name: res.agent_name || "receptionist",
-          pricing_mode: res.pricing_mode || "no_quote",
-          price_items:
-            res.price_items && res.price_items.length > 0
-              ? res.price_items
-              : [
-                  {
-                    service: "Diagnostic Inspection Trip Fee",
-                    amount: "$89",
-                    type: "fixed",
-                    conditions: "Credited toward any approved repair",
-                  },
-                  {
-                    service: "Standard Drain Snaking (up to 50ft)",
-                    amount: "$150 - $250",
-                    type: "range",
-                    conditions: "Single cleanout access point",
-                  },
-                ],
-          emergency_mode: res.emergency_mode || "priority_message",
-          emergency_keywords:
-            res.emergency_keywords && res.emergency_keywords.length > 0
-              ? res.emergency_keywords
-              : ["gas leak", "smell gas", "burst pipe", "flooding", "sparking wires", "sewage backup"],
-          emergency_advice:
-            res.emergency_advice ||
-            res.approved_safety_script ||
-            "If it is safe to do so, locate and shut off your main water valve right away to prevent further flooding.",
-          approved_safety_script:
-            res.approved_safety_script ||
-            res.emergency_advice ||
-            "If it is safe to do so, locate and shut off your main water valve right away to prevent further flooding.",
-          service_area:
-            res.service_area ||
-            "Metropolitan area and surrounding suburbs within a 25-mile radius",
-          service_cities:
-            res.service_cities && res.service_cities.length > 0
-              ? res.service_cities
-              : ["Austin", "Round Rock", "Cedar Park", "Georgetown"],
-          after_hours_policy: res.after_hours_policy || "take_message_all",
-          out_of_area_policy: res.out_of_area_policy || "polite_decline",
-        });
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile) return;
-    setSaving(true);
-    setSuccess(false);
-    setError("");
-
-    try {
-      const updated = await api.updatePortalProfile(profile);
-      setProfile({
-        ...updated,
-        agent_name: updated.agent_name || profile.agent_name,
-        voice_id: updated.voice_id || profile.voice_id,
-        recording_disclosure: updated.recording_disclosure ?? profile.recording_disclosure,
-        phonetic_glossary: updated.phonetic_glossary || profile.phonetic_glossary,
-        faq: (updated.faq || []).map((f) => ({
-          ...f,
-          category: f.category || "general",
-          alternate_phrasings: f.alternate_phrasings || [],
-        })),
-        pricing_mode: updated.pricing_mode || profile.pricing_mode,
-        price_items: updated.price_items || profile.price_items,
-        emergency_mode: updated.emergency_mode || profile.emergency_mode,
-        emergency_keywords: updated.emergency_keywords || profile.emergency_keywords,
-        emergency_advice: updated.emergency_advice || profile.emergency_advice,
-        approved_safety_script: updated.approved_safety_script || profile.approved_safety_script,
-        service_area: updated.service_area || profile.service_area,
-        service_cities: updated.service_cities || profile.service_cities,
-        after_hours_policy: updated.after_hours_policy || profile.after_hours_policy,
-        out_of_area_policy: updated.out_of_area_policy || profile.out_of_area_policy,
-      });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save profile");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // FAQ Handlers (Module 2)
-  const handleAddFaq = (category = "general") => {
-    if (!profile) return;
-    setProfile({
-      ...profile,
-      faq: [
-        ...profile.faq,
-        {
-          question: "",
-          answer: "",
-          category: category === "all" ? "general" : category,
-          alternate_phrasings: [],
-        },
-      ],
-    });
-  };
-
-  const handleRemoveFaq = (idx: number) => {
-    if (!profile) return;
-    const nextFaq = [...profile.faq];
-    nextFaq.splice(idx, 1);
-    setProfile({ ...profile, faq: nextFaq });
-  };
-
-  const handleUpdateFaq = (
-    idx: number,
-    field: keyof FAQItem,
-    val: string | string[]
-  ) => {
-    if (!profile) return;
-    const nextFaq = [...profile.faq];
-    nextFaq[idx] = { ...nextFaq[idx], [field]: val };
-    setProfile({ ...profile, faq: nextFaq });
-  };
-
-  const handleAddTriggerPhrase = (idx: number) => {
-    const text = (newTriggerInputs[idx] || "").trim();
-    if (!text || !profile) return;
-
-    const currentTriggers = profile.faq[idx]?.alternate_phrasings || [];
-    if (!currentTriggers.includes(text)) {
-      handleUpdateFaq(idx, "alternate_phrasings", [...currentTriggers, text]);
-    }
-    setNewTriggerInputs({ ...newTriggerInputs, [idx]: "" });
-  };
-
-  const handleRemoveTriggerPhrase = (faqIdx: number, triggerIdx: number) => {
-    if (!profile) return;
-    const currentTriggers = [...(profile.faq[faqIdx]?.alternate_phrasings || [])];
-    currentTriggers.splice(triggerIdx, 1);
-    handleUpdateFaq(faqIdx, "alternate_phrasings", currentTriggers);
-  };
-
-  // Quick Template Injector
-  const handleInsertFaqTemplate = (type: "emergency" | "radius" | "licensed") => {
-    if (!profile) return;
-    let template: FAQItem;
-    if (type === "emergency") {
-      template = {
-        question: "Do you offer emergency after-hours service?",
-        answer: "Yes, we provide 24/7 emergency dispatch for burst pipes, active flooding, and dangerous hazards.",
-        category: "hours_availability",
-        alternate_phrasings: ["Can someone come out tonight?", "Do you work weekends?", "Is emergency service available?"],
-      };
-    } else if (type === "radius") {
-      template = {
-        question: "What is your service coverage area?",
-        answer: "We serve the metropolitan area and surrounding communities within a 25-mile radius.",
-        category: "service_scope",
-        alternate_phrasings: ["Do you service my area?", "Are you in Dallas?", "How far do you travel?"],
-      };
-    } else {
-      template = {
-        question: "Are your technicians licensed, bonded, and insured?",
-        answer: "Yes, all of our service technicians and plumbers are fully licensed, bonded, and carry full liability coverage.",
-        category: "licensing_insurance",
-        alternate_phrasings: ["Are you licensed?", "Do you have insurance?", "Are technicians certified?"],
-      };
-    }
-
-    setProfile({
-      ...profile,
-      faq: [...profile.faq, template],
-    });
-  };
-
-  // Phonetic Glossary Handlers (Module 1)
-  const handleAddGlossary = () => {
-    if (!profile) return;
-    const current = profile.phonetic_glossary || [];
-    setProfile({
-      ...profile,
-      phonetic_glossary: [...current, { term: "", spoken_as: "", note: "" }],
-    });
-  };
-
-  const handleRemoveGlossary = (idx: number) => {
-    if (!profile) return;
-    const current = [...(profile.phonetic_glossary || [])];
-    current.splice(idx, 1);
-    setProfile({ ...profile, phonetic_glossary: current });
-  };
-
-  const handleUpdateGlossary = (idx: number, field: keyof PhoneticEntry, val: string) => {
-    if (!profile) return;
-    const current = [...(profile.phonetic_glossary || [])];
-    current[idx] = { ...current[idx], [field]: val };
-    setProfile({ ...profile, phonetic_glossary: current });
-  };
-
-  // Pricing Handlers (Module 3)
-  const handleAddPriceItem = () => {
-    if (!profile || !newPriceItem.service.trim()) return;
-    const items = profile.price_items || [];
-    setProfile({
-      ...profile,
-      price_items: [...items, { ...newPriceItem }],
-    });
-    setNewPriceItem({ service: "", amount: "", type: "fixed", conditions: "" });
-  };
-
-  const handleRemovePriceItem = (idx: number) => {
-    if (!profile || !profile.price_items) return;
-    const items = [...profile.price_items];
-    items.splice(idx, 1);
-    setProfile({ ...profile, price_items: items });
-  };
-
-  const handlePresetPriceItem = (service: string, amount: string, type: "fixed" | "range", conditions: string) => {
-    if (!profile) return;
-    const items = profile.price_items || [];
-    setProfile({
-      ...profile,
-      price_items: [...items, { service, amount, type, conditions }],
-    });
-  };
-
-  // Emergency Handlers (Module 4)
-  const handleAddEmergencyKeyword = () => {
-    const text = newKeywordInput.trim().toLowerCase();
-    if (!text || !profile) return;
-    const current = profile.emergency_keywords || [];
-    if (!current.includes(text)) {
-      setProfile({
-        ...profile,
-        emergency_keywords: [...current, text],
-      });
-    }
-    setNewKeywordInput("");
-  };
-
-  const handleRemoveEmergencyKeyword = (idx: number) => {
-    if (!profile || !profile.emergency_keywords) return;
-    const current = [...profile.emergency_keywords];
-    current.splice(idx, 1);
-    setProfile({ ...profile, emergency_keywords: current });
-  };
-
-  const handleApplyEmergencyPack = (type: "plumbing" | "hvac" | "universal") => {
-    if (!profile) return;
-    let pack: string[] = [];
-    if (type === "plumbing") {
-      pack = ["burst pipe", "flooding", "water spraying", "sewage backup", "toilet overflowing", "sump pump failed"];
-    } else if (type === "hvac") {
-      pack = ["furnace smoking", "sparking wires", "carbon monoxide detector", "no heat in freezing", "burning electrical smell"];
-    } else {
-      pack = ["gas leak", "smell gas", "rotten egg smell", "fire", "electrical shock hazard"];
-    }
-    const current = profile.emergency_keywords || [];
-    const merged = Array.from(new Set([...current, ...pack]));
-    setProfile({ ...profile, emergency_keywords: merged });
-  };
-
-  // Geofence Handlers (Module 5)
-  const handleAddCity = () => {
-    const text = newCityInput.trim();
-    if (!text || !profile) return;
-    const current = profile.service_cities || [];
-    if (!current.includes(text)) {
-      setProfile({
-        ...profile,
-        service_cities: [...current, text],
-      });
-    }
-    setNewCityInput("");
-  };
-
-  const handleRemoveCity = (idx: number) => {
-    if (!profile || !profile.service_cities) return;
-    const current = [...profile.service_cities];
-    current.splice(idx, 1);
-    setProfile({ ...profile, service_cities: current });
-  };
-
-  if (loading) {
+  if (loading || !profile) {
     return (
-      <div className="p-8 text-xs font-mono text-zinc-500 bg-white rounded-2xl border border-zinc-200">
-        Loading agent persona and guardrail configurations...
+      <div className="p-8 max-w-7xl mx-auto space-y-6">
+        <div className="h-10 w-64 bg-zinc-200 dark:bg-zinc-800 animate-pulse rounded-xl" />
+        <div className="h-28 w-full bg-zinc-200 dark:bg-zinc-800 animate-pulse rounded-2xl" />
+        <div className="h-96 w-full bg-zinc-200 dark:bg-zinc-800 animate-pulse rounded-2xl" />
       </div>
     );
   }
 
-  if (!profile) return null;
-
-  const glossaryList = profile.phonetic_glossary || [];
-
-  const filteredFaqs = (profile.faq || []).map((f, originalIndex) => ({ ...f, originalIndex })).filter((f) => {
-    const matchesCategory =
-      activeFaqCategory === "all" || (f.category || "general") === activeFaqCategory;
-    const matchesSearch =
-      !faqSearchQuery.trim() ||
-      f.question.toLowerCase().includes(faqSearchQuery.toLowerCase()) ||
-      f.answer.toLowerCase().includes(faqSearchQuery.toLowerCase()) ||
-      (f.alternate_phrasings || []).some((t) => t.toLowerCase().includes(faqSearchQuery.toLowerCase()));
-    return matchesCategory && matchesSearch;
-  });
-
   return (
-    <div className="space-y-6 max-w-5xl pb-16">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
+    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6 text-zinc-900 dark:text-zinc-100">
+      {/* --------------------------------------------------------------------- */}
+      {/* 1. TOP HEADER & PRIMARY ACTION CONTROLS                               */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-5">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
-            <Settings2 className="w-5 h-5 text-emerald-600" />
-            Receptionist Persona &amp; Knowledge Base
-          </h1>
-          <p className="text-xs text-zinc-500 mt-1">
-            Configure brand persona, verified knowledge base, caller phrasing triggers, and strict safety guardrails.
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-wider font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+              LiveKit Agent Core v2.4
+            </span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-wider font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+              Sub-500ms P95
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">AI Receptionist Command Center</h1>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+            Unified 360° operational control: voice identity, real-time pacing, safety guardrails, intake checklist, and live carrier telemetry.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
+          {/* In-Browser Mic Simulator Button */}
+          <button
+            type="button"
+            onClick={handleOpenMicSimulator}
+            className="px-3.5 py-2 rounded-xl bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
+          >
+            <Mic className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400 animate-pulse" />
+            <span>🎙️ In-Browser Mic Simulator</span>
+          </button>
+
+          {/* Test Call to Phone */}
           <button
             type="button"
             onClick={() => setShowTestCallModal(true)}
-            className="px-3.5 py-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+            className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
           >
-            <PhoneCall className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Call Me (Test Receptionist)</span>
+            <PhoneCall className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>Call My Phone</span>
           </button>
 
+          {/* Save Profile Button */}
           <button
+            type="button"
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 shadow-sm"
+            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 text-xs font-semibold flex items-center gap-2 transition-all disabled:opacity-50 shadow-sm"
           >
             {saving ? (
-              "Saving..."
+              <>
+                <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                <span>Saving...</span>
+              </>
             ) : success ? (
               <>
-                <Check className="w-4 h-4 text-emerald-400" />
-                Saved Successfully
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Saved & Compiled!</span>
               </>
             ) : (
               <>
-                <Save className="w-4 h-4" />
-                Save Changes
+                <Save className="w-3.5 h-3.5" />
+                <span>Save All Changes</span>
               </>
             )}
           </button>
@@ -534,214 +586,456 @@ export default function ReceptionistProfilePage() {
       </div>
 
       {error && (
-        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+        <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* 5-Tab Command Suite */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200 overflow-x-auto">
+      {/* --------------------------------------------------------------------- */}
+      {/* 2. TOP MISSION CONTROL BAR: CARRIER TELEMETRY & OFFICE OVERRIDE       */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Carrier Trunk Diagnostics Card */}
+        <div className="lg:col-span-2 p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                Live Carrier Trunk Telemetry
+              </span>
+              <span className="px-2 py-0.2 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                {carrierData?.carrier_status || "OPERATIONAL"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCarrierModal(true)}
+              className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+            >
+              <span>View SIP Trunks ({carrierData?.total_trunks || 1})</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
+                Provider
+              </span>
+              <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate block">
+                {carrierData?.default_provider === "livekit"
+                  ? "LiveKit SIP Scale"
+                  : carrierData?.default_provider || "LiveKit SIP"}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
+                STIR/SHAKEN
+              </span>
+              <div className="flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
+                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                <span>A-Attested</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
+                SIP Security
+              </span>
+              <div className="flex items-center gap-1 font-semibold text-zinc-900 dark:text-zinc-100">
+                <Lock className="w-3 h-3 text-indigo-500" />
+                <span>TLS 1.3 / SRTP</span>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-zinc-200/80 dark:border-zinc-700/60">
+              <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
+                E911 Routing
+              </span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                Registered
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Instant Office Override Card */}
+        <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                <span>Office Mode Override</span>
+              </span>
+              {profile.office_override_mode !== "normal" && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono uppercase font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  Active Override
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-2.5">
+              Instantly toggle severe weather closure, holiday schedules, or after-hours emergency broadcast.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1 p-1 bg-zinc-200/60 dark:bg-zinc-800/80 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setProfile({ ...profile, office_override_mode: "normal" })}
+              className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all ${
+                profile.office_override_mode === "normal"
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                  : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900"
+              }`}
+            >
+              🟢 Normal
+            </button>
+            <button
+              type="button"
+              onClick={() => setProfile({ ...profile, office_override_mode: "weather_closure" })}
+              className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all ${
+                profile.office_override_mode === "weather_closure"
+                  ? "bg-amber-500 text-white shadow-xs font-bold"
+                  : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900"
+              }`}
+            >
+              ❄️ Weather
+            </button>
+            <button
+              type="button"
+              onClick={() => setProfile({ ...profile, office_override_mode: "holiday_after_hours" })}
+              className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all ${
+                profile.office_override_mode === "holiday_after_hours"
+                  ? "bg-indigo-600 text-white shadow-xs font-bold"
+                  : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900"
+              }`}
+            >
+              🌙 Holiday
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Broadcast Announcement Bar (Visible if office_override_mode != normal) */}
+      {profile.office_override_mode !== "normal" && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 block">
+                Emergency Spoken Broadcast Announcement Active
+              </span>
+              <p className="text-[11px] text-amber-700/90 dark:text-amber-400/90 mt-0.5">
+                This notice is read to callers before the standard greeting:
+              </p>
+              <input
+                type="text"
+                value={profile.office_override_announcement || ""}
+                onChange={(e) =>
+                  setProfile({ ...profile, office_override_announcement: e.target.value })
+                }
+                placeholder="e.g. Due to severe icing, our vans are grounded today. Urgent pipe leaks are being triaged remotely."
+                className="mt-1.5 w-full md:w-[540px] px-3 py-1.5 text-xs rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleAuditionOverride}
+            className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors shadow-xs"
+          >
+            {isPlayingOverride ? (
+              <>
+                <Square className="w-3.5 h-3.5" />
+                <span>Stop Audio</span>
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5" />
+                <span>▶ Audition Broadcast</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* 3. 8-MODULE UNIFIED COMMAND SUITE TAB BAR                             */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100 dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-x-auto scrollbar-none">
         <button
           type="button"
           onClick={() => setActiveTab("persona")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "persona"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           }`}
         >
-          <Mic className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Voice & Persona</span>
+          <Mic className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span>1. Voice & Persona</span>
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab("faq")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "faq"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+          onClick={() => setActiveTab("pacing")}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "pacing"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           }`}
         >
-          <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
-          <span>FAQs & Knowledge</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
-            {profile.faq?.length || 0}
+          <Sliders className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+          <span>2. Pacing & Cadence</span>
+          {profile.bilingual_spanish_enabled && (
+            <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-cyan-500/20 text-cyan-600 dark:text-cyan-300">
+              ES
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("guardrails")}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "guardrails"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
+          }`}
+        >
+          <ShieldAlert className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+          <span>3. Barred Phrases</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300">
+            {profile.barred_phrases?.length || 0}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("intake")}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "intake"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
+          }`}
+        >
+          <FileText className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+          <span>4. Caller Intake</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300">
+            {profile.intake_questions?.length || 0}
           </span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab("pricing")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "pricing"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           }`}
         >
-          <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-          <span>Pricing Guardrails</span>
+          <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          <span>5. Pricing Policy</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab("emergency")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "emergency"
-              ? "bg-white text-red-700 shadow-sm border border-red-200"
-              : "text-zinc-600 hover:text-red-700 hover:bg-zinc-200/60"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           }`}
         >
-          <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
-          <span>Emergency Scripts</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-red-100 text-red-700">
-            {profile.emergency_keywords?.length || 0}
-          </span>
+          <Flame className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" />
+          <span>6. Emergency & Transfer</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab("schedule")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "schedule"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           }`}
         >
-          <Clock className="w-3.5 h-3.5 text-sky-600" />
-          <span>Schedule & Geofence</span>
+          <MapPin className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+          <span>7. Hours & Geofence</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("sms")}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === "sms"
+              ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs border border-zinc-200 dark:border-zinc-700"
+              : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
+          }`}
+        >
+          <Smartphone className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+          <span>8. SMS & Recovery</span>
         </button>
       </div>
 
-      <form onSubmit={handleSave} className="space-y-8">
-        {/* MODULE 1: BRAND PERSONA & ACOUSTIC TUNING */}
-        {activeTab === "persona" && (
-        <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
-          <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
-            <div className="flex items-center gap-2">
-              <Mic className="w-4 h-4 text-indigo-600" />
-              <h2 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
-                Module 1: Brand Persona &amp; Acoustic Tuning
-              </h2>
-            </div>
-            <span className="text-[10px] text-indigo-700 font-mono bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200 font-semibold">
-              LiveKit Voice Agent Pipeline
-            </span>
-          </div>
+      {/* --------------------------------------------------------------------- */}
+      {/* 4. MODULE CONTENT CONTAINERS                                          */}
+      {/* --------------------------------------------------------------------- */}
 
-          {/* Persona Identity & Name */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700">Business Display Name</label>
-              <input
-                type="text"
-                value={profile.business_name}
-                onChange={(e) => setProfile({ ...profile, business_name: e.target.value })}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700">Receptionist Agent Name</label>
-              <input
-                type="text"
-                placeholder="receptionist (e.g. Sarah, Alex)"
-                value={profile.agent_name || ""}
-                onChange={(e) => setProfile({ ...profile, agent_name: e.target.value })}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-              />
-            </div>
-          </div>
-
-          {/* Tone Archetype Selection */}
-          <div className="space-y-2 pt-1">
-            <label className="text-xs font-semibold text-zinc-700 block">Conversational Tone Archetype</label>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {[
-                {
-                  id: "direct",
-                  title: "Direct & Agile",
-                  pace: "<15 words/turn",
-                  desc: "Short, crisp turns. Triage-first response. Ideal for emergency trades, plumbing, and towing.",
-                },
-                {
-                  id: "warm",
-                  title: "Warm & Consultative",
-                  pace: "~20 words/turn",
-                  desc: "Patient, empathetic listening and reassurance. Ideal for clinics, residential services, and care.",
-                },
-                {
-                  id: "formal",
-                  title: "Formal & Executive",
-                  pace: "Precise articulation",
-                  desc: "Objective, polished, legally cautious language. Ideal for corporate, legal, and premium consulting.",
-                },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setProfile({ ...profile, tone: t.id })}
-                  className={`p-4 rounded-xl border text-left transition-all space-y-1.5 ${
-                    profile.tone === t.id
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-zinc-200 bg-zinc-50/70 text-zinc-600 hover:bg-zinc-100"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`font-semibold text-xs ${profile.tone === t.id ? "text-white" : "text-zinc-900"}`}>
-                      {t.title}
-                    </span>
-                    <span className={`text-[10px] font-mono ${profile.tone === t.id ? "text-zinc-300" : "text-zinc-500"}`}>
-                      {t.pace}
-                    </span>
-                  </div>
-                  <div className={`text-[11px] leading-relaxed ${profile.tone === t.id ? "text-zinc-200" : "text-zinc-500"}`}>
-                    {t.desc}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Acoustic Voice Model Selection - Full 14-Voice LiveKit Catalog */}
-          <div className="space-y-3 pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      {/* ===================================================================== */}
+      {/* MODULE 1: VOICE & PERSONA                                             */}
+      {/* ===================================================================== */}
+      {activeTab === "persona" && (
+        <div className="space-y-6">
+          {/* Persona Identity & Opening Greeting Card */}
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between">
               <div>
-                <label className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                  <Volume2 className="w-3.5 h-3.5 text-zinc-500" />
-                  Acoustic Voice Model &amp; Timbre ({LIVEKIT_VOICE_CATALOG.length} Options)
-                </label>
-                <p className="text-[11px] text-zinc-500">
-                  Powered directly by LiveKit Scale Inference (Inworld, Rime, Deepgram Aura). Click speaker to preview.
+                <h3 className="text-sm font-bold tracking-tight">AI Identity & Opening Greeting</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Configure receptionist name, conversational tone, and exact opening greeting.
                 </p>
               </div>
 
-              {/* Provider Filter Tabs */}
-              <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl text-[10px] font-mono">
-                {[
-                  { id: "all", label: "All Models" },
-                  { id: "Inworld TTS", label: "Inworld" },
-                  { id: "Rime TTS", label: "Rime" },
-                  { id: "Deepgram Aura", label: "Deepgram Aura" },
-                ].map((tab) => (
+              {/* Audition Button */}
+              <button
+                type="button"
+                onClick={handleAuditionGreeting}
+                className="px-3.5 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+              >
+                {isPlayingGreeting ? (
+                  <>
+                    <Square className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Stop Greeting</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>▶ Audition Greeting</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Business Legal / Display Name
+                </label>
+                <input
+                  type="text"
+                  value={profile.business_name}
+                  onChange={(e) => setProfile({ ...profile, business_name: e.target.value })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Receptionist Spoken Handle
+                </label>
+                <input
+                  type="text"
+                  value={profile.agent_name || "receptionist"}
+                  onChange={(e) => setProfile({ ...profile, agent_name: e.target.value })}
+                  placeholder="e.g. Alex, Sarah, Dispatcher"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Conversational Persona Tone
+                </label>
+                <select
+                  value={profile.tone}
+                  onChange={(e) => setProfile({ ...profile, tone: e.target.value })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="direct">Direct & Concise (Trades & Emergency Dispatch)</option>
+                  <option value="warm">Warm & Conversational (Consultative & Retail)</option>
+                  <option value="formal">Formal & Executive (Medical & Legal)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Spoken Greeting
+              </label>
+              <textarea
+                rows={3}
+                value={profile.greeting}
+                onChange={(e) => setProfile({ ...profile, greeting: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+              <div className="flex items-center justify-between text-[11px] text-zinc-400 mt-1">
+                <span>{profile.greeting.length} characters</span>
+                <span className="text-zinc-500">
+                  Tip: Sub-20 word greetings achieve fastest turn engagement.
+                </span>
+              </div>
+            </div>
+
+            {/* Knowledge Grounding Pill (De-duplicated from monolithic FAQ list) */}
+            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div>
+                  <span className="text-xs font-bold text-emerald-900 dark:text-emerald-300 block">
+                    Dynamic Knowledge Grounding Active
+                  </span>
+                  <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                    Live grounded in {profile.faq?.length || 0} direct FAQs and uploaded PDF manuals via Pinecone RAG.
+                  </span>
+                </div>
+              </div>
+              <Link
+                href="/portal/knowledge"
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1 transition-colors shrink-0"
+              >
+                <span>Open Knowledge Studio</span>
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Voice Selector Catalog Grid */}
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold tracking-tight">Voice Selection Catalog</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Low-latency neural voices powered by LiveKit Scale Inference & ElevenLabs.
+                </p>
+              </div>
+
+              {/* Provider Filter */}
+              <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl text-xs">
+                {["all", "Inworld TTS", "Rime TTS", "Deepgram Aura"].map((provider) => (
                   <button
-                    key={tab.id}
+                    key={provider}
                     type="button"
-                    onClick={() => setVoiceProviderFilter(tab.id)}
-                    className={`px-2.5 py-1 rounded-lg transition-colors font-medium ${
-                      voiceProviderFilter === tab.id
-                        ? "bg-zinc-900 text-white shadow-xs"
-                        : "text-zinc-600 hover:text-zinc-900"
+                    onClick={() => setVoiceProviderFilter(provider)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                      voiceProviderFilter === provider
+                        ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs"
+                        : "text-zinc-600 dark:text-zinc-400"
                     }`}
                   >
-                    {tab.label}
+                    {provider === "all" ? "All Engines" : provider}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[380px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {LIVEKIT_VOICE_CATALOG.filter(
                 (v) => voiceProviderFilter === "all" || v.provider === voiceProviderFilter
               ).map((voice) => {
@@ -752,1347 +1046,1424 @@ export default function ReceptionistProfilePage() {
                   <div
                     key={voice.id}
                     onClick={() => setProfile({ ...profile, voice_id: voice.id })}
-                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer space-y-1.5 relative group ${
+                    className={`p-4 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
                       isSelected
-                        ? "border-emerald-600 bg-emerald-50/60 shadow-xs ring-1 ring-emerald-600"
-                        : "border-zinc-200 bg-zinc-50/60 hover:bg-zinc-100/80"
+                        ? "border-indigo-600 dark:border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 shadow-xs"
+                        : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40"
                     }`}
                   >
-                    <div className="flex items-center justify-between font-semibold text-xs text-zinc-900">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-zinc-900">{voice.name}</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded-full border border-zinc-200 bg-white font-mono text-zinc-600">
-                          {voice.gender}
-                        </span>
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                            {voice.name}
+                          </span>
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300">
+                            {voice.gender}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">
+                            Selected
+                          </span>
+                        )}
                       </div>
 
-                      {/* Interactive Audible Preview Button */}
+                      <div className="flex items-center gap-2 text-[10px] text-zinc-500 mb-2">
+                        <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                          {voice.provider}
+                        </span>
+                        <span>•</span>
+                        <span>{voice.trait}</span>
+                      </div>
+
+                      <p className="text-[11px] text-zinc-600 dark:text-zinc-400 line-clamp-2 mb-3">
+                        {voice.description}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-zinc-200/60 dark:border-zinc-700/60">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {voice.recommendedNiches.slice(0, 2).map((n) => (
+                          <span
+                            key={n}
+                            className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-zinc-200/80 dark:bg-zinc-700/80 text-zinc-600 dark:text-zinc-400"
+                          >
+                            {n}
+                          </span>
+                        ))}
+                      </div>
+
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           handlePlayVoicePreview(voice);
                         }}
-                        className={`p-1.5 rounded-lg transition-colors ${
+                        className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-colors ${
                           isPlaying
-                            ? "bg-emerald-600 text-white animate-pulse"
-                            : "bg-white hover:bg-zinc-200 text-zinc-700 border border-zinc-200"
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 text-zinc-700 dark:text-zinc-200"
                         }`}
-                        title="Click to hear speech preview"
                       >
-                        <Volume2 className="w-3 h-3" />
+                        {isPlaying ? (
+                          <VolumeX className="w-3.5 h-3.5" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5 text-indigo-500" />
+                        )}
                       </button>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[10px] font-mono">
-                      <span className="text-emerald-700 font-semibold">{voice.provider}</span>
-                      <span className="text-zinc-500">{voice.accent}</span>
-                    </div>
-
-                    <div className="text-[10px] text-zinc-800 font-medium leading-snug">
-                      {voice.trait}
-                    </div>
-
-                    <div className="text-[9px] text-zinc-500 line-clamp-2">
-                      {voice.description}
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
-
-          {/* Opening Greeting Script */}
-          <div className="space-y-1.5 pt-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-zinc-700">Brand Opening Greeting</label>
-              <span className="text-[10px] text-zinc-500 font-mono">
-                ~{Math.round(profile.greeting.split(" ").length / 3)}s spoken latency
-              </span>
-            </div>
-            <textarea
-              rows={3}
-              value={profile.greeting}
-              onChange={(e) => setProfile({ ...profile, greeting: e.target.value })}
-              className="w-full rounded-xl border border-zinc-300 bg-white p-3 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 leading-relaxed font-sans"
-            />
-          </div>
-
-          {/* Legal Compliance Switch */}
-          <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <div className="text-xs font-semibold text-zinc-900 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Two-Party Recording &amp; AI Disclosure Notice
-              </div>
-              <div className="text-[11px] text-zinc-500">
-                Automatically announces recording and AI assistant disclosure at call start (Mandatory for compliance in CA, FL, PA, MA, WA).
-              </div>
-            </div>
-
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input
-                type="checkbox"
-                checked={profile.recording_disclosure !== false}
-                onChange={(e) => setProfile({ ...profile, recording_disclosure: e.target.checked })}
-                className="sr-only peer"
-              />
-              <div className="w-10 h-5.5 bg-zinc-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-emerald-600"></div>
-            </label>
           </div>
 
           {/* Phonetic Pronunciation Glossary */}
-          <div className="space-y-3 pt-3 border-t border-zinc-100">
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                  <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                  Phonetic Pronunciation Glossary
-                </label>
-                <p className="text-[11px] text-zinc-500">
-                  Teach the voice model how to speak trade acronyms, uncommon street names, and brand terms accurately.
+                <h3 className="text-sm font-bold tracking-tight">Phonetic Pronunciation Glossary</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Ensure tricky brand names, technical jargon, and acronyms are spoken with 100% natural cadence.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <div className="hidden sm:flex items-center gap-1.5">
-                  <span className="text-[10px] text-zinc-400 font-mono">Presets:</span>
-                  <button
-                    type="button"
-                    onClick={() => handleAddPhoneticPreset("trades")}
-                    className="px-2 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-medium transition-colors"
-                  >
-                    + Trades
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAddPhoneticPreset("dental")}
-                    className="px-2 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-medium transition-colors"
-                  >
-                    + Dental
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAddPhoneticPreset("general")}
-                    className="px-2 py-1 rounded-md bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-medium transition-colors"
-                  >
-                    + Platform
-                  </button>
-                </div>
-
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={handleAddGlossary}
-                  className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium flex items-center gap-1 transition-colors shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Term
-                </button>
-              </div>
-            </div>
-
-            {glossaryList.length === 0 ? (
-              <div className="p-4 text-center border border-dashed border-zinc-200 rounded-xl text-xs text-zinc-500 bg-zinc-50">
-                No phonetic terms configured. Click &quot;Add Term&quot; or select a preset to guide technical pronunciation.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {glossaryList.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center"
-                  >
-                    <div className="sm:col-span-4 space-y-1">
-                      <span className="text-[10px] text-zinc-500 font-mono font-bold block">Text / Term</span>
-                      <input
-                        type="text"
-                        placeholder="e.g. HVAC, PEX, VedaVoice"
-                        value={item.term}
-                        onChange={(e) => handleUpdateGlossary(idx, "term", e.target.value)}
-                        className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-4 space-y-1">
-                      <span className="text-[10px] text-zinc-500 font-mono font-bold block">Phonetic Spoken As</span>
-                      <input
-                        type="text"
-                        placeholder='e.g. "H-V-A-C", "pecks"'
-                        value={item.spoken_as}
-                        onChange={(e) => handleUpdateGlossary(idx, "spoken_as", e.target.value)}
-                        className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-emerald-700 font-mono font-bold focus:outline-none focus:border-zinc-900"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2 space-y-1">
-                      <span className="text-[10px] text-zinc-500 font-mono font-bold block">Context / Note</span>
-                      <input
-                        type="text"
-                        placeholder="e.g. Acronym"
-                        value={item.note || ""}
-                        onChange={(e) => handleUpdateGlossary(idx, "note", e.target.value)}
-                        className="w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-600 focus:outline-none focus:border-zinc-900"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-2 flex items-center justify-end gap-1.5 pt-4 sm:pt-0">
-                      <button
-                        type="button"
-                        onClick={() => handlePlayPhonetic(item.spoken_as || item.term, idx)}
-                        className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-colors ${
-                          playingPhoneticIdx === idx
-                            ? "bg-indigo-600 text-white border-indigo-600 animate-pulse"
-                            : "border-zinc-200 text-zinc-600 hover:bg-zinc-100"
-                        }`}
-                        title="Audition Phonetic Pronunciation"
-                      >
-                        {playingPhoneticIdx === idx ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                        <span className="text-[10px] hidden sm:inline">Test</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveGlossary(idx)}
-                        className="p-1.5 text-zinc-400 hover:text-red-600 transition-colors"
-                        title="Remove phonetic rule"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        )}
-
-        {/* MODULE 2: GROUNDED FAQ KNOWLEDGE BASE */}
-        {activeTab === "faq" && (
-        <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-100 pb-3 gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <HelpCircle className="w-4 h-4 text-emerald-600" />
-                <h2 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
-                  Module 2: Grounded FAQ Knowledge Base ({profile.faq?.length || 0} Questions)
-                </h2>
-              </div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">
-                The agent only answers questions present in this verified list. Hallucination is strictly barred.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => handleAddFaq(activeFaqCategory)}
-              className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium flex items-center gap-1.5 self-start sm:self-auto transition-colors shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Question
-            </button>
-          </div>
-
-          {/* Quick Template Inserters */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-            <span className="text-[11px] text-zinc-500 shrink-0 flex items-center gap-1 font-semibold">
-              <Sparkles className="w-3 h-3 text-amber-500" /> Quick Add Template:
-            </span>
-            <button
-              type="button"
-              onClick={() => handleInsertFaqTemplate("emergency")}
-              className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 shrink-0 text-[11px] font-medium"
-            >
-              + 24/7 Emergency Service
-            </button>
-            <button
-              type="button"
-              onClick={() => handleInsertFaqTemplate("radius")}
-              className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 shrink-0 text-[11px] font-medium"
-            >
-              + 25-Mile Service Radius
-            </button>
-            <button
-              type="button"
-              onClick={() => handleInsertFaqTemplate("licensed")}
-              className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 shrink-0 text-[11px] font-medium"
-            >
-              + Licensed &amp; Insured
-            </button>
-          </div>
-
-          {/* Category Filter Tabs & Search */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 max-w-full">
-              {FAQ_CATEGORIES.map((cat) => {
-                const count =
-                  cat.id === "all"
-                    ? profile.faq?.length || 0
-                    : (profile.faq || []).filter((f) => (f.category || "general") === cat.id).length;
-                const isActive = activeFaqCategory === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setActiveFaqCategory(cat.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-                      isActive
-                        ? "bg-zinc-900 text-white shadow-xs"
-                        : "bg-zinc-100 text-zinc-600 hover:text-zinc-900"
-                    }`}
-                  >
-                    <span>{cat.label}</span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                        isActive ? "bg-zinc-800 text-zinc-200" : "bg-white text-zinc-600 border border-zinc-200"
-                      }`}
-                    >
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="relative min-w-[200px] shrink-0">
-              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search FAQs..."
-                value={faqSearchQuery}
-                onChange={(e) => setFaqSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-zinc-300 bg-white pl-9 pr-3 py-1.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900"
-              />
-            </div>
-          </div>
-
-          {/* FAQ Accordion / Cards List */}
-          {filteredFaqs.length === 0 ? (
-            <div className="p-8 text-center border border-dashed border-zinc-200 rounded-xl text-xs text-zinc-500 bg-zinc-50 space-y-2">
-              <p>No questions found in this category.</p>
-              <button
-                type="button"
-                onClick={() => handleAddFaq(activeFaqCategory)}
-                className="text-emerald-600 hover:underline font-semibold"
-              >
-                + Add question to {activeFaqCategory === "all" ? "Knowledge Base" : activeFaqCategory}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredFaqs.map((item) => {
-                const idx = item.originalIndex;
-                const triggers = item.alternate_phrasings || [];
-                return (
-                  <div
-                    key={idx}
-                    className="p-5 rounded-2xl border border-zinc-200 bg-zinc-50/70 space-y-3.5 transition-colors hover:border-zinc-300"
-                  >
-                    {/* Top Row: Category Pill & Actions */}
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Tag className="w-3.5 h-3.5 text-zinc-400" />
-                        <select
-                          value={item.category || "general"}
-                          onChange={(e) => handleUpdateFaq(idx, "category", e.target.value)}
-                          className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-[11px] text-zinc-700 font-mono focus:outline-none focus:border-zinc-900"
-                        >
-                          <option value="hours_availability">Hours &amp; Availability</option>
-                          <option value="service_scope">Service Scope</option>
-                          <option value="licensing_insurance">Licensing &amp; Credentials</option>
-                          <option value="booking_procedures">Booking &amp; Dispatch</option>
-                          <option value="pricing">Pricing &amp; Estimates</option>
-                          <option value="general">General Topic</option>
-                        </select>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFaq(idx)}
-                        className="text-zinc-400 hover:text-red-600 p-1 transition-colors"
-                        title="Delete FAQ"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Question Input */}
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-mono uppercase text-zinc-500 font-bold block">
-                        Canonical Question
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Do you offer 24/7 emergency service?"
-                        value={item.question}
-                        onChange={(e) => handleUpdateFaq(idx, "question", e.target.value)}
-                        className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 font-semibold focus:outline-none focus:border-zinc-900"
-                      />
-                    </div>
-
-                    {/* Approved Factual Answer */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-mono uppercase text-zinc-500 font-bold">
-                          Approved Factual Answer (Spoken Verbatim by Agent)
-                        </label>
-                        <span className="text-[10px] text-zinc-500 font-mono">
-                          ~{Math.round((item.answer || "").split(" ").length / 3)}s spoken
-                        </span>
-                      </div>
-                      <textarea
-                        rows={2}
-                        placeholder="e.g. Yes, we operate 24/7 emergency dispatch for burst pipes, active flooding, and gas leaks."
-                        value={item.answer}
-                        onChange={(e) => handleUpdateFaq(idx, "answer", e.target.value)}
-                        className="w-full rounded-xl border border-zinc-300 bg-white p-3 text-xs text-zinc-900 leading-relaxed font-sans focus:outline-none focus:border-zinc-900"
-                      />
-                    </div>
-
-                    {/* Alternate Caller Phrasings */}
-                    <div className="space-y-1.5 pt-1">
-                      <label className="text-[10px] font-mono uppercase text-zinc-500 font-bold block">
-                        Alternate Caller Trigger Phrases ({triggers.length})
-                      </label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {triggers.map((phrase, tIdx) => (
-                          <span
-                            key={tIdx}
-                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border border-zinc-200 bg-white text-[11px] text-zinc-700 font-medium"
-                          >
-                            <span>&quot;{phrase}&quot;</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveTriggerPhrase(idx, tIdx)}
-                              className="text-zinc-400 hover:text-red-600 transition-colors"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        ))}
-
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            placeholder="Add phrasing variant..."
-                            value={newTriggerInputs[idx] || ""}
-                            onChange={(e) =>
-                              setNewTriggerInputs({ ...newTriggerInputs, [idx]: e.target.value })
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleAddTriggerPhrase(idx);
-                              }
-                            }}
-                            className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-900 w-48"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleAddTriggerPhrase(idx)}
-                            className="px-2.5 py-1 rounded-lg bg-zinc-200 hover:bg-zinc-300 text-zinc-800 text-xs font-semibold"
-                          >
-                            + Add
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        )}
-
-        {/* MODULE 3: PRICING POLICIES & QUOTE GUARDRAILS */}
-        {activeTab === "pricing" && (
-        <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-100 pb-3 gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-600" />
-                <h2 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
-                  Module 3: Pricing Policies &amp; Quote Guardrails
-                </h2>
-              </div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">
-                Protect trade margins by controlling what numbers the voice receptionist is authorized to speak.
-              </p>
-            </div>
-
-            <span className="text-[10px] text-emerald-800 font-mono bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 font-semibold self-start sm:self-auto">
-              LiveKit Guardrail Active
-            </span>
-          </div>
-
-          {/* Pricing Policy Options */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-zinc-700 block">Verbal Pricing Authority Policy</label>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {[
-                {
-                  id: "no_quote",
-                  title: "Strict No-Quote Policy",
-                  badge: "Recommended",
-                  desc: "Firmly declines giving price quotes over the phone. Defers to in-person diagnostic trip fee.",
-                },
-                {
-                  id: "listed",
-                  title: "Authorized List Only",
-                  badge: "Guarded",
-                  desc: "Speaks exact fees only for pre-configured services (e.g. $89 trip fee). Strictly refuses unlisted repairs.",
-                },
-                {
-                  id: "range",
-                  title: "Estimated Ranges",
-                  badge: "Flexible",
-                  desc: "Quotes standard historical ranges with verbal disclaimers that final costs depend on technician on-site inspection.",
-                },
-              ].map((pol) => (
-                <button
-                  key={pol.id}
-                  type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    const current = profile.phonetic_glossary || [];
                     setProfile({
                       ...profile,
-                      pricing_mode: pol.id as "no_quote" | "listed" | "range",
-                    })
-                  }
-                  className={`p-4 rounded-xl border text-left transition-all space-y-1.5 ${
-                    profile.pricing_mode === pol.id
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-zinc-200 bg-zinc-50/70 text-zinc-600 hover:bg-zinc-100"
-                  }`}
+                      phonetic_glossary: [
+                        ...current,
+                        { term: "HVAC", spoken_as: "H-V-A-C", note: "Air conditioning acronym" },
+                        { term: "PEX", spoken_as: "pecks", note: "Piping material" },
+                      ],
+                    });
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-700 dark:text-zinc-300"
                 >
-                  <div className="flex items-center justify-between font-semibold text-xs">
-                    <span className={profile.pricing_mode === pol.id ? "text-white" : "text-zinc-900"}>
-                      {pol.title}
-                    </span>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                        profile.pricing_mode === pol.id
-                          ? "bg-zinc-800 text-zinc-200"
-                          : "bg-white text-zinc-600 border border-zinc-200"
-                      }`}
-                    >
-                      {pol.badge}
-                    </span>
-                  </div>
-                  <div className={`text-[11px] leading-relaxed ${profile.pricing_mode === pol.id ? "text-zinc-200" : "text-zinc-500"}`}>
-                    {pol.desc}
-                  </div>
+                  + Add Trades Preset
                 </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {(profile.phonetic_glossary || []).map((entry, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-2 p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 text-xs"
+                >
+                  <input
+                    type="text"
+                    value={entry.term}
+                    placeholder="Term (e.g. HVAC)"
+                    onChange={(e) => {
+                      const updated = [...(profile.phonetic_glossary || [])];
+                      updated[idx].term = e.target.value;
+                      setProfile({ ...profile, phonetic_glossary: updated });
+                    }}
+                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+                  />
+                  <span className="text-zinc-400">→</span>
+                  <input
+                    type="text"
+                    value={entry.spoken_as}
+                    placeholder="Spoken as (e.g. H-V-A-C)"
+                    onChange={(e) => {
+                      const updated = [...(profile.phonetic_glossary || [])];
+                      updated[idx].spoken_as = e.target.value;
+                      setProfile({ ...profile, phonetic_glossary: updated });
+                    }}
+                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-mono"
+                  />
+                  <input
+                    type="text"
+                    value={entry.note || ""}
+                    placeholder="Optional note"
+                    onChange={(e) => {
+                      const updated = [...(profile.phonetic_glossary || [])];
+                      updated[idx].note = e.target.value;
+                      setProfile({ ...profile, phonetic_glossary: updated });
+                    }}
+                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+                        const utt = new SpeechSynthesisUtterance(entry.spoken_as);
+                        utt.rate = 0.9;
+                        window.speechSynthesis.speak(utt);
+                      }
+                    }}
+                    className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (profile.phonetic_glossary || []).filter((_, i) => i !== idx);
+                      setProfile({ ...profile, phonetic_glossary: updated });
+                    }}
+                    className="p-1.5 text-zinc-400 hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               ))}
-            </div>
-          </div>
 
-          {/* Pricing Catalog */}
-          <div className="space-y-3 pt-2 border-t border-zinc-100">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <label className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5 text-emerald-600" />
-                  Service Price Catalog ({profile.price_items?.length || 0} Items)
-                </label>
-                <p className="text-[11px] text-zinc-500">
-                  {profile.pricing_mode === "no_quote"
-                    ? "Catalog is stored for technician reference, but AI is barred from speaking quotes over the phone."
-                    : "The voice model will draw authorized figures exclusively from these items."}
-                </p>
-              </div>
-
-              {/* Quick Presets */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-                <span className="text-[11px] text-zinc-500 shrink-0 font-medium">Presets:</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handlePresetPriceItem(
-                      "Diagnostic Inspection Trip Fee",
-                      "$89",
-                      "fixed",
-                      "Credited toward completed repair"
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-[11px] text-zinc-700 shrink-0 font-mono font-medium"
-                >
-                  + $89 Trip Fee
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handlePresetPriceItem(
-                      "Standard Drain Snaking",
-                      "$150 - $250",
-                      "range",
-                      "Up to 50ft line access"
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-[11px] text-zinc-700 shrink-0 font-mono font-medium"
-                >
-                  + Drain Snaking ($150-$250)
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handlePresetPriceItem(
-                      "Water Heater Flush & Inspection",
-                      "$220",
-                      "fixed",
-                      "Standard tank up to 50 gallons"
-                    )
-                  }
-                  className="px-2.5 py-1 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-[11px] text-zinc-700 shrink-0 font-mono font-medium"
-                >
-                  + Water Heater ($220)
-                </button>
-              </div>
-            </div>
-
-            {/* Catalog Items List */}
-            {(!profile.price_items || profile.price_items.length === 0) ? (
-              <div className="p-4 text-center border border-dashed border-zinc-200 rounded-xl text-xs text-zinc-500 bg-zinc-50">
-                No catalog items configured. Use the presets above or add custom pricing below.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {profile.price_items.map((item, idx) => {
-                  const isObj = typeof item === "object" && item !== null;
-                  const service = isObj ? item.service : String(item);
-                  const amount = isObj ? item.amount : "";
-                  const type = isObj ? item.type || "fixed" : "fixed";
-                  const conditions = isObj ? item.conditions || "" : "";
-
-                  return (
-                    <div
-                      key={idx}
-                      className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                    >
-                      <div className="flex-1 space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-zinc-900">{service}</span>
-                          <span className="font-mono font-bold text-emerald-700">{amount}</span>
-                          <span
-                            className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
-                              type === "range"
-                                ? "text-indigo-700 border-indigo-200 bg-indigo-50 font-semibold"
-                                : "text-emerald-700 border-emerald-200 bg-emerald-50 font-semibold"
-                            }`}
-                          >
-                            {type}
-                          </span>
-                        </div>
-                        {conditions && (
-                          <div className="text-[11px] text-zinc-500">Scope: {conditions}</div>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePriceItem(idx)}
-                        className="p-1 text-zinc-400 hover:text-red-600 transition-colors self-end sm:self-auto"
-                        title="Remove price item"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Add Price Item Form */}
-            <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-              <input
-                type="text"
-                placeholder="Service Name (e.g. Toilet Rebuild)"
-                value={newPriceItem.service}
-                onChange={(e) => setNewPriceItem({ ...newPriceItem, service: e.target.value })}
-                className="sm:col-span-4 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
-              />
-              <input
-                type="text"
-                placeholder="Amount (e.g. $180 or $150 - $220)"
-                value={newPriceItem.amount}
-                onChange={(e) => setNewPriceItem({ ...newPriceItem, amount: e.target.value })}
-                className="sm:col-span-3 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-emerald-700 font-mono font-bold focus:outline-none focus:border-zinc-900"
-              />
-              <select
-                value={newPriceItem.type || "fixed"}
-                onChange={(e) =>
-                  setNewPriceItem({ ...newPriceItem, type: e.target.value as "fixed" | "range" })
-                }
-                className="sm:col-span-2 rounded-xl border border-zinc-300 bg-white px-2.5 py-2 text-xs text-zinc-700 font-mono focus:outline-none focus:border-zinc-900"
-              >
-                <option value="fixed">Fixed</option>
-                <option value="range">Range</option>
-              </select>
-              <input
-                type="text"
-                placeholder="Notes / Conditions"
-                value={newPriceItem.conditions || ""}
-                onChange={(e) => setNewPriceItem({ ...newPriceItem, conditions: e.target.value })}
-                className="sm:col-span-2 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-600 focus:outline-none focus:border-zinc-900"
-              />
               <button
                 type="button"
-                onClick={handleAddPriceItem}
-                className="sm:col-span-1 p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold flex items-center justify-center transition-colors shadow-xs"
-                title="Add price item"
+                onClick={() => {
+                  setProfile({
+                    ...profile,
+                    phonetic_glossary: [
+                      ...(profile.phonetic_glossary || []),
+                      { term: "", spoken_as: "", note: "" },
+                    ],
+                  });
+                }}
+                className="w-full py-2 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-500 hover:text-zinc-800 hover:border-zinc-400 transition-all flex items-center justify-center gap-1"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Phonetic Entry</span>
               </button>
             </div>
           </div>
-
-          {/* Live Verbal Pricing Simulation */}
-          <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-mono text-zinc-700 font-bold uppercase flex items-center gap-1.5">
-                <Radio className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-                Live Verbal Soundboard Simulator
-              </span>
-              <span className="text-[10px] text-zinc-500 font-mono">
-                Caller: &quot;How much for a service call?&quot;
-              </span>
-            </div>
-
-            <div className="p-3 rounded-xl bg-white border border-zinc-200 text-xs text-zinc-800 leading-relaxed font-sans shadow-2xs">
-              {profile.pricing_mode === "no_quote" && (
-                <>
-                  <span className="text-emerald-700 font-semibold">{profile.agent_name || "Receptionist"}:</span> &quot;We don&apos;t provide exact price estimates over the phone because every situation requires an in-person assessment. Our technician will diagnose the issue on-site and give you an upfront price before starting any work. Would you like me to write down your details to schedule a visit?&quot;
-                </>
-              )}
-              {profile.pricing_mode === "listed" && (
-                <>
-                  <span className="text-emerald-700 font-semibold">{profile.agent_name || "Receptionist"}:</span> &quot;We charge a standard $89 diagnostic trip fee to inspect your system, which is credited toward any completed repair. For specialized repairs, our technician provides an exact upfront quote on-site. Can I get your address to schedule?&quot;
-                </>
-              )}
-              {profile.pricing_mode === "range" && (
-                <>
-                  <span className="text-emerald-700 font-semibold">{profile.agent_name || "Receptionist"}:</span> &quot;Routine service calls typically range from $150 to $250 depending on the scope of the job. Please note that final pricing always depends on an on-site assessment by our technician. Shall I write down your details?&quot;
-                </>
-              )}
-            </div>
-          </div>
         </div>
-        )}
+      )}
 
-        {/* MODULE 4: EMERGENCY PROTOCOLS & SAFETY SCRIPTS */}
-        {activeTab === "emergency" && (
-        <div className="p-6 rounded-2xl border border-red-200 bg-red-50/30 space-y-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-red-200 pb-3 gap-2">
+      {/* ===================================================================== */}
+      {/* MODULE 2: CONVERSATIONAL AI & PACING                                  */}
+      {/* ===================================================================== */}
+      {activeTab === "pacing" && (
+        <div className="space-y-6">
+          {/* Cadence & Patience Selector */}
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
             <div>
-              <div className="flex items-center gap-2">
-                <Flame className="w-4 h-4 text-red-600" />
-                <h2 className="text-xs font-bold text-red-700 uppercase font-mono tracking-wider">
-                  Module 4: Emergency Protocols &amp; Safety Scripts
-                </h2>
-              </div>
-              <p className="text-[11px] text-zinc-600 mt-0.5">
-                Life-safety gates, hazard detection keywords, business safety instructions, and live transfer routing.
+              <h3 className="text-sm font-bold tracking-tight">Conversational Cadence & Patience</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Tune silence endpointing thresholds to tailor pacing for rapid emergency dispatch vs. patient elderly healthcare.
               </p>
             </div>
 
-            <span className="text-[10px] text-red-700 font-mono bg-red-100 px-2.5 py-0.5 rounded-full border border-red-200 flex items-center gap-1 font-semibold self-start sm:self-auto">
-              <ShieldAlert className="w-3.5 h-3.5" /> Platform Level-1 Gate Active
-            </span>
-          </div>
-
-          {/* Platform Safety Gate Status Banner */}
-          <div className="p-3.5 rounded-xl border border-red-200 bg-white text-xs text-zinc-800 space-y-1 shadow-2xs">
-            <div className="font-semibold text-red-700 flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
-              Non-Negotiable Platform Safety Rules:
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {CADENCE_PRESETS.map((preset) => {
+                const isSelected = (profile.patience_cadence || "balanced") === preset.id;
+                return (
+                  <div
+                    key={preset.id}
+                    onClick={() =>
+                      setProfile({
+                        ...profile,
+                        patience_cadence: preset.id,
+                        silence_timeout_ms: preset.silenceMs,
+                      })
+                    }
+                    className={`p-4 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
+                      isSelected
+                        ? "border-cyan-500 dark:border-cyan-400 bg-cyan-50/50 dark:bg-cyan-950/20 shadow-xs"
+                        : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/40"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                          {preset.label}
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded font-mono text-[10px] bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 font-bold">
+                          {preset.badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-600 dark:text-zinc-400 mb-3">
+                        {preset.desc}
+                      </p>
+                    </div>
+                    {isSelected && (
+                      <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Active Profile Cadence
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <div className="text-[11px] text-zinc-600 leading-relaxed">
-              If gas odors or leaks are detected, the AI is programmatically locked to command the caller to evacuate immediately and dial 911 or the utility company. The AI is strictly barred from promising immediate technician arrival times or claiming personnel will be dispatched immediately. The compliance phrase is strictly: &quot;I&apos;ve written down your details.&quot;
-            </div>
-          </div>
 
-          {/* Emergency Keyword Matrix */}
-          <div className="space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <label className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                  <Tag className="w-3.5 h-3.5 text-red-600" />
-                  Emergency Trigger Keywords ({profile.emergency_keywords?.length || 0})
+            {/* Silence Detection Slider */}
+            <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                  Custom Silence Threshold Endpointing (ms)
                 </label>
-                <p className="text-[11px] text-zinc-500">
-                  When any of these terms are spoken, the call immediately escalates to emergency mitigation protocol.
+                <span className="text-xs font-mono font-bold text-cyan-600 dark:text-cyan-400">
+                  {profile.silence_timeout_ms || 500} ms
+                </span>
+              </div>
+              <input
+                type="range"
+                min="300"
+                max="1500"
+                step="50"
+                value={profile.silence_timeout_ms || 500}
+                onChange={(e) =>
+                  setProfile({ ...profile, silence_timeout_ms: parseInt(e.target.value, 10) })
+                }
+                className="w-full accent-cyan-600"
+              />
+              <div className="flex justify-between text-[10px] font-mono text-zinc-400 mt-1">
+                <span>300ms (Fastest)</span>
+                <span>500ms (Default)</span>
+                <span>1500ms (Max Patience)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bilingual Spanish Auto-Switch & Empathy Card */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Bilingual Spanish */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                    <h3 className="text-sm font-bold">Bilingual Spanish Auto-Switch</h3>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={profile.bilingual_spanish_enabled || false}
+                    onChange={(e) =>
+                      setProfile({ ...profile, bilingual_spanish_enabled: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded text-cyan-600 accent-cyan-600"
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                  When enabled, LiveKit agent actively detects Spanish callers ("Hola", "¿Habla español?") and immediately switches to native bilingual Latin American Spanish.
+                </p>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-400">
+                {profile.bilingual_spanish_enabled
+                  ? "✓ Active: Multi-lingual Spanish turn routing ready"
+                  : "Inactive: English only"}
+              </span>
+            </div>
+
+            {/* Adaptive Empathy & Barge-In */}
+            <div className="p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <h3 className="text-sm font-bold">Adaptive Empathy & Sentiment</h3>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={profile.adaptive_empathy !== false}
+                    onChange={(e) =>
+                      setProfile({ ...profile, adaptive_empathy: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded text-indigo-600 accent-indigo-600"
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-3">
+                  Dynamically modulates tone pitch and phrasing when caller expresses high stress, panic, or frustration during active emergency intake.
                 </p>
               </div>
 
-              {/* Keyword Pack Buttons */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-                <span className="text-[11px] text-zinc-500 shrink-0 font-medium">Packs:</span>
+              <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <span className="text-xs text-zinc-700 dark:text-zinc-300 font-medium">
+                  Speech Barge-In (Interruption)
+                </span>
+                <input
+                  type="checkbox"
+                  checked={profile.speech_barge_in !== false}
+                  onChange={(e) =>
+                    setProfile({ ...profile, speech_barge_in: e.target.checked })
+                  }
+                  className="w-4 h-4 rounded text-indigo-600 accent-indigo-600"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Background Ambience Layer */}
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-3">
+            <div>
+              <h3 className="text-sm font-bold tracking-tight">Acoustic Ambience Layer</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Subtle real-world background acoustic layers eliminate robotic isolation on cellular lines.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {AMBIENCE_OPTIONS.map((opt) => {
+                const isSelected = (profile.background_ambience || "studio_clean") === opt.id;
+                return (
+                  <div
+                    key={opt.id}
+                    onClick={() => setProfile({ ...profile, background_ambience: opt.id })}
+                    className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                      isSelected
+                        ? "border-cyan-500 bg-cyan-50/40 dark:bg-cyan-950/20"
+                        : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300"
+                    }`}
+                  >
+                    <span className="font-bold text-zinc-900 dark:text-zinc-100 block mb-0.5">
+                      {opt.label}
+                    </span>
+                    <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {opt.desc}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODULE 3: BARRED PHRASES & SAFETY GUARDRAILS                           */}
+      {/* ===================================================================== */}
+      {activeTab === "guardrails" && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold tracking-tight">Do-Not-Say Guardrails Blacklist</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Strictly barred statements that the AI receptionist is forbidden from uttering under any circumstance.
+                </p>
+              </div>
+
+              {/* Industry Quick Presets */}
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => handleApplyEmergencyPack("plumbing")}
-                  className="px-2.5 py-1 rounded-lg border border-red-200 bg-white hover:bg-red-50 text-[11px] text-red-700 shrink-0 font-mono font-medium"
+                  onClick={() => {
+                    const additions = [
+                      "Never guarantee price before diagnosis",
+                      "Never promise same-hour arrival without dispatch approval",
+                      "I am an AI robot",
+                    ];
+                    const current = profile.barred_phrases || [];
+                    const merged = Array.from(new Set([...current, ...additions]));
+                    setProfile({ ...profile, barred_phrases: merged });
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-100"
                 >
-                  + Plumbing Pack
+                  🛡️ Contractor Shield
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => handleApplyEmergencyPack("hvac")}
-                  className="px-2.5 py-1 rounded-lg border border-red-200 bg-white hover:bg-red-50 text-[11px] text-red-700 shrink-0 font-mono font-medium"
+                  onClick={() => {
+                    const additions = [
+                      "Never provide medical diagnosis",
+                      "Never prescribe medication",
+                      "Advise emergency room for severe chest pain",
+                    ];
+                    const current = profile.barred_phrases || [];
+                    const merged = Array.from(new Set([...current, ...additions]));
+                    setProfile({ ...profile, barred_phrases: merged });
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100"
                 >
-                  + HVAC Pack
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApplyEmergencyPack("universal")}
-                  className="px-2.5 py-1 rounded-lg border border-red-200 bg-white hover:bg-red-50 text-[11px] text-red-700 shrink-0 font-mono font-medium"
-                >
-                  + Life-Safety
+                  ⚕️ Medical Shield
                 </button>
               </div>
             </div>
 
-            {/* Keyword Chips */}
-            <div className="flex flex-wrap gap-1.5 p-3 rounded-xl border border-zinc-200 bg-white min-h-[48px]">
-              {(profile.emergency_keywords || []).map((kw, idx) => (
+            {/* Barred Chip Tags */}
+            <div className="flex flex-wrap gap-2 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 min-h-[90px]">
+              {(profile.barred_phrases || []).map((phrase, idx) => (
                 <span
                   key={idx}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border border-red-200 bg-red-50 text-[11px] text-red-700 font-mono font-medium"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800"
                 >
-                  <span>{kw}</span>
+                  <ShieldAlert className="w-3 h-3 text-rose-600 shrink-0" />
+                  <span>{phrase}</span>
                   <button
                     type="button"
-                    onClick={() => handleRemoveEmergencyKeyword(idx)}
-                    className="text-red-500 hover:text-red-800 transition-colors ml-0.5"
+                    onClick={() => {
+                      const updated = (profile.barred_phrases || []).filter((_, i) => i !== idx);
+                      setProfile({ ...profile, barred_phrases: updated });
+                    }}
+                    className="hover:text-rose-950 dark:hover:text-white"
                   >
                     <X className="w-3 h-3" />
                   </button>
                 </span>
               ))}
-
-              <div className="flex items-center gap-1 ml-auto">
-                <input
-                  type="text"
-                  placeholder="Add hazard keyword..."
-                  value={newKeywordInput}
-                  onChange={(e) => setNewKeywordInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddEmergencyKeyword();
-                    }
-                  }}
-                  className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-red-500 font-mono w-48"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddEmergencyKeyword}
-                  className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium"
-                >
-                  + Add
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Approved Safety Script Authoring */}
-          <div className="space-y-1.5 pt-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-zinc-800">
-                Tenant Approved Safety Script (Spoken Immediately)
-              </label>
-              <span className="text-[10px] text-zinc-500 font-mono">
-                ~{Math.round(((profile.approved_safety_script || profile.emergency_advice) || "").split(" ").length / 3)}s spoken
-              </span>
-            </div>
-            <textarea
-              rows={2}
-              value={profile.approved_safety_script || profile.emergency_advice || ""}
-              onChange={(e) =>
-                setProfile({
-                  ...profile,
-                  approved_safety_script: e.target.value,
-                  emergency_advice: e.target.value,
-                })
-              }
-              className="w-full rounded-xl border border-red-200 bg-white p-3 text-xs text-zinc-900 focus:outline-none focus:border-red-500 leading-relaxed font-sans"
-              placeholder="e.g. If it is safe to do so, locate and shut off your main water valve right away to prevent further flooding. Do not touch any electrical fixtures near standing water."
-            />
-            <p className="text-[11px] text-zinc-500">
-              Note: If empty, the platform defaults to strict safety advice: no valve or repair operations authorized, 911 only.
-            </p>
-          </div>
-
-          {/* Escalation Mode & Transfer Number */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700">Emergency Escalation Action</label>
-              <select
-                value={profile.emergency_mode || "priority_message"}
-                onChange={(e) =>
-                  setProfile({
-                    ...profile,
-                    emergency_mode: e.target.value as "priority_message" | "live_transfer" | "hybrid",
-                  })
-                }
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-800 font-mono focus:outline-none focus:border-zinc-900"
-              >
-                <option value="priority_message">Priority Intake (High-Urgency Alert Notification)</option>
-                <option value="live_transfer">Live Telephony Transfer to Human On-Call</option>
-                <option value="hybrid">Hybrid (Attempt Live Transfer, Fallback to Urgent Intake)</option>
-              </select>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700">Emergency Transfer Phone Number (E.164)</label>
+            {/* Add Custom Barred Phrase */}
+            <div className="flex gap-2">
               <input
                 type="text"
-                value={profile.transfer_number}
-                onChange={(e) => setProfile({ ...profile, transfer_number: e.target.value })}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                placeholder="+18005550199"
+                value={newBarredInput}
+                onChange={(e) => setNewBarredInput(e.target.value)}
+                placeholder="e.g. That is not my problem, We can do it for free"
+                className="flex-1 px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newBarredInput.trim()) {
+                    e.preventDefault();
+                    const current = profile.barred_phrases || [];
+                    setProfile({
+                      ...profile,
+                      barred_phrases: [...current, newBarredInput.trim()],
+                    });
+                    setNewBarredInput("");
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (newBarredInput.trim()) {
+                    const current = profile.barred_phrases || [];
+                    setProfile({
+                      ...profile,
+                      barred_phrases: [...current, newBarredInput.trim()],
+                    });
+                    setNewBarredInput("");
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-semibold hover:bg-zinc-800"
+              >
+                Add Blacklisted Phrase
+              </button>
+            </div>
+
+            {/* Returning VIP Recognition */}
+            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    Returning Customer & VIP Caller Recognition
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  When active, callers in your CRM are recognized immediately by phone number.
+                </p>
+              </div>
+
+              <input
+                type="checkbox"
+                checked={profile.vip_returning_caller_enabled !== false}
+                onChange={(e) =>
+                  setProfile({ ...profile, vip_returning_caller_enabled: e.target.checked })
+                }
+                className="w-4 h-4 rounded text-emerald-600 accent-emerald-600"
               />
             </div>
-          </div>
 
-          {/* Emergency Voice Soundboard Simulator */}
-          <div className="p-4 rounded-xl border border-red-200 bg-white space-y-2 shadow-2xs">
+            {profile.vip_returning_caller_enabled !== false && (
+              <div className="mt-2">
+                <label className="block text-[11px] font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Recognized Returning Caller Greeting
+                </label>
+                <input
+                  type="text"
+                  value={profile.vip_returning_greeting || ""}
+                  onChange={(e) =>
+                    setProfile({ ...profile, vip_returning_greeting: e.target.value })
+                  }
+                  placeholder="Welcome back! Are you calling regarding your ongoing service appointment?"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 font-mono"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODULE 4: CALLER INTAKE QUESTIONNAIRE                                 */}
+      {/* ===================================================================== */}
+      {activeTab === "intake" && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-mono text-red-700 font-bold uppercase flex items-center gap-1.5">
-                <Radio className="w-3.5 h-3.5 text-red-600 animate-pulse" />
-                Live Emergency Vocalization Readout
-              </span>
-              <span className="text-[10px] text-zinc-500 font-mono">
-                Caller: &quot;Help! A pipe burst and my basement is flooding!&quot;
+              <div>
+                <h3 className="text-sm font-bold tracking-tight">Structured Caller Intake Checklist</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Data points the receptionist is strictly mandated to collect before booking or dispatching.
+                </p>
+              </div>
+
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
+                {profile.intake_questions?.filter((q) => q.required).length} Mandatory Requirements
               </span>
             </div>
 
-            <div className="p-3 rounded-xl bg-red-50/50 border border-red-100 text-xs text-zinc-800 leading-relaxed font-sans">
-              <span className="text-red-700 font-bold">{profile.agent_name || "Receptionist"}:</span> &quot;{profile.approved_safety_script || profile.emergency_advice || "If it is safe to do so, locate and shut off your main water valve right away to prevent further flooding."} I&apos;ve written down your details. {profile.emergency_mode === "live_transfer" ? "Please hold while I transfer you immediately to our emergency on-call team." : "Our emergency dispatcher has been notified immediately."}&quot;
+            <div className="space-y-2">
+              {(profile.intake_questions || []).map((item, idx) => (
+                <div
+                  key={item.id || idx}
+                  className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 text-xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-5 h-5 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center font-mono text-[10px] font-bold text-zinc-700 dark:text-zinc-300">
+                      {idx + 1}
+                    </span>
+                    <div>
+                      <span className="font-semibold text-zinc-900 dark:text-zinc-100 block">
+                        {item.label}
+                      </span>
+                      {item.hint && (
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                          {item.hint}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300">
+                      {item.category || "general"}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = [...(profile.intake_questions || [])];
+                        updated[idx].required = !updated[idx].required;
+                        setProfile({ ...profile, intake_questions: updated });
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                        item.required
+                          ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-400 border border-zinc-200 dark:border-zinc-700"
+                      }`}
+                    >
+                      {item.required ? "Mandatory" : "Optional"}
+                    </button>
+
+                    {/* Don't delete locked identity fields */}
+                    {!["iq-name", "iq-phone"].includes(item.id) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = (profile.intake_questions || []).filter((_, i) => i !== idx);
+                          setProfile({ ...profile, intake_questions: updated });
+                        }}
+                        className="p-1 text-zinc-400 hover:text-red-600"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Add Custom Question Row */}
+            <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={newIntakeLabel}
+                onChange={(e) => setNewIntakeLabel(e.target.value)}
+                placeholder="e.g. Approximate Square Footage, Insurance Policy Number"
+                className="flex-1 px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800"
+              />
+              <select
+                value={newIntakeCategory}
+                onChange={(e) => setNewIntakeCategory(e.target.value)}
+                className="px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+              >
+                <option value="location">Location</option>
+                <option value="equipment">Equipment</option>
+                <option value="access">Access</option>
+                <option value="billing">Billing</option>
+                <option value="general">General</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  if (newIntakeLabel.trim()) {
+                    const current = profile.intake_questions || [];
+                    setProfile({
+                      ...profile,
+                      intake_questions: [
+                        ...current,
+                        {
+                          id: `iq-${Date.now()}`,
+                          label: newIntakeLabel.trim(),
+                          required: newIntakeRequired,
+                          category: newIntakeCategory,
+                        },
+                      ],
+                    });
+                    setNewIntakeLabel("");
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-semibold hover:bg-zinc-800 shrink-0"
+              >
+                + Add Custom Field
+              </button>
             </div>
           </div>
         </div>
-        )}
+      )}
 
-        {/* MODULE 5: OPERATING HOURS & GEOFENCE BOUNDARIES */}
-        {activeTab === "schedule" && (
-        <div className="p-6 rounded-2xl border border-zinc-200 bg-white space-y-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-100 pb-3 gap-2">
+      {/* ===================================================================== */}
+      {/* MODULE 5: PRICING POLICY                                              */}
+      {/* ===================================================================== */}
+      {activeTab === "pricing" && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
             <div>
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-sky-600" />
-                <h2 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
-                  Module 5: Operating Hours &amp; Geofence Boundaries
-                </h2>
-              </div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">
-                Weekly working schedule, after-hours intake policy, territory boundary, and out-of-area guardrails.
+              <h3 className="text-sm font-bold tracking-tight">Telephone Pricing Policy</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Determine how the receptionist responds when callers demand pricing over the phone.
               </p>
             </div>
 
-            <span className="text-[10px] text-sky-800 font-mono bg-sky-50 px-2.5 py-0.5 rounded-full border border-sky-200 font-semibold flex items-center gap-1 self-start sm:self-auto">
-              <Globe className="w-3 h-3" /> Temporal &amp; Geo Guard Active
-            </span>
-          </div>
-
-          {/* Timezone & Operating Hours */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700 flex items-center gap-1">
-                <Globe className="w-3 h-3 text-zinc-400" />
-                Business Timezone
-              </label>
-              <select
-                value={profile.timezone}
-                onChange={(e) => setProfile({ ...profile, timezone: e.target.value })}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-              >
-                <option value="America/New_York">America/New_York (Eastern)</option>
-                <option value="America/Chicago">America/Chicago (Central)</option>
-                <option value="America/Denver">America/Denver (Mountain)</option>
-                <option value="America/Los_Angeles">America/Los_Angeles (Pacific)</option>
-                <option value="America/Phoenix">America/Phoenix (Arizona)</option>
-                <option value="Europe/London">Europe/London (GMT/BST)</option>
-                <option value="UTC">UTC</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-zinc-700 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-zinc-400" />
-                  Weekly Operating Schedule Description
-                </label>
-                {/* Schedule Presets */}
-                <div className="flex items-center gap-1 text-[10px]">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setProfile({
-                        ...profile,
-                        hours: "Monday through Friday 8:00 AM to 5:00 PM Eastern, Saturday 9:00 AM to 1:00 PM Eastern, closed Sunday.",
-                      })
-                    }
-                    className="text-zinc-500 hover:text-zinc-900 underline font-medium"
-                  >
-                    Trade Std
-                  </button>
-                  <span className="text-zinc-300">|</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setProfile({
-                        ...profile,
-                        hours: "24 hours a day, 7 days a week, 365 days a year.",
-                      })
-                    }
-                    className="text-zinc-500 hover:text-zinc-900 underline font-medium"
-                  >
-                    24/7
-                  </button>
-                </div>
-              </div>
-              <input
-                type="text"
-                value={profile.hours}
-                onChange={(e) => setProfile({ ...profile, hours: e.target.value })}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
-                placeholder="e.g. Monday to Friday, 8:00 AM to 6:00 PM EST"
-              />
-            </div>
-          </div>
-
-          {/* After-Hours Call Routing Policy */}
-          <div className="space-y-2 pt-1">
-            <label className="text-xs font-semibold text-zinc-700 block">After-Hours Call Handling Protocol</label>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
                 {
-                  id: "take_message_all",
-                  title: "Option A: Full Message Intake",
-                  badge: "Default",
-                  desc: "Informs caller the office is closed, states next reopen time, and gathers complete message details for morning follow-up.",
+                  id: "no_quote",
+                  label: "Diagnostic Fee Only",
+                  desc: "Quotes standard trip fee ($89) and explains all physical work requires on-site inspection.",
                 },
                 {
-                  id: "emergency_only",
-                  title: "Option B: Emergency Gate Only",
-                  badge: "Filtered",
-                  desc: "Informs caller routine business is closed. Only processes urgent emergency dispatch (floods/gas). Others told to call back.",
+                  id: "listed",
+                  label: "Listed Price Menu",
+                  desc: "Quotes exact fixed pricing for specific menu items (e.g. drain cleaning, water heater tune-up).",
                 },
                 {
-                  id: "informational_only",
-                  title: "Option C: Informational Voicemail",
-                  badge: "No Intake",
-                  desc: "Announces operating hours and directs caller to website booking. Does not take callback messages.",
+                  id: "range",
+                  label: "Price Ranges",
+                  desc: "Quotes estimated ranges with clear disclaimer that unexpected complexity adjusts pricing.",
                 },
-              ].map((pol) => (
-                <button
-                  key={pol.id}
-                  type="button"
-                  onClick={() =>
-                    setProfile({
-                      ...profile,
-                      after_hours_policy: pol.id as "take_message_all" | "emergency_only" | "informational_only",
-                    })
-                  }
-                  className={`p-4 rounded-xl border text-left transition-colors space-y-1.5 ${
-                    (profile.after_hours_policy || "take_message_all") === pol.id
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-zinc-200 bg-zinc-50/70 text-zinc-600 hover:bg-zinc-100"
-                  }`}
-                >
-                  <div className="flex items-center justify-between font-semibold text-xs">
-                    <span className={(profile.after_hours_policy || "take_message_all") === pol.id ? "text-white" : "text-zinc-900"}>
-                      {pol.title}
-                    </span>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                        (profile.after_hours_policy || "take_message_all") === pol.id
-                          ? "bg-zinc-800 text-zinc-200"
-                          : "bg-white text-zinc-600 border border-zinc-200"
-                      }`}
-                    >
-                      {pol.badge}
-                    </span>
+              ].map((policy) => {
+                const isSelected = (profile.pricing_mode || "no_quote") === policy.id;
+                return (
+                  <div
+                    key={policy.id}
+                    onClick={() =>
+                      setProfile({
+                        ...profile,
+                        pricing_mode: policy.id as any,
+                        pricing_policy: policy.id,
+                      })
+                    }
+                    className={`p-4 rounded-xl border text-xs cursor-pointer transition-all ${
+                      isSelected
+                        ? "border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-xs"
+                        : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                        {policy.label}
+                      </span>
+                      {isSelected && <Check className="w-4 h-4 text-emerald-500" />}
+                    </div>
+                    <p className="text-[11px] text-zinc-600 dark:text-zinc-400">{policy.desc}</p>
                   </div>
-                  <div className={`text-[11px] leading-relaxed ${(profile.after_hours_policy || "take_message_all") === pol.id ? "text-zinc-200" : "text-zinc-500"}`}>
-                    {pol.desc}
-                  </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
-          </div>
 
-          {/* Service Area Territory & Geofence Boundaries */}
-          <div className="space-y-3 pt-2 border-t border-zinc-100">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-zinc-400" />
-                  Primary Service Area Description
-                </label>
-                <input
-                  type="text"
-                  value={profile.service_area || ""}
-                  onChange={(e) => setProfile({ ...profile, service_area: e.target.value })}
-                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
-                  placeholder="e.g. Metropolitan area and suburbs within a 25-mile radius"
-                />
+            {/* Price Items Table */}
+            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 space-y-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 block">
+                Recognized Service Price Menu
+              </span>
+
+              <div className="space-y-2">
+                {(profile.price_items || []).map((item: any, idx) => {
+                  const sName = typeof item === "string" ? item : item.service;
+                  const sAmt = typeof item === "string" ? "$89" : item.amount;
+                  const sCond = typeof item === "string" ? "" : item.conditions || "";
+
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 text-xs"
+                    >
+                      <div>
+                        <span className="font-bold text-zinc-900 dark:text-zinc-100 block">
+                          {sName}
+                        </span>
+                        {sCond && (
+                          <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {sCond}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          {sAmt}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = (profile.price_items || []).filter((_, i) => i !== idx);
+                            setProfile({ ...profile, price_items: updated });
+                          }}
+                          className="p-1 text-zinc-400 hover:text-red-600"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700">Out-of-Area Caller Action</label>
-                <select
-                  value={profile.out_of_area_policy || "polite_decline"}
-                  onChange={(e) =>
-                    setProfile({
-                      ...profile,
-                      out_of_area_policy: e.target.value as "polite_decline" | "strict_decline" | "travel_surcharge",
-                    })
-                  }
-                  className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-800 font-mono focus:outline-none focus:border-zinc-900"
+              {/* Add Price Item */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <input
+                  type="text"
+                  value={newPriceItem.service}
+                  onChange={(e) => setNewPriceItem({ ...newPriceItem, service: e.target.value })}
+                  placeholder="Service Name (e.g. Tankless Flush)"
+                  className="w-1/2 px-3 py-1.5 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800"
+                />
+                <input
+                  type="text"
+                  value={newPriceItem.amount}
+                  onChange={(e) => setNewPriceItem({ ...newPriceItem, amount: e.target.value })}
+                  placeholder="Amount / Range (e.g. $189)"
+                  className="w-1/4 px-3 py-1.5 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (newPriceItem.service.trim()) {
+                      const current = profile.price_items || [];
+                      setProfile({
+                        ...profile,
+                        price_items: [...current, newPriceItem],
+                      });
+                      setNewPriceItem({ service: "", amount: "", type: "fixed", conditions: "" });
+                    }
+                  }}
+                  className="w-1/4 px-3 py-1.5 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-semibold hover:bg-zinc-800"
                 >
-                  <option value="polite_decline">Politely Decline &amp; Capture Lead for Review</option>
-                  <option value="strict_decline">Hard Disqualification (Refer to Local Provider)</option>
-                  <option value="travel_surcharge">Disclose Extended Travel Surcharge Option</option>
+                  + Add Price Item
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODULE 6: EMERGENCY & LIVE SIP REFER                                  */}
+      {/* ===================================================================== */}
+      {activeTab === "emergency" && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold tracking-tight">Emergency Protocol & Live SIP Transfer</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Configure immediate safety scripts, on-call technician phone number, and warm SIP transfer routing.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  On-Call Transfer Phone Number (E.164)
+                </label>
+                <input
+                  type="tel"
+                  value={profile.transfer_number}
+                  onChange={(e) => setProfile({ ...profile, transfer_number: e.target.value })}
+                  placeholder="+1 (512) 555-0199"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 font-mono"
+                />
+                <span className="text-[11px] text-zinc-500 mt-1 block">
+                  When triggered, AI will initiate warm SIP REFER to this number.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Emergency Dispatch Mode
+                </label>
+                <select
+                  value={profile.emergency_mode || "priority_message"}
+                  onChange={(e) => setProfile({ ...profile, emergency_mode: e.target.value as any })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                >
+                  <option value="priority_message">Priority Message (Instant SMS notification)</option>
+                  <option value="live_transfer">Live SIP Transfer (Direct phone patch)</option>
+                  <option value="hybrid">Hybrid (Attempt live transfer, fallback to SMS)</option>
                 </select>
               </div>
             </div>
 
-            {/* Covered Cities Tag Manager */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700 flex items-center justify-between">
-                <span>Covered Cities / Municipalities ({profile.service_cities?.length || 0})</span>
-                <span className="text-[10px] text-zinc-500 font-mono">
-                  Used by the voice model to verify caller addresses
-                </span>
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Approved Safety Guidance Script
               </label>
+              <textarea
+                rows={3}
+                value={profile.approved_safety_script || profile.emergency_advice}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    approved_safety_script: e.target.value,
+                    emergency_advice: e.target.value,
+                  })
+                }
+                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono"
+              />
+            </div>
 
-              <div className="flex flex-wrap gap-1.5 p-3 rounded-xl border border-zinc-200 bg-white min-h-[48px]">
-                {(profile.service_cities || []).map((city, idx) => (
+            {/* Emergency Keywords */}
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Trigger Keywords
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {(profile.emergency_keywords || []).map((kw, idx) => (
                   <span
                     key={idx}
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border border-sky-200 bg-sky-50 text-[11px] text-sky-800 font-mono font-medium"
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 dark:bg-orange-950/60 text-orange-800 dark:text-orange-300 border border-orange-300 dark:border-orange-800"
                   >
-                    <span>{city}</span>
+                    <span>{kw}</span>
                     <button
                       type="button"
-                      onClick={() => handleRemoveCity(idx)}
-                      className="text-sky-500 hover:text-sky-800 transition-colors ml-0.5"
+                      onClick={() => {
+                        const updated = (profile.emergency_keywords || []).filter((_, i) => i !== idx);
+                        setProfile({ ...profile, emergency_keywords: updated });
+                      }}
                     >
                       <X className="w-3 h-3" />
                     </button>
                   </span>
                 ))}
+              </div>
 
-                <div className="flex items-center gap-1 ml-auto">
-                  <input
-                    type="text"
-                    placeholder="Add city (e.g. Plano)..."
-                    value={newCityInput}
-                    onChange={(e) => setNewCityInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddCity();
-                      }
-                    }}
-                    className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-sky-500 font-mono w-48"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddCity}
-                    className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium"
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newKeywordInput}
+                  onChange={(e) => setNewKeywordInput(e.target.value)}
+                  placeholder="e.g. water gushing, gas smell, electrical sparks"
+                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (newKeywordInput.trim()) {
+                      const current = profile.emergency_keywords || [];
+                      setProfile({
+                        ...profile,
+                        emergency_keywords: [...current, newKeywordInput.trim()],
+                      });
+                      setNewKeywordInput("");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-orange-600 text-white text-xs font-semibold hover:bg-orange-700"
+                >
+                  + Add Keyword
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODULE 7: OPERATING SCHEDULE & GEOFENCE                               */}
+      {/* ===================================================================== */}
+      {activeTab === "schedule" && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold tracking-tight">Business Hours & Geofenced Service Area</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Define operational availability, service radius, and out-of-area rejection policies.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Business Hours String
+                </label>
+                <input
+                  type="text"
+                  value={profile.hours}
+                  onChange={(e) => setProfile({ ...profile, hours: e.target.value })}
+                  placeholder="Monday to Friday, 8:00 AM to 6:00 PM EST"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Timezone
+                </label>
+                <select
+                  value={profile.timezone}
+                  onChange={(e) => setProfile({ ...profile, timezone: e.target.value })}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                >
+                  <option value="America/New_York">Eastern Time (America/New_York)</option>
+                  <option value="America/Chicago">Central Time (America/Chicago)</option>
+                  <option value="America/Denver">Mountain Time (America/Denver)</option>
+                  <option value="America/Los_Angeles">Pacific Time (America/Los_Angeles)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Service Area Description
+              </label>
+              <input
+                type="text"
+                value={profile.service_area || ""}
+                onChange={(e) => setProfile({ ...profile, service_area: e.target.value })}
+                placeholder="Greater Austin Metro within 35 miles"
+                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800"
+              />
+            </div>
+
+            {/* Geofenced Cities Tags */}
+            <div>
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                Geofenced Serviced Municipalities
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {(profile.service_cities || []).map((city, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800"
                   >
-                    + Add City
-                  </button>
+                    <span>{city}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = (profile.service_cities || []).filter((_, i) => i !== idx);
+                        setProfile({ ...profile, service_cities: updated });
+                      }}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCityInput}
+                  onChange={(e) => setNewCityInput(e.target.value)}
+                  placeholder="e.g. Austin, Round Rock, Cedar Park"
+                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (newCityInput.trim()) {
+                      const current = profile.service_cities || [];
+                      setProfile({
+                        ...profile,
+                        service_cities: [...current, newCityInput.trim()],
+                      });
+                      setNewCityInput("");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
+                >
+                  + Add City
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODULE 8: SMS DISPATCH & DISCONNECT RECOVERY                          */}
+      {/* ===================================================================== */}
+      {activeTab === "sms" && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold tracking-tight">Automated SMS Dispatch & Cellular Recovery</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Trigger instant text messages during live calls and recover dropped cellular connections automatically.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Mid-Call SMS Toggle */}
+              <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                      <Send className="w-3.5 h-3.5 text-purple-600" />
+                      <span>Mid-Call Live SMS Link Dispatch</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={profile.mid_call_sms_enabled !== false}
+                      onChange={(e) =>
+                        setProfile({ ...profile, mid_call_sms_enabled: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded text-purple-600 accent-purple-600"
+                    />
+                  </div>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Allows the AI receptionist to text booking confirmation links, photos portal, or payment links to caller's phone during the live call.
+                  </p>
+                </div>
+              </div>
+
+              {/* Disconnect Recovery Toggle */}
+              <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                      <PhoneOff className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Dropped Call Cellular Recovery SMS</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={profile.disconnect_recovery_sms_enabled !== false}
+                      onChange={(e) =>
+                        setProfile({
+                          ...profile,
+                          disconnect_recovery_sms_enabled: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 rounded text-rose-600 accent-rose-600"
+                    />
+                  </div>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    If caller signal drops abruptly, an automated SMS is dispatched within 5 seconds with a 1-tap link to resume.
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* Live Territory & Temporal Readout Simulator */}
-            <div className="p-4 rounded-xl border border-sky-200 bg-white space-y-2 shadow-2xs">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-mono text-sky-700 font-bold uppercase flex items-center gap-1.5">
-                  <Radio className="w-3.5 h-3.5 text-sky-600 animate-pulse" />
-                  Live Geofence Vocalization Simulator
+            {/* Dropped Call Recovery Template */}
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Dropped Call Recovery SMS Text Template
+              </label>
+              <textarea
+                rows={3}
+                value={profile.disconnect_recovery_sms_text || ""}
+                onChange={(e) =>
+                  setProfile({ ...profile, disconnect_recovery_sms_text: e.target.value })
+                }
+                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 font-mono"
+              />
+              <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                <span>
+                  {(profile.disconnect_recovery_sms_text || "").length} / 160 characters (1 SMS segment)
                 </span>
-                <span className="text-[10px] text-zinc-500 font-mono">
-                  Caller: &quot;I&apos;m in Dallas, can you come unclog my drain?&quot;
-                </span>
+                <span>Available tokens: {"{business_name}, {resume_link}"}</span>
               </div>
+            </div>
 
-              <div className="p-3 rounded-xl bg-sky-50/50 border border-sky-100 text-xs text-zinc-800 leading-relaxed font-sans">
-                <span className="text-sky-700 font-bold">{profile.agent_name || "Receptionist"}:</span> &quot;Since you are in Dallas, which is outside our service area of {profile.service_area || "our primary territory"}, we unfortunately cannot send a technician out to your location. However, is there anything else I can assist you with today?&quot;
+            {/* Smartphone Simulation Preview */}
+            <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center">
+              <div className="w-[340px] bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-300 dark:border-zinc-700 p-3 shadow-sm">
+                <div className="flex items-center justify-between text-[10px] text-zinc-400 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                    {profile.business_name || "Apex Plumbing"}
+                  </span>
+                  <span>Now</span>
+                </div>
+                <div className="mt-2.5 p-2.5 rounded-xl bg-indigo-600 text-white text-[11px] font-sans leading-relaxed">
+                  {profile.disconnect_recovery_sms_text ||
+                    "We noticed our call disconnected! Tap here to resume: https://app.vedavoice.com/resume"}
+                </div>
               </div>
             </div>
           </div>
         </div>
-        )}
+      )}
 
-        {/* Bottom Tab Navigation & Save Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-zinc-200">
-          <div className="flex items-center gap-2">
-            {activeTab !== "persona" && (
-              <button
-                type="button"
-                onClick={() => {
-                  const tabs: ("persona" | "faq" | "pricing" | "emergency" | "schedule")[] = [
-                    "persona",
-                    "faq",
-                    "pricing",
-                    "emergency",
-                    "schedule",
-                  ];
-                  const idx = tabs.indexOf(activeTab);
-                  if (idx > 0) setActiveTab(tabs[idx - 1]);
-                }}
-                className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-semibold"
-              >
-                &larr; Previous Tab
-              </button>
-            )}
-            {activeTab !== "schedule" && (
-              <button
-                type="button"
-                onClick={() => {
-                  const tabs: ("persona" | "faq" | "pricing" | "emergency" | "schedule")[] = [
-                    "persona",
-                    "faq",
-                    "pricing",
-                    "emergency",
-                    "schedule",
-                  ];
-                  const idx = tabs.indexOf(activeTab);
-                  if (idx < tabs.length - 1) setActiveTab(tabs[idx + 1]);
-                }}
-                className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-semibold"
-              >
-                Next Tab &rarr;
-              </button>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
-          >
-            {saving ? (
-              "Saving..."
-            ) : success ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-400" />
-                Changes Saved to Voice Agent
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                Publish Changes to Voice Agent
-              </>
-            )}
-          </button>
-        </div>
-      </form>
-
-      {/* Modal: Live Test Call */}
-      {showTestCallModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full border border-zinc-200 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+      {/* --------------------------------------------------------------------- */}
+      {/* 5. IN-BROWSER MIC SIMULATOR MODAL                                     */}
+      {/* --------------------------------------------------------------------- */}
+      {showMicModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-3">
               <div className="flex items-center gap-2">
-                <PhoneCall className="w-5 h-5 text-indigo-600" />
-                <h3 className="text-base font-bold text-zinc-900">Live AI Receptionist Test Call</h3>
+                <div className="w-8 h-8 rounded-xl bg-violet-500/10 text-violet-600 flex items-center justify-center font-bold">
+                  🎙️
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">In-Browser Mic Simulator</h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Real-time voice interactive testing using browser speech recognition & synthesis.
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => {
-                  setShowTestCallModal(false);
-                  setTestCallResult(null);
+                  handleStopMicListening();
+                  setShowMicModal(false);
                 }}
-                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-zinc-500">
-              Enter your phone number to receive an immediate live phone call from your AI receptionist &quot;{profile.agent_name || "Receptionist"}&quot; to audition the greeting and conversation flow.
-            </p>
+            {/* Conversation Bubbles */}
+            <div className="h-64 overflow-y-auto space-y-2.5 p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-200 dark:border-zinc-800 text-xs">
+              {simMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex flex-col ${
+                    msg.sender === "user" ? "items-end" : "items-start"
+                  }`}
+                >
+                  <div
+                    className={`max-w-[80%] p-3 rounded-2xl ${
+                      msg.sender === "user"
+                        ? "bg-violet-600 text-white rounded-br-xs"
+                        : "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-700 rounded-bl-xs"
+                    }`}
+                  >
+                    <p className="leading-relaxed">{msg.text}</p>
+                    <span
+                      className={`text-[9px] mt-1 block ${
+                        msg.sender === "user" ? "text-violet-200" : "text-zinc-400"
+                      }`}
+                    >
+                      {msg.time}
+                    </span>
+                  </div>
+                </div>
+              ))}
 
-            <form onSubmit={handleTriggerTestCall} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-zinc-700 mb-1">
-                  Destination Phone Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  required
-                  value={testCallPhone}
-                  onChange={(e) => setTestCallPhone(e.target.value)}
-                  placeholder="+1 512 555 0199"
-                  className="w-full text-xs font-mono rounded-xl border border-zinc-300 px-3 py-2.5 text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              {simInterimText && (
+                <div className="flex flex-col items-end">
+                  <div className="max-w-[80%] p-2.5 rounded-xl bg-violet-600/30 text-violet-800 dark:text-violet-200 italic">
+                    {simInterimText}...
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Prompt Chips */}
+            <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+              <span className="text-zinc-400 font-mono text-[10px]">Test Prompts:</span>
+              {[
+                "Do you fix active water leaks?",
+                "How much is your diagnostic fee?",
+                "Are you open on weekends?",
+                "¿Habla español?",
+              ].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => handleSimUserSpeech(chip)}
+                  className="px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 border border-zinc-200 dark:border-zinc-700"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+
+            {/* Mic Controls */}
+            <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-2.5 h-2.5 rounded-full ${
+                    simState === "listening"
+                      ? "bg-red-500 animate-ping"
+                      : simState === "speaking"
+                      ? "bg-emerald-500 animate-pulse"
+                      : "bg-zinc-400"
+                  }`}
                 />
-                <span className="text-[10px] text-zinc-400 block mt-1 font-mono">
-                  E.164 format with country code (e.g. +1 for US/Canada)
+                <span className="text-xs font-mono capitalize text-zinc-600 dark:text-zinc-300">
+                  {simState === "listening"
+                    ? "Listening to mic..."
+                    : simState === "speaking"
+                    ? "Agent Speaking..."
+                    : simState === "processing"
+                    ? "Synthesizing response..."
+                    : "Ready"}
                 </span>
               </div>
 
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
-                <div className="flex items-center gap-1.5 text-zinc-700 font-semibold text-[11px]">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>10-Point TCPA Compliance Gate Active</span>
-                </div>
-                <p className="text-[10px] text-zinc-500">
-                  Checks DNC, calling window (8 AM–8 PM local), and caller ID verification before dispatching trunk.
+              <div className="flex items-center gap-2">
+                {simState === "listening" ? (
+                  <button
+                    type="button"
+                    onClick={handleStopMicListening}
+                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Square className="w-3.5 h-3.5" />
+                    <span>Stop Listening</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleStartMicListening}
+                    className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>Speak to Agent</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* 6. CARRIER TRUNK DIAGNOSTICS MODAL                                    */}
+      {/* --------------------------------------------------------------------- */}
+      {showCarrierModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-sm font-bold">Carrier SIP Trunk Architecture</h3>
+                <p className="text-[11px] text-zinc-400">
+                  Real-time reachability, encryption ciphers, and STIR/SHAKEN attestation telemetry.
                 </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCarrierModal(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {(carrierData?.trunks || []).map((trunk) => (
+                <div
+                  key={trunk.phone_id}
+                  className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-800 text-xs flex items-center justify-between"
+                >
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
+                        {trunk.e164}
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-500/10 text-emerald-600 font-bold">
+                        {trunk.status}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-zinc-400">{trunk.label}</span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-right">
+                    <div>
+                      <span className="font-mono text-[11px] text-zinc-700 dark:text-zinc-300 block">
+                        {trunk.trunk_id}
+                      </span>
+                      <span className="text-[10px] text-zinc-400">
+                        STIR/SHAKEN: Grade {trunk.stir_shaken_attestation}
+                      </span>
+                    </div>
+                    <span className="px-2 py-1 rounded bg-zinc-200 dark:bg-zinc-700 font-mono text-[11px] font-bold">
+                      {trunk.round_trip_ms}ms
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowCarrierModal(false)}
+                className="px-4 py-2 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-semibold"
+              >
+                Close Telemetry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --------------------------------------------------------------------- */}
+      {/* 7. TEST CALL PHONE MODAL (TCPA COMPLIANT)                             */}
+      {/* --------------------------------------------------------------------- */}
+      {showTestCallModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <PhoneCall className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="text-sm font-bold">Test Call Your Phone</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTestCallModal(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleTriggerTestCall} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                  Recipient Mobile Phone (E.164)
+                </label>
+                <input
+                  type="tel"
+                  value={testCallPhone}
+                  onChange={(e) => setTestCallPhone(e.target.value)}
+                  placeholder="+1 (512) 555-0199"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800 font-mono"
+                />
+                <span className="text-[10px] text-zinc-400 mt-1 block">
+                  Automated test calls verify sub-second turn latency and TCPA compliance gates.
+                </span>
               </div>
 
               {testCallResult && (
                 <div
-                  className={`p-3 rounded-xl border text-xs space-y-1 ${
+                  className={`p-3 rounded-xl text-xs ${
                     testCallResult.compliance_passed
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                      : "bg-red-50 border-red-200 text-red-800"
+                      ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200"
+                      : "bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-300 border border-red-200"
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 font-bold">
-                    {testCallResult.compliance_passed ? (
-                      <>
-                        <Check className="w-4 h-4 text-emerald-600" />
-                        <span>Test Call Dispatched!</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="w-4 h-4 text-red-600" />
-                        <span>Call Blocked by Compliance</span>
-                      </>
-                    )}
-                  </div>
-                  <p className="text-[11px] leading-relaxed">{testCallResult.message}</p>
-                  {testCallResult.call_id && (
-                    <div className="font-mono text-[10px] text-zinc-500 pt-1">
-                      Call ID: <strong className="text-zinc-800">{testCallResult.call_id}</strong>
-                    </div>
-                  )}
+                  <span className="font-bold block mb-0.5">
+                    {testCallResult.compliance_passed ? "✓ Dispatch Authorized" : "Blocked by Gate"}
+                  </span>
+                  <span>{testCallResult.message}</span>
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+              <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowTestCallModal(false);
-                    setTestCallResult(null);
-                  }}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-zinc-200 text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => setShowTestCallModal(false)}
+                  className="px-3.5 py-2 text-xs font-semibold rounded-xl text-zinc-600 dark:text-zinc-400"
                 >
-                  Close
+                  Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={dispatchingTestCall || !testCallPhone.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-50"
+                  disabled={dispatchingTestCall}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  <PhoneCall className="w-3.5 h-3.5" />
-                  {dispatchingTestCall ? "Dispatching Call..." : "Call My Phone Now"}
+                  {dispatchingTestCall ? "Dispatching..." : "Call My Phone Now"}
                 </button>
               </div>
             </form>

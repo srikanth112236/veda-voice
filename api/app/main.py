@@ -689,6 +689,96 @@ def init_db() -> None:
                         "ALTER TABLE agent_profiles ADD COLUMN notify_sms_on_emergency BOOLEAN DEFAULT 1"
                     )
                 )
+            if "bilingual_spanish_enabled" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN bilingual_spanish_enabled BOOLEAN DEFAULT 0 NOT NULL"
+                    )
+                )
+            if "patience_cadence" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN patience_cadence VARCHAR(32) DEFAULT 'balanced' NOT NULL"
+                    )
+                )
+            if "silence_timeout_ms" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN silence_timeout_ms INTEGER DEFAULT 500 NOT NULL"
+                    )
+                )
+            if "speech_barge_in" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN speech_barge_in BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "adaptive_empathy" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN adaptive_empathy BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "background_ambience" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN background_ambience VARCHAR(64) DEFAULT 'studio_clean' NOT NULL"
+                    )
+                )
+            if "barred_phrases" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN barred_phrases JSON DEFAULT '[]' NOT NULL"
+                    )
+                )
+            if "intake_questions" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN intake_questions JSON DEFAULT '[]' NOT NULL"
+                    )
+                )
+            if "office_override_mode" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN office_override_mode VARCHAR(32) DEFAULT 'normal' NOT NULL"
+                    )
+                )
+            if "office_override_announcement" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN office_override_announcement TEXT DEFAULT '' NOT NULL"
+                    )
+                )
+            if "vip_returning_caller_enabled" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN vip_returning_caller_enabled BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "vip_returning_greeting" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN vip_returning_greeting TEXT DEFAULT '' NOT NULL"
+                    )
+                )
+            if "mid_call_sms_enabled" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN mid_call_sms_enabled BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "disconnect_recovery_sms_enabled" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN disconnect_recovery_sms_enabled BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "disconnect_recovery_sms_text" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN disconnect_recovery_sms_text TEXT DEFAULT '' NOT NULL"
+                    )
+                )
 
             # Tenants table capacity columns
             cursor = conn.execute(text("PRAGMA table_info(tenants)"))
@@ -1101,6 +1191,21 @@ def init_db() -> None:
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS is_followed_up BOOLEAN DEFAULT FALSE NOT NULL;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_channels INTEGER DEFAULT 2 NOT NULL;",
                 "ALTER TABLE crm_connections ADD COLUMN IF NOT EXISTS key_fingerprint VARCHAR(32) NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS bilingual_spanish_enabled BOOLEAN DEFAULT FALSE NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS patience_cadence VARCHAR(32) DEFAULT 'balanced' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS silence_timeout_ms INTEGER DEFAULT 500 NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS speech_barge_in BOOLEAN DEFAULT TRUE NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS adaptive_empathy BOOLEAN DEFAULT TRUE NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS background_ambience VARCHAR(64) DEFAULT 'studio_clean' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS barred_phrases JSON DEFAULT '[]' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS intake_questions JSON DEFAULT '[]' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS office_override_mode VARCHAR(32) DEFAULT 'normal' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS office_override_announcement TEXT DEFAULT '' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS vip_returning_caller_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS vip_returning_greeting TEXT DEFAULT '' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS mid_call_sms_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS disconnect_recovery_sms_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS disconnect_recovery_sms_text TEXT DEFAULT '' NOT NULL;",
             ]
             for stmt in pg_statements:
                 try:

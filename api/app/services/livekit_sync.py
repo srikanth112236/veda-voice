@@ -86,6 +86,32 @@ def sync_tenant_to_livekit(
         "business_notes": getattr(profile, "business_notes", "") or "",
         "agent_name": getattr(profile, "agent_name", "receptionist") or "receptionist",
         "transfer_number": getattr(profile, "transfer_number", "") or "",
+        "bilingual_spanish_enabled": bool(getattr(profile, "bilingual_spanish_enabled", False)),
+        "patience_cadence": getattr(profile, "patience_cadence", "balanced") or "balanced",
+        "silence_timeout_ms": int(getattr(profile, "silence_timeout_ms", 500) or 500),
+        "speech_barge_in": True
+        if getattr(profile, "speech_barge_in", None) is None
+        else bool(profile.speech_barge_in),
+        "adaptive_empathy": True
+        if getattr(profile, "adaptive_empathy", None) is None
+        else bool(profile.adaptive_empathy),
+        "background_ambience": getattr(profile, "background_ambience", "studio_clean")
+        or "studio_clean",
+        "barred_phrases": getattr(profile, "barred_phrases", []) or [],
+        "intake_questions": getattr(profile, "intake_questions", []) or [],
+        "office_override_mode": getattr(profile, "office_override_mode", "normal") or "normal",
+        "office_override_announcement": getattr(profile, "office_override_announcement", "") or "",
+        "vip_returning_caller_enabled": True
+        if getattr(profile, "vip_returning_caller_enabled", None) is None
+        else bool(profile.vip_returning_caller_enabled),
+        "vip_returning_greeting": getattr(profile, "vip_returning_greeting", "") or "",
+        "mid_call_sms_enabled": True
+        if getattr(profile, "mid_call_sms_enabled", None) is None
+        else bool(profile.mid_call_sms_enabled),
+        "disconnect_recovery_sms_enabled": True
+        if getattr(profile, "disconnect_recovery_sms_enabled", None) is None
+        else bool(profile.disconnect_recovery_sms_enabled),
+        "disconnect_recovery_sms_text": getattr(profile, "disconnect_recovery_sms_text", "") or "",
     }
 
     # Resolve output directory (default to data/tenants)
