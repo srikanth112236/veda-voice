@@ -225,6 +225,18 @@ export default function CallsPage() {
     fetchHistoricalCalls();
     const liveInterval = setInterval(fetchLiveCalls, 4000);
     const histInterval = setInterval(fetchHistoricalCalls, 8000);
+
+    // Deep link from CRM or external notification (?call_id=...&autoplay=true)
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetCallId = params.get("call_id") || params.get("search");
+      const shouldAutoPlay = params.get("autoplay") === "true" || params.get("play") === "true";
+      if (targetCallId) {
+        setSearchQuery(targetCallId);
+        handleSelectCall(targetCallId, shouldAutoPlay);
+      }
+    }
+
     return () => {
       clearInterval(liveInterval);
       clearInterval(histInterval);
@@ -724,7 +736,7 @@ export default function CallsPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  const handleSelectCall = (id: string) => {
+  const handleSelectCall = (id: string, autoPlay: boolean = false) => {
     setSelectedCallId(id);
     setLoadingDetail(true);
     stopAudioPlayback();
@@ -745,6 +757,25 @@ export default function CallsPage() {
         if (audioRef.current && streamUrl) {
           audioRef.current.src = streamUrl;
           audioRef.current.load();
+        }
+
+        if (autoPlay) {
+          setTimeout(() => {
+            setIsPlaying(true);
+            if (hasDirectRecording && audioRef.current) {
+              audioRef.current.play().catch(() => {});
+            } else if (
+              typeof window !== "undefined" &&
+              "speechSynthesis" in window &&
+              res.transcript &&
+              res.transcript.length > 0
+            ) {
+              window.speechSynthesis.cancel();
+              playDialogueTurn(0, res.transcript, 1, false);
+            } else if (audioRef.current) {
+              audioRef.current.play().catch(() => {});
+            }
+          }, 400);
         }
       })
       .catch((err) => console.error("Failed to load detail:", err))

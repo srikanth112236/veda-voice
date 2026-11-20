@@ -36,7 +36,10 @@ import {
   Sparkles,
   MessageSquare,
   Send,
+  GripVertical,
+  ArrowRight,
 } from "lucide-react";
+import { formatHumanReadableTag } from "@/lib/tagFormatter";
 
 const FALLBACK_STAGES = [
   { key: "new_lead", label: "New Lead", color: "border-blue-300 bg-blue-50/50 text-blue-700", is_system: true },
@@ -73,6 +76,19 @@ export default function CRMPipelinePage() {
   const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
   const [showStagesModal, setShowStagesModal] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Drag-and-Drop & Stage Confirmation State
+  const [draggedContactId, setDraggedContactId] = useState<string | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [pendingMove, setPendingMove] = useState<{
+    contactId: string;
+    contactName: string;
+    fromStage: string;
+    fromStageLabel: string;
+    toStage: string;
+    toStageLabel: string;
+  } | null>(null);
+  const [movingStage, setMovingStage] = useState(false);
 
   // Telnyx Two-Way SMS State
   const [smsText, setSmsText] = useState("");
@@ -224,7 +240,94 @@ export default function CRMPipelinePage() {
     }
   };
 
+  const requestStageMove = (
+    contact: { id: string; name?: string; phone?: string; stage?: string },
+    targetStageKey: string
+  ) => {
+    const currentKey = contact.stage || "new_lead";
+    if (currentKey === targetStageKey) return;
+    const fromStageLabel = currentStages.find((s) => s.key === currentKey)?.label || currentKey;
+    const toStageLabel = currentStages.find((s) => s.key === targetStageKey)?.label || targetStageKey;
+    setPendingMove({
+      contactId: contact.id,
+      contactName: contact.name || contact.phone || "Contact",
+      fromStage: currentKey,
+      fromStageLabel,
+      toStage: targetStageKey,
+      toStageLabel,
+    });
+  };
+
+  const handleConfirmMove = async () => {
+    if (!pendingMove) return;
+    setMovingStage(true);
+    try {
+      await api.updateCRMContact(pendingMove.contactId, { stage: pendingMove.toStage });
+      await fetchCRMData();
+      if (contactDetail && contactDetail.id === pendingMove.contactId) {
+        setContactDetail({ ...contactDetail, stage: pendingMove.toStage });
+      }
+      setActionMessage(`Moved ${pendingMove.contactName} to ${pendingMove.toStageLabel}`);
+      setTimeout(() => setActionMessage(null), 3500);
+    } catch (err: any) {
+      alert(`Could not move contact: ${err?.message || err}`);
+    } finally {
+      setMovingStage(false);
+      setPendingMove(null);
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent, contactId: string) => {
+    e.dataTransfer.setData("text/plain", contactId);
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedContactId(contactId);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedContactId(null);
+    setDragOverStage(null);
+  };
+
+  const handleDragOverColumn = (e: React.DragEvent, stageKey: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverStage !== stageKey) {
+      setDragOverStage(stageKey);
+    }
+  };
+
+  const handleDragLeaveColumn = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragOverStage(null);
+  };
+
+  const handleDropOnColumn = (e: React.DragEvent, targetStageKey: string) => {
+    e.preventDefault();
+    setDragOverStage(null);
+    const contactId = e.dataTransfer.getData("text/plain") || draggedContactId;
+    if (!contactId) return;
+
+    let contact: ContactItem | undefined = allContacts.find((c) => c.id === contactId);
+    if (!contact && pipelineData) {
+      for (const stg of Object.values(pipelineData.stages)) {
+        const found = stg.find((c) => c.id === contactId);
+        if (found) {
+          contact = found;
+          break;
+        }
+      }
+    }
+    if (!contact) return;
+
+    requestStageMove(contact, targetStageKey);
+  };
+
   const handleMoveStage = async (contactId: string, newStage: string) => {
+    const contact = allContacts.find((c) => c.id === contactId) || (contactDetail?.id === contactId ? contactDetail : null);
+    if (contact) {
+      requestStageMove(contact, newStage);
+      return;
+    }
     try {
       await api.updateCRMContact(contactId, { stage: newStage });
       fetchCRMData();
@@ -632,7 +735,14 @@ export default function CRMPipelinePage() {
             return (
               <div
                 key={col.key}
-                className="bg-zinc-50/70 border border-zinc-200 rounded-2xl p-3 flex flex-col min-w-[240px] max-w-xs"
+                onDragOver={(e) => handleDragOverColumn(e, col.key)}
+                onDragLeave={handleDragLeaveColumn}
+                onDrop={(e) => handleDropOnColumn(e, col.key)}
+                className={`border rounded-2xl p-3 flex flex-col min-w-[260px] max-w-xs transition-all duration-200 ${
+                  dragOverStage === col.key
+                    ? "bg-purple-50/70 border-purple-400 ring-2 ring-purple-300 ring-offset-1 shadow-md"
+                    : "bg-zinc-50/70 border-zinc-200"
+                }`}
               >
                 {/* Column Header */}
                 <div className="flex items-center justify-between mb-3 px-1">
@@ -651,71 +761,102 @@ export default function CRMPipelinePage() {
                 {/* Cards Container */}
                 <div className="space-y-2.5 flex-1 overflow-y-auto max-h-[600px] pr-1">
                   {stageContacts.length === 0 ? (
-                    <div className="h-24 flex items-center justify-center border border-dashed border-zinc-200 rounded-xl text-[11px] text-zinc-400">
-                      No contacts in stage
+                    <div
+                      className={`h-24 flex flex-col items-center justify-center border border-dashed rounded-xl text-[11px] transition-colors ${
+                        dragOverStage === col.key
+                          ? "border-purple-400 bg-purple-50/50 text-purple-700 font-semibold"
+                          : "border-zinc-200 text-zinc-400"
+                      }`}
+                    >
+                      {dragOverStage === col.key ? (
+                        <span>Drop to move here</span>
+                      ) : (
+                        <span>No contacts in stage</span>
+                      )}
                     </div>
                   ) : (
                     stageContacts.map((contact) => (
                       <div
                         key={contact.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, contact.id)}
+                        onDragEnd={handleDragEnd}
                         onClick={() => handleOpenContactDetail(contact.id)}
-                        className="bg-white border border-zinc-200/80 rounded-xl p-3 shadow-xs hover:border-zinc-400 hover:shadow-md cursor-pointer transition space-y-2"
+                        className={`group bg-white border rounded-xl p-3 shadow-xs hover:border-purple-300 hover:shadow-md cursor-grab active:cursor-grabbing transition-all duration-150 space-y-2.5 relative select-none ${
+                          draggedContactId === contact.id
+                            ? "opacity-40 border-dashed border-purple-400"
+                            : "border-zinc-200/90"
+                        }`}
                       >
-                        <div className="flex items-start justify-between gap-1">
-                          <h4 className="text-xs font-bold text-zinc-900 leading-tight">
-                            {contact.name}
-                          </h4>
-                          {contact.is_callable === false && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-50 border border-rose-200 text-rose-700 font-mono">
+                        {/* Header: Drag Grip, Name, DNC/Callable Pill */}
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <GripVertical className="w-3.5 h-3.5 text-zinc-300 group-hover:text-zinc-500 shrink-0 transition-colors" />
+                            <h4 className="text-xs font-bold text-zinc-900 group-hover:text-purple-700 transition-colors truncate">
+                              {contact.name || "Unnamed Contact"}
+                            </h4>
+                          </div>
+                          {contact.is_callable === false ? (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-mono font-medium shrink-0">
                               DNC
+                            </span>
+                          ) : (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-mono font-medium shrink-0">
+                              ✓ Gate v2
                             </span>
                           )}
                         </div>
 
-                        <div className="space-y-1 text-[11px] text-zinc-500 font-mono">
-                          <div className="flex items-center gap-1 text-zinc-700">
-                            <Phone className="w-3 h-3 text-zinc-400" />
-                            {contact.phone}
+                        {/* Phone & Email */}
+                        <div className="space-y-1 text-[11px] font-mono">
+                          <div className="flex items-center gap-1.5 text-zinc-700 font-semibold">
+                            <Phone className="w-3 h-3 text-zinc-400 shrink-0" />
+                            <span>{contact.phone}</span>
                           </div>
                           {contact.email && (
-                            <div className="flex items-center gap-1 truncate text-zinc-500">
-                              <Mail className="w-3 h-3 text-zinc-400" />
+                            <div className="flex items-center gap-1.5 truncate text-zinc-500 text-[10.5px]">
+                              <Mail className="w-3 h-3 text-zinc-400 shrink-0" />
                               <span className="truncate">{contact.email}</span>
                             </div>
                           )}
                         </div>
 
-                        {/* Tags */}
+                        {/* Human-Readable Tags */}
                         {contact.tags && contact.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            {contact.tags.slice(0, 3).map((tag, idx) => (
-                              <span
-                                key={idx}
-                                className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 font-medium"
-                              >
-                                {tag}
-                              </span>
-                            ))}
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {contact.tags.slice(0, 3).map((tag, idx) => {
+                              const formatted = formatHumanReadableTag(tag);
+                              return (
+                                <span
+                                  key={idx}
+                                  className={`text-[9.5px] px-2 py-0.5 rounded-md border font-medium ${formatted.color}`}
+                                >
+                                  {formatted.label}
+                                </span>
+                              );
+                            })}
                             {contact.tags.length > 3 && (
-                              <span className="text-[9px] text-zinc-400">
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 font-mono">
                                 +{contact.tags.length - 3}
                               </span>
                             )}
                           </div>
                         )}
 
-                        {/* Quick Stage Move Dropdown */}
+                        {/* Footer: Call telemetry & Manual stage move trigger */}
                         <div
                           className="pt-2 border-t border-zinc-100 flex items-center justify-between text-[10px]"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <span className="text-zinc-400 font-mono">
+                          <span className="text-zinc-500 font-mono flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5 text-zinc-400" />
                             {contact.call_count} call{contact.call_count !== 1 ? "s" : ""}
                           </span>
                           <select
                             value={col.key}
-                            onChange={(e) => handleMoveStage(contact.id, e.target.value)}
-                            className="bg-transparent border-0 text-zinc-500 font-semibold cursor-pointer hover:text-zinc-900 focus:outline-none"
+                            onChange={(e) => requestStageMove(contact, e.target.value)}
+                            className="bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded px-1.5 py-0.5 text-zinc-600 font-medium cursor-pointer hover:text-zinc-900 focus:outline-none transition text-[10px]"
+                            title="Move to another stage"
                           >
                             {currentStages.map((s) => (
                               <option key={s.key} value={s.key}>
@@ -789,14 +930,17 @@ export default function CRMPipelinePage() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex flex-wrap gap-1">
-                        {(contact.tags || []).map((t, i) => (
-                          <span
-                            key={i}
-                            className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600"
-                          >
-                            {t}
-                          </span>
-                        ))}
+                        {(contact.tags || []).map((t, i) => {
+                          const formatted = formatHumanReadableTag(t);
+                          return (
+                            <span
+                              key={i}
+                              className={`text-[9.5px] px-2 py-0.5 rounded-md border font-medium ${formatted.color}`}
+                            >
+                              {formatted.label}
+                            </span>
+                          );
+                        })}
                       </div>
                     </td>
                     <td className="py-3 px-4 font-mono text-[10px] uppercase text-zinc-500">
@@ -978,6 +1122,25 @@ export default function CRMPipelinePage() {
                         <div className="pt-2 border-t border-zinc-200 text-xs text-zinc-600">
                           <span className="text-zinc-400 text-[10px] uppercase font-mono block">Notes</span>
                           {contactDetail.notes}
+                        </div>
+                      )}
+
+                      {contactDetail.tags && contactDetail.tags.length > 0 && (
+                        <div className="pt-2 border-t border-zinc-200 space-y-1">
+                          <span className="text-zinc-400 text-[10px] uppercase font-mono block">Tags & Attributes</span>
+                          <div className="flex flex-wrap gap-1">
+                            {contactDetail.tags.map((t, i) => {
+                              const formatted = formatHumanReadableTag(t);
+                              return (
+                                <span
+                                  key={i}
+                                  className={`text-[10px] px-2 py-0.5 rounded-md border font-medium ${formatted.color}`}
+                                >
+                                  {formatted.label}
+                                </span>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1177,9 +1340,9 @@ export default function CRMPipelinePage() {
                           <div className="flex items-center justify-between pt-1 border-t border-zinc-100 text-[11px]">
                             <span className="font-mono text-zinc-400 text-[10px]">ID: {call.call_id}</span>
                             <a
-                              href={`/portal/calls?search=${encodeURIComponent(call.call_id)}`}
+                              href={`/portal/calls?call_id=${encodeURIComponent(call.call_id)}&autoplay=true`}
                               className="inline-flex items-center gap-1 text-purple-700 hover:text-purple-900 font-semibold transition-colors"
-                              title="Open full audio and telemetry in Call Explorer"
+                              title="Open full audio and telemetry in Call Explorer and autoplay recording"
                             >
                               <span>Open in Call Explorer</span>
                               <ExternalLink className="w-3 h-3" />
@@ -1304,6 +1467,76 @@ export default function CRMPipelinePage() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRM STAGE TRANSITION */}
+      {pendingMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center text-purple-700">
+                  <GitMerge className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900">Confirm Stage Transition</h3>
+                  <p className="text-xs text-zinc-500">Move lead through the conversion pipeline</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPendingMove(null)}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-zinc-50 rounded-xl p-4 border border-zinc-200/80 space-y-3">
+              <div className="text-xs">
+                <span className="text-zinc-400 text-[10px] uppercase font-mono block">Contact</span>
+                <span className="font-bold text-zinc-900 text-sm">{pendingMove.contactName}</span>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-200/60">
+                <div className="flex-1 text-center p-2.5 rounded-lg bg-white border border-zinc-200">
+                  <span className="text-[10px] uppercase font-mono text-zinc-400 block">Current Stage</span>
+                  <span className="text-xs font-semibold text-zinc-700">{pendingMove.fromStageLabel}</span>
+                </div>
+
+                <ArrowRight className="w-4 h-4 text-purple-600 shrink-0" />
+
+                <div className="flex-1 text-center p-2.5 rounded-lg bg-purple-50 border border-purple-200">
+                  <span className="text-[10px] uppercase font-mono text-purple-600 block">Target Stage</span>
+                  <span className="text-xs font-bold text-purple-900">{pendingMove.toStageLabel}</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              Moving this contact will update pipeline metrics, attribution history, and notify automated follow-up sequences.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={movingStage}
+                onClick={() => setPendingMove(null)}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-600 hover:bg-zinc-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={movingStage}
+                onClick={handleConfirmMove}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 disabled:opacity-50 transition shadow-sm flex items-center gap-1.5"
+              >
+                {movingStage && <RefreshCw className="w-3 h-3 animate-spin" />}
+                <span>Confirm Move</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
