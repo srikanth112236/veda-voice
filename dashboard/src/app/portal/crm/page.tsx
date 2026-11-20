@@ -156,6 +156,25 @@ export default function CRMPipelinePage() {
         setAvgDealInput(String(rev.average_deal_value));
       }
       setDuplicates(Array.isArray(dups) ? dups : []);
+
+      // Cross-navigation from Calls Explorer (?contact_id=... or ?phone=...)
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const targetContactId = params.get("contact_id");
+        const targetPhone = params.get("phone");
+        if (targetContactId) {
+          handleOpenContactDetail(targetContactId);
+        } else if (targetPhone) {
+          const matched = contactList.find(
+            (c: ContactItem) => c.phone === targetPhone || c.phone.includes(targetPhone.slice(-7))
+          );
+          if (matched) {
+            handleOpenContactDetail(matched.id);
+          } else {
+            setSearchQuery(targetPhone);
+          }
+        }
+      }
     } catch (err: any) {
       console.error("Failed to load CRM data:", err);
     } finally {
@@ -1154,6 +1173,18 @@ export default function CRMPipelinePage() {
                               </div>
                             </details>
                           )}
+
+                          <div className="flex items-center justify-between pt-1 border-t border-zinc-100 text-[11px]">
+                            <span className="font-mono text-zinc-400 text-[10px]">ID: {call.call_id}</span>
+                            <a
+                              href={`/portal/calls?search=${encodeURIComponent(call.call_id)}`}
+                              className="inline-flex items-center gap-1 text-purple-700 hover:text-purple-900 font-semibold transition-colors"
+                              title="Open full audio and telemetry in Call Explorer"
+                            >
+                              <span>Open in Call Explorer</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
                         </div>
                       ))
                     )}

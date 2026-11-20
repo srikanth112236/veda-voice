@@ -91,10 +91,12 @@ class CallListItem(BaseModel):
     qa_score: float = 100.0
     qa_flags: list[str] = []
     csat_score: float = 5.0
+    contact_id: str | None = None
 
 
 class CallDetailResponse(BaseModel):
     id: str
+    contact_id: str | None = None
     call_id: str
     caller_number: str
     dialed_number: str
@@ -426,6 +428,7 @@ def list_calls(
                 qa_score=getattr(c, "qa_score", 100.0) or 100.0,
                 qa_flags=getattr(c, "qa_flags", []) or [],
                 csat_score=getattr(c, "csat_score", 5.0) or 5.0,
+                contact_id=c.contact_id,
             )
         )
         if len(results) >= limit:
@@ -469,6 +472,7 @@ def get_call_detail(
 
     return CallDetailResponse(
         id=call.id,
+        contact_id=call.contact_id,
         call_id=call.call_id,
         caller_number=call.caller_number,
         dialed_number=call.dialed_number,

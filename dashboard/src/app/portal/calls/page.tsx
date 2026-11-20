@@ -42,6 +42,7 @@ import {
   Star,
   ShieldCheck,
   AlertCircle,
+  Users,
 } from "lucide-react";
 import { api, CallListItem, CallDetail, LiveActiveCallItem, TestCallSessionResponse } from "@/lib/api";
 
@@ -1623,6 +1624,15 @@ export default function CallsPage() {
                         >
                           {isDone ? "✓ Handled" : "Contact"}
                         </button>
+                        <a
+                          href={`/portal/crm?contact_id=${call.contact_id || ""}&phone=${encodeURIComponent(call.caller_number || "")}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 px-2 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 border border-zinc-200 text-zinc-600 hover:text-purple-700 hover:bg-purple-50 hover:border-purple-200 transition-colors shadow-2xs"
+                          title="View lead card in CRM Pipeline"
+                        >
+                          <Users className="w-3 h-3 text-purple-600" />
+                          <span>CRM</span>
+                        </a>
                       </div>
                     </td>
                   </tr>
@@ -1707,6 +1717,16 @@ export default function CallsPage() {
                       <span className="truncate">{call.service_address}</span>
                     </div>
                   )}
+                  <div className="pt-1">
+                    <a
+                      href={`/portal/crm?contact_id=${call.contact_id || ""}&phone=${encodeURIComponent(call.caller_number || "")}`}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 transition-colors shadow-2xs font-sans"
+                      title="Open lead profile and timeline in CRM"
+                    >
+                      <Users className="w-3.5 h-3.5 text-purple-600" />
+                      <span>View in CRM Pipeline →</span>
+                    </a>
+                  </div>
                 </div>
 
                 {/* Customer Request Summary Box */}

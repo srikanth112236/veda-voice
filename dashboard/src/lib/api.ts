@@ -52,10 +52,12 @@ export interface CallListItem {
   qa_score?: number;
   qa_flags?: string[];
   csat_score?: number;
+  contact_id?: string | null;
 }
 
 export interface CallDetail {
   id: string;
+  contact_id?: string | null;
   call_id: string;
   caller_number: string;
   dialed_number: string;

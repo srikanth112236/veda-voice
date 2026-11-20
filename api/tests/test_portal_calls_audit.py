@@ -36,7 +36,7 @@ def portal_audit_setup() -> Any:
 
         phone_a = PhoneNumber(
             tenant_id=tenant_a.id,
-            e164=f"+1512444{uuid.uuid4().int % 9000 + 1000}",
+            e164=f"+1987{uuid.uuid4().int % 8000000 + 1000000}",
             provider="twilio",
             status="active",
         )
@@ -62,7 +62,7 @@ def portal_audit_setup() -> Any:
 
         phone_b = PhoneNumber(
             tenant_id=tenant_b.id,
-            e164=f"+1512555{uuid.uuid4().int % 9000 + 1000}",
+            e164=f"+1986{uuid.uuid4().int % 8000000 + 1000000}",
             provider="livekit",
             status="active",
         )
