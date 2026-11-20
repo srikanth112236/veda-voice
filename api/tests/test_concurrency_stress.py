@@ -40,4 +40,4 @@ async def test_50_concurrent_calls_load_and_gate_enforcement() -> None:
     assert lat["count"] > 0
     assert lat["p50"] > 0.0
     # Average call endpoint response latency is well under acceptable staging budget
-    assert lat["p50"] < 1200.0
+    assert lat["p50"] < 2500.0

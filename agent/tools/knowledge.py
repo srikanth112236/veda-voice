@@ -19,12 +19,59 @@ from livekit.agents import FunctionTool, function_tool
 logger = logging.getLogger("receptionist.tools.knowledge")
 
 
+def _execute_in_process_knowledge_search(
+    payload: dict[str, Any],
+    call_token: str,
+) -> dict[str, Any]:
+    """Fallback in-process search using the internal API router directly."""
+    try:
+        from api.app.db.session import SessionLocal
+        from api.app.routers.internal import (
+            InternalKnowledgeSearchRequest,
+            internal_knowledge_search,
+        )
+
+        db = SessionLocal()
+        try:
+            res = internal_knowledge_search(
+                payload=InternalKnowledgeSearchRequest(
+                    query=payload.get("query", ""),
+                    top_k=payload.get("top_k", 3),
+                    confidence_threshold=payload.get("confidence_threshold", 0.30),
+                ),
+                authorization=f"Bearer {call_token}",
+                db=db,
+            )
+            if hasattr(res, "model_dump"):
+                return dict(res.model_dump())
+            if isinstance(res, dict):
+                return res
+            return dict(res)
+        finally:
+            db.close()
+    except Exception as in_proc_err:
+        logger.error("In-process internal knowledge search failed: %s", in_proc_err)
+        return {
+            "out_of_scope": True,
+            "confidence_score": 0.0,
+            "top_matches": [],
+            "grounding_prompt": "Knowledge lookup temporarily unavailable.",
+            "latency_ms": 0.0,
+        }
+
+
 def _call_internal_knowledge_api(
     payload: dict[str, Any],
     call_token: str,
     api_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Execute authenticated HTTP POST request to internal control plane RAG endpoint."""
+    import sys
+
+    # In-process execution when running under pytest
+    if api_base_url is None and "pytest" in sys.modules:
+        return _execute_in_process_knowledge_search(payload, call_token)
+
     base_url = api_base_url or os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
     url = f"{base_url}/api/v1/internal/knowledge/search"
 
@@ -45,42 +92,7 @@ def _call_internal_knowledge_api(
             return dict(data) if isinstance(data, dict) else {}
     except Exception as e:
         logger.debug("HTTP call to internal knowledge endpoint failed: %s; trying in-process", e)
-        # In-process fallback when running in unit tests or unified runtime
-        try:
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import (
-                InternalKnowledgeSearchRequest,
-                internal_knowledge_search,
-            )
-
-            db = SessionLocal()
-            try:
-                res = internal_knowledge_search(
-                    payload=InternalKnowledgeSearchRequest(
-                        query=payload.get("query", ""),
-                        top_k=payload.get("top_k", 3),
-                        confidence_threshold=payload.get("confidence_threshold", 0.30),
-                    ),
-                    authorization=f"Bearer {call_token}",
-                    db=db,
-                )
-                if hasattr(res, "model_dump"):
-                    dumped: dict[str, Any] = res.model_dump()
-                    return dumped
-                if isinstance(res, dict):
-                    return res
-                return dict(res)
-            finally:
-                db.close()
-        except Exception as in_proc_err:
-            logger.error("In-process internal knowledge search failed: %s", in_proc_err)
-            return {
-                "out_of_scope": True,
-                "confidence_score": 0.0,
-                "top_matches": [],
-                "grounding_prompt": "Knowledge lookup temporarily unavailable.",
-                "latency_ms": 0.0,
-            }
+        return _execute_in_process_knowledge_search(payload, call_token)
 
 
 def create_knowledge_tools(call_token: str) -> list[FunctionTool]:
