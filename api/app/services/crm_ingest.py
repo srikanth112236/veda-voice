@@ -475,3 +475,44 @@ def link_booking_to_crm(
         contact.name,
     )
     return contact
+
+
+def backfill_orphaned_calls_to_crm(db: Session) -> dict[str, int]:
+    """Scan all existing calls without a contact_id and reconcile them into Native CRM contacts."""
+    orphaned_calls = db.scalars(
+        select(Call).where(Call.contact_id.is_(None)).order_by(Call.started_at.asc())
+    ).all()
+
+    if not orphaned_calls:
+        return {"scanned": 0, "linked": 0}
+
+    linked_count = 0
+    for call in orphaned_calls:
+        if not call.tenant_id:
+            active_tenant = db.scalar(
+                select(Tenant).where(Tenant.status == "active").order_by(Tenant.created_at.asc())
+            )
+            if active_tenant:
+                call.tenant_id = active_tenant.id
+
+        if call.tenant_id:
+            try:
+                contact = upsert_crm_contact_from_call(
+                    db=db,
+                    tenant_id=call.tenant_id,
+                    call=call,
+                    payload_message=call.message,
+                )
+                if contact:
+                    call.contact_id = contact.id
+                    linked_count += 1
+            except Exception as err:
+                logger.warning("Failed to backfill call %s to CRM: %s", call.call_id, err)
+
+    db.commit()
+    logger.info(
+        "CRM Historical Backfill complete: %d / %d calls linked to contacts",
+        linked_count,
+        len(orphaned_calls),
+    )
+    return {"scanned": len(orphaned_calls), "linked": linked_count}

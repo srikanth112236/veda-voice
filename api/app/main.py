@@ -578,6 +578,11 @@ def seed_initial_data() -> None:
                 # Seed Launch Industry Packs
                 seed_default_industry_packs(db)
                 db.commit()
+
+        # Phase 3: Automated Historical Call Backfill to Native CRM
+        from api.app.services.crm_ingest import backfill_orphaned_calls_to_crm
+
+        backfill_orphaned_calls_to_crm(db)
     finally:
         db.close()
 

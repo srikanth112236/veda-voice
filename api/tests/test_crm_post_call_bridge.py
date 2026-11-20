@@ -15,7 +15,10 @@ from api.app.models.crm import Contact, ContactTimelineEvent
 from api.app.models.outbound import ConsentRecord
 from api.app.models.tenant import Tenant
 from api.app.models.user import User
-from api.app.services.crm_ingest import upsert_crm_contact_from_call
+from api.app.services.crm_ingest import (
+    backfill_orphaned_calls_to_crm,
+    upsert_crm_contact_from_call,
+)
 
 init_db()
 
@@ -309,3 +312,74 @@ def test_calendar_booking_flow_links_crm_contact_and_advances_stage(tenant_fixtu
         assert rev_data["booked_count"] >= 1
         assert rev_data["total_conversions"] >= 1
         assert rev_data["total_revenue_recovered"] >= 250.0
+
+
+def test_historical_calls_backfill_reconciles_orphaned_records(tenant_fixture, db_session):
+    tenant_id = tenant_fixture["tenant_id"]
+
+    # 1. Create 3 unlinked historical calls
+    call1 = Call(
+        tenant_id=tenant_id,
+        call_id=f"hist-1-{uuid.uuid4().hex[:6]}",
+        caller_number="+15125556601",
+        direction="inbound",
+        duration_s=80.0,
+        outcome="message_taken",
+        urgency="emergency",
+        tags=["emergency"],
+        message={"name": "Grace Hopper", "summary": "Gas odor detected near furnace."},
+    )
+    call2 = Call(
+        tenant_id=tenant_id,
+        call_id=f"hist-2-{uuid.uuid4().hex[:6]}",
+        caller_number="+15125556602",
+        direction="inbound",
+        duration_s=110.0,
+        outcome="appointment_booked",
+        tags=["booked"],
+        message={"name": "Alan Turing", "service": "Boiler inspection"},
+    )
+    call3 = Call(
+        tenant_id=tenant_id,
+        call_id=f"hist-3-{uuid.uuid4().hex[:6]}",
+        caller_number="+15125556603",
+        direction="inbound",
+        duration_s=45.0,
+        turn_count=3,
+        outcome="completed",
+        tags=["general_inquiry"],
+    )
+    db_session.add_all([call1, call2, call3])
+    db_session.commit()
+
+    # Verify they start with contact_id None
+    assert call1.contact_id is None
+    assert call2.contact_id is None
+    assert call3.contact_id is None
+
+    # 2. Run backfill
+    res = backfill_orphaned_calls_to_crm(db_session)
+    assert res["linked"] >= 3
+
+    # 3. Verify all calls are now linked
+    db_session.refresh(call1)
+    db_session.refresh(call2)
+    db_session.refresh(call3)
+    assert call1.contact_id is not None
+    assert call2.contact_id is not None
+    assert call3.contact_id is not None
+
+    # 4. Verify contacts and stages
+    c1 = db_session.scalar(select(Contact).where(Contact.id == call1.contact_id))
+    c2 = db_session.scalar(select(Contact).where(Contact.id == call2.contact_id))
+    c3 = db_session.scalar(select(Contact).where(Contact.id == call3.contact_id))
+
+    assert c1.name == "Grace Hopper"
+    assert c1.stage == "qualified"
+    assert c2.name == "Alan Turing"
+    assert c2.stage == "booked"
+    assert c3.stage == "ai_called"
+
+    # 5. Verify backfill is idempotent
+    res2 = backfill_orphaned_calls_to_crm(db_session)
+    assert res2["linked"] == 0
