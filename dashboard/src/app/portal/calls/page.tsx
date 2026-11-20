@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   Play,
   Pause,
+  SkipBack,
+  SkipForward,
   Download,
   ExternalLink,
   Copy,
@@ -42,6 +44,60 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { api, CallListItem, CallDetail, LiveActiveCallItem, TestCallSessionResponse } from "@/lib/api";
+
+/**
+ * Sanitizes dialog text so TTS does not narrate robotic labels like "Apex AI Receptionist:" or "Caller:"
+ */
+function cleanDialogueText(rawText: string): string {
+  if (!rawText) return "";
+  let cleaned = rawText
+    .replace(
+      /^(apex\s*ai(\s*receptionist)?|ai\s*receptionist|receptionist|assistant|caller|customer|user)\s*:\s*/i,
+      ""
+    )
+    .trim();
+  cleaned = cleaned.replace(/\*\*?([^*]+)\*\*?/g, "$1");
+  return cleaned;
+}
+
+/**
+ * Selects contrasting high-quality voices for receptionist (female) vs caller (male/distinct)
+ */
+function getDualVoices(): {
+  assistantVoice: SpeechSynthesisVoice | null;
+  callerVoice: SpeechSynthesisVoice | null;
+} {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return { assistantVoice: null, callerVoice: null };
+  }
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices || voices.length === 0) {
+    return { assistantVoice: null, callerVoice: null };
+  }
+
+  const englishVoices = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
+  const pool = englishVoices.length > 0 ? englishVoices : voices;
+
+  // 1. Assistant Voice: Crisp, professional female voice
+  const assistantVoice =
+    pool.find((v) =>
+      /zira|samantha|karen|victoria|jenny|female|google\s+us\s+english/i.test(v.name)
+    ) ||
+    pool.find((v) => /natural/i.test(v.name)) ||
+    pool[0];
+
+  // 2. Caller Voice: Distinct male or contrasting voice
+  const callerVoice =
+    pool.find(
+      (v) =>
+        v.name !== assistantVoice?.name &&
+        /david|guy|daniel|mark|male|george|google\s+uk\s+english\s+male/i.test(v.name)
+    ) ||
+    pool.find((v) => v.name !== assistantVoice?.name) ||
+    assistantVoice;
+
+  return { assistantVoice, callerVoice };
+}
 
 export default function CallsPage() {
   const [calls, setCalls] = useState<CallListItem[]>([]);
@@ -89,13 +145,47 @@ export default function CallsPage() {
   const synthAudioCtxRef = useRef<AudioContext | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackProgress, setPlaybackProgress] = useState(0);
-  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.5 | 2>(1);
+  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.25 | 1.5 | 2>(1);
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [audioSourceType, setAudioSourceType] = useState<"stream" | "synthetic" | "none">("stream");
   const [activeAudioUrl, setActiveAudioUrl] = useState<string>("");
   const [copiedDetails, setCopiedDetails] = useState(false);
   const [markedFollowedUp, setMarkedFollowedUp] = useState<Record<string, boolean>>({});
+  const [activePreset, setActivePreset] = useState<
+    "all" | "emergencies" | "bookings" | "messages" | "needs_followup"
+  >("all");
+
+  const handleToggleFollowup = async (callId: string, nextFollowedUp: boolean) => {
+    // Optimistic update
+    setMarkedFollowedUp((prev) => ({ ...prev, [callId]: nextFollowedUp }));
+    setCalls((prev) =>
+      prev.map((c) =>
+        c.id === callId || c.call_id === callId ? { ...c, is_followed_up: nextFollowedUp } : c
+      )
+    );
+    if (detailCall && (detailCall.id === callId || detailCall.call_id === callId)) {
+      setDetailCall({ ...detailCall, is_followed_up: nextFollowedUp });
+    }
+    try {
+      await api.updateCallFollowup(callId, nextFollowedUp);
+    } catch (err) {
+      console.error("Failed to update call follow-up status:", err);
+      // Revert on error
+      setMarkedFollowedUp((prev) => ({ ...prev, [callId]: !nextFollowedUp }));
+      setCalls((prev) =>
+        prev.map((c) =>
+          c.id === callId || c.call_id === callId ? { ...c, is_followed_up: !nextFollowedUp } : c
+        )
+      );
+    }
+  };
+
+  // Dual-Voice Dialogue Engine State & Refs
+  const [activePlayingTurnIndex, setActivePlayingTurnIndex] = useState<number | null>(null);
+  const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
+  const activeTurnRef = useRef<number | null>(null);
+  const turnPauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchHistoricalCalls = () => {
     api
@@ -527,25 +617,130 @@ export default function CallsPage() {
     }
   };
 
-  const handleSelectCall = (id: string) => {
-    setSelectedCallId(id);
-    setLoadingDetail(true);
+  // Preload and cache browser speech synthesis voices
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.getVoices();
+      const handleVoices = () => {
+        window.speechSynthesis.getVoices();
+      };
+      window.speechSynthesis.addEventListener("voiceschanged", handleVoices);
+      return () => {
+        window.speechSynthesis.removeEventListener("voiceschanged", handleVoices);
+      };
+    }
+  }, []);
+
+  // Stop playback on unmount
+  useEffect(() => {
+    return () => {
+      stopAudioPlayback();
+    };
+  }, []);
+
+  const stopAudioPlayback = () => {
     if (audioRef.current) {
       audioRef.current.pause();
+    }
+    if (turnPauseTimeoutRef.current) {
+      clearTimeout(turnPauseTimeoutRef.current);
+      turnPauseTimeoutRef.current = null;
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
     setIsPlaying(false);
+    setActivePlayingTurnIndex(null);
+    activeTurnRef.current = null;
+  };
+
+  const playDialogueTurn = (
+    turnIndex: number,
+    transcript: any[],
+    speed: number,
+    muted: boolean
+  ) => {
+    if (muted || !transcript || turnIndex >= transcript.length) {
+      setIsPlaying(false);
+      setActivePlayingTurnIndex(null);
+      activeTurnRef.current = null;
+      setPlaybackProgress(100);
+      return;
+    }
+
+    const turn = transcript[turnIndex];
+    const rawText = turn?.text || turn?.content || turn?.message || "";
+    const cleanedText = cleanDialogueText(rawText);
+
+    if (!cleanedText) {
+      playDialogueTurn(turnIndex + 1, transcript, speed, muted);
+      return;
+    }
+
+    setActivePlayingTurnIndex(turnIndex);
+    activeTurnRef.current = turnIndex;
+    setPlaybackProgress(Math.min(100, Math.round(((turnIndex + 1) / transcript.length) * 100)));
+
+    if (autoScrollTranscript && typeof document !== "undefined") {
+      const turnEl = document.getElementById(`transcript-turn-${turnIndex}`);
+      if (turnEl) {
+        turnEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+
+    const isAssistant = turn.role === "assistant";
+    const { assistantVoice, callerVoice } = getDualVoices();
+
+    const utterance = new SpeechSynthesisUtterance(cleanedText);
+    utterance.rate = speed;
+    utterance.volume = muted ? 0 : 0.95;
+
+    if (isAssistant) {
+      if (assistantVoice) utterance.voice = assistantVoice;
+      utterance.pitch = 1.05; // Friendly, crisp receptionist tone
+    } else {
+      if (callerVoice) utterance.voice = callerVoice;
+      // Lower pitch ensures distinct vocal contrast between caller and receptionist
+      utterance.pitch = 0.88;
+    }
+
+    utterance.onend = () => {
+      // 250ms conversational breathing pause between turns
+      turnPauseTimeoutRef.current = setTimeout(() => {
+        playDialogueTurn(turnIndex + 1, transcript, speed, muted);
+      }, 250);
+    };
+
+    utterance.onerror = (e) => {
+      if (e.error === "canceled" || e.error === "interrupted") {
+        return;
+      }
+      turnPauseTimeoutRef.current = setTimeout(() => {
+        playDialogueTurn(turnIndex + 1, transcript, speed, muted);
+      }, 250);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleSelectCall = (id: string) => {
+    setSelectedCallId(id);
+    setLoadingDetail(true);
+    stopAudioPlayback();
     setPlaybackProgress(0);
     setAudioCurrentTime(0);
     api
       .getPortalCallDetail(id)
       .then((res) => {
         setDetailCall(res);
+        const hasDirectRecording = Boolean(
+          res.recording_url &&
+          res.recording_url.startsWith("http") &&
+          !res.recording_url.includes("audio-stream")
+        );
         const streamUrl = res.recording_url || (res.call_id ? `/api/v1/portal/calls/${res.call_id}/audio-stream` : "");
         setActiveAudioUrl(streamUrl);
-        setAudioSourceType("stream");
+        setAudioSourceType(hasDirectRecording ? "stream" : "synthetic");
         if (audioRef.current && streamUrl) {
           audioRef.current.src = streamUrl;
           audioRef.current.load();
@@ -566,13 +761,7 @@ export default function CallsPage() {
 
   const handleTogglePlay = () => {
     if (isPlaying) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-      setIsPlaying(false);
+      stopAudioPlayback();
     } else {
       setIsPlaying(true);
 
@@ -595,44 +784,13 @@ export default function CallsPage() {
         detailCall?.transcript &&
         detailCall.transcript.length > 0
       ) {
-        // High fidelity clean narration of real transcript turns without any dial-tone beeps
-        try {
-          window.speechSynthesis.cancel();
-          const dialogLines = detailCall.transcript
-            .map((t: any) => {
-              const speaker = t.role === "assistant" ? "Apex AI Receptionist" : "Customer";
-              const text = t.text || t.content || t.message || "";
-              return text ? `${speaker}: ${text}` : "";
-            })
-            .filter(Boolean)
-            .slice(0, 20)
-            .join(". ");
-
-          if (dialogLines.trim()) {
-            const utterance = new SpeechSynthesisUtterance(dialogLines);
-            utterance.rate = playbackSpeed;
-            utterance.volume = isMuted ? 0 : 0.95;
-            const voices = window.speechSynthesis.getVoices();
-            const preferredVoice =
-              voices.find(
-                (v) =>
-                  v.lang.startsWith("en") &&
-                  (v.name.includes("Google") ||
-                    v.name.includes("Natural") ||
-                    v.name.includes("Zira") ||
-                    v.name.includes("Samantha") ||
-                    v.name.includes("David"))
-              ) || voices[0];
-            if (preferredVoice) utterance.voice = preferredVoice;
-            utterance.onend = () => {
-              setIsPlaying(false);
-              setPlaybackProgress(100);
-            };
-            window.speechSynthesis.speak(utterance);
-          }
-        } catch (speechErr) {
-          console.warn("Speech synthesis notice:", speechErr);
-        }
+        window.speechSynthesis.cancel();
+        if (turnPauseTimeoutRef.current) clearTimeout(turnPauseTimeoutRef.current);
+        const startIdx =
+          activeTurnRef.current !== null && activeTurnRef.current < detailCall.transcript.length
+            ? activeTurnRef.current
+            : 0;
+        playDialogueTurn(startIdx, detailCall.transcript, playbackSpeed, isMuted);
       } else if (audioRef.current) {
         audioRef.current.muted = isMuted;
         audioRef.current.volume = isMuted ? 0 : 1.0;
@@ -640,6 +798,44 @@ export default function CallsPage() {
         audioRef.current.play().catch(() => {});
       }
     }
+  };
+
+  const handleSkipTurn = (direction: -1 | 1) => {
+    const hasCloudRecording = Boolean(
+      detailCall?.recording_url &&
+      detailCall.recording_url.startsWith("http") &&
+      !detailCall.recording_url.includes("audio-stream")
+    );
+
+    if (hasCloudRecording && audioRef.current) {
+      audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime + direction * 5);
+      return;
+    }
+
+    if (!detailCall?.transcript || detailCall.transcript.length === 0) return;
+    const current = activeTurnRef.current ?? 0;
+    const target = Math.max(0, Math.min(detailCall.transcript.length - 1, current + direction));
+
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      if (turnPauseTimeoutRef.current) clearTimeout(turnPauseTimeoutRef.current);
+      if (isPlaying) {
+        playDialogueTurn(target, detailCall.transcript, playbackSpeed, isMuted);
+      } else {
+        setActivePlayingTurnIndex(target);
+        activeTurnRef.current = target;
+        setPlaybackProgress(Math.min(100, Math.round(((target + 1) / detailCall.transcript.length) * 100)));
+        const turnEl = document.getElementById(`transcript-turn-${target}`);
+        if (turnEl) turnEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  };
+
+  const handleJumpToTurn = (index: number) => {
+    if (!detailCall?.transcript || index >= detailCall.transcript.length) return;
+    stopAudioPlayback();
+    setIsPlaying(true);
+    playDialogueTurn(index, detailCall.transcript, playbackSpeed, isMuted);
   };
 
   const handleAudioTimeUpdate = () => {
@@ -655,12 +851,9 @@ export default function CallsPage() {
   };
 
   const handleAudioEnded = () => {
-    setIsPlaying(false);
+    stopAudioPlayback();
     setPlaybackProgress(0);
     setAudioCurrentTime(0);
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -688,7 +881,7 @@ export default function CallsPage() {
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       if (nextMuted) {
-        window.speechSynthesis.cancel();
+        stopAudioPlayback();
       }
     }
   };
@@ -766,7 +959,34 @@ export default function CallsPage() {
     const phoneMatch = c.caller_number?.toLowerCase().includes(q) ?? false;
     const addrMatch = c.service_address?.toLowerCase().includes(q) ?? false;
     const idMatch = c.call_id?.toLowerCase().includes(q) ?? false;
-    return !q || nameMatch || phoneMatch || addrMatch || idMatch;
+    const summaryMatch = c.summary?.toLowerCase().includes(q) ?? false;
+    const serviceMatch = c.service_requested?.toLowerCase().includes(q) ?? false;
+    const matchesSearch =
+      !q || nameMatch || phoneMatch || addrMatch || idMatch || summaryMatch || serviceMatch;
+
+    if (!matchesSearch) return false;
+
+    if (activePreset === "emergencies") {
+      return c.urgency === "emergency";
+    }
+    if (activePreset === "bookings") {
+      return (
+        c.outcome === "appointment_scheduled" ||
+        c.outcome === "quote_provided" ||
+        c.outcome === "transfer_requested"
+      );
+    }
+    if (activePreset === "messages") {
+      return c.outcome === "message_taken";
+    }
+    if (activePreset === "needs_followup") {
+      const isDone = c.is_followed_up ?? markedFollowedUp[c.id] ?? false;
+      return (
+        !isDone &&
+        (c.urgency === "emergency" || c.urgency === "urgent" || c.outcome === "message_taken")
+      );
+    }
+    return true;
   });
 
   return (
@@ -1010,6 +1230,147 @@ export default function CallsPage() {
         )}
       </div>
 
+      {/* Quick Filter Presets for Shop Owners */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+        <button
+          onClick={() => setActivePreset("all")}
+          className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+            activePreset === "all"
+              ? "bg-zinc-900 text-white shadow-sm"
+              : "bg-white border border-zinc-200 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50"
+          }`}
+        >
+          <span>All Calls</span>
+          <span
+            className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+              activePreset === "all" ? "bg-zinc-700 text-zinc-200" : "bg-zinc-100 text-zinc-600"
+            }`}
+          >
+            {calls.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActivePreset("emergencies")}
+          className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+            activePreset === "emergencies"
+              ? "bg-red-600 text-white shadow-sm"
+              : "bg-white border border-zinc-200 text-red-700 hover:bg-red-50/50"
+          }`}
+        >
+          <Flame className="w-3.5 h-3.5 text-red-500 fill-current" />
+          <span>Emergencies &amp; Leaks</span>
+          {calls.filter((c) => c.urgency === "emergency").length > 0 && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                activePreset === "emergencies"
+                  ? "bg-red-700 text-white"
+                  : "bg-red-100 text-red-800"
+              }`}
+            >
+              {calls.filter((c) => c.urgency === "emergency").length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActivePreset("bookings")}
+          className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+            activePreset === "bookings"
+              ? "bg-indigo-600 text-white shadow-sm"
+              : "bg-white border border-zinc-200 text-indigo-700 hover:bg-indigo-50/50"
+          }`}
+        >
+          <Calendar className="w-3.5 h-3.5" />
+          <span>Bookings &amp; Quotes</span>
+          {calls.filter(
+            (c) =>
+              c.outcome === "appointment_scheduled" ||
+              c.outcome === "quote_provided" ||
+              c.outcome === "transfer_requested"
+          ).length > 0 && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                activePreset === "bookings"
+                  ? "bg-indigo-700 text-white"
+                  : "bg-indigo-100 text-indigo-800"
+              }`}
+            >
+              {
+                calls.filter(
+                  (c) =>
+                    c.outcome === "appointment_scheduled" ||
+                    c.outcome === "quote_provided" ||
+                    c.outcome === "transfer_requested"
+                ).length
+              }
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActivePreset("messages")}
+          className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+            activePreset === "messages"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white border border-zinc-200 text-emerald-700 hover:bg-emerald-50/50"
+          }`}
+        >
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span>Messages Taken</span>
+          {calls.filter((c) => c.outcome === "message_taken").length > 0 && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                activePreset === "messages"
+                  ? "bg-emerald-700 text-white"
+                  : "bg-emerald-100 text-emerald-800"
+              }`}
+            >
+              {calls.filter((c) => c.outcome === "message_taken").length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActivePreset("needs_followup")}
+          className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+            activePreset === "needs_followup"
+              ? "bg-amber-500 text-zinc-950 shadow-sm"
+              : "bg-white border border-zinc-200 text-amber-800 hover:bg-amber-50/50"
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5 text-amber-600" />
+          <span>Needs Follow-up</span>
+          {calls.filter((c) => {
+            const isDone = c.is_followed_up ?? markedFollowedUp[c.id] ?? false;
+            return (
+              !isDone &&
+              (c.urgency === "emergency" || c.urgency === "urgent" || c.outcome === "message_taken")
+            );
+          }).length > 0 && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                activePreset === "needs_followup"
+                  ? "bg-amber-600 text-zinc-950"
+                  : "bg-amber-100 text-amber-900"
+              }`}
+            >
+              {
+                calls.filter((c) => {
+                  const isDone = c.is_followed_up ?? markedFollowedUp[c.id] ?? false;
+                  return (
+                    !isDone &&
+                    (c.urgency === "emergency" ||
+                      c.urgency === "urgent" ||
+                      c.outcome === "message_taken")
+                  );
+                }).length
+              }
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Filter and Search Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         {/* Search Bar */}
@@ -1019,15 +1380,15 @@ export default function CallsPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by caller, phone, address, or call ID..."
-            className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-300 bg-white text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-zinc-900 font-mono"
+            placeholder="Search by caller, phone, address, or service issue..."
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-300 bg-white text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-zinc-900 font-mono shadow-xs"
           />
         </div>
 
         {/* Filters Group */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Urgency Filter Tabs */}
-          <div className="flex items-center gap-1 p-1 rounded-xl border border-zinc-200 bg-white text-xs shadow-sm">
+          <div className="flex items-center gap-1 p-1 rounded-xl border border-zinc-200 bg-white text-xs shadow-xs">
             <button
               onClick={() => setFilterUrgency("")}
               className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all ${
@@ -1065,7 +1426,7 @@ export default function CallsPage() {
           <select
             value={filterOutcome}
             onChange={(e) => setFilterOutcome(e.target.value)}
-            className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-700 font-medium focus:outline-none focus:border-zinc-900 shadow-sm"
+            className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-700 font-medium focus:outline-none focus:border-zinc-900 shadow-xs"
           >
             <option value="">All Outcomes</option>
             <option value="message_taken">Message Taken</option>
@@ -1077,47 +1438,228 @@ export default function CallsPage() {
         </div>
       </div>
 
-      {/* Calls Table */}
-      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+      {/* Responsive Call List: Desktop Table (hidden on mobile) */}
+      <div className="hidden md:block overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
         <table className="w-full text-left text-xs">
           <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-bold">
             <tr>
-              <th className="p-3.5 w-32">Status / Urgency</th>
-              <th className="p-3.5">Caller Name</th>
-              <th className="p-3.5">Callback Number</th>
-              <th className="p-3.5">Service Address</th>
-              <th className="p-3.5">Duration &amp; Turns</th>
-              <th className="p-3.5 flex items-center gap-1">
-                P50 Latency
-                <InfoTrigger topic="call_latency_metrics" />
+              <th className="p-3.5 w-28">Status / Urgency</th>
+              <th className="p-3.5">Customer &amp; Request</th>
+              <th className="p-3.5 w-44">Callback &amp; Address</th>
+              <th className="p-3.5 w-32">Duration &amp; Turns</th>
+              <th className="p-3.5 w-28">
+                <span className="flex items-center gap-1">
+                  QA &amp; CSAT
+                  <InfoTrigger topic="call_latency_metrics" />
+                </span>
               </th>
-              <th className="p-3.5">QA &amp; CSAT</th>
-              <th className="p-3.5 text-right">Started At</th>
+              <th className="p-3.5 w-28 text-right">Date &amp; Time</th>
+              <th className="p-3.5 w-52 text-right">Quick Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 font-mono">
             {loading ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-zinc-500 font-mono">
+                <td colSpan={7} className="p-8 text-center text-zinc-500 font-mono">
                   Loading call records...
                 </td>
               </tr>
             ) : filteredCalls.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-zinc-500 font-sans">
+                <td colSpan={7} className="p-8 text-center text-zinc-500 font-sans">
                   No calls matching your criteria.
                 </td>
               </tr>
             ) : (
-              filteredCalls.map((call) => (
-                <tr
-                  key={call.id}
-                  onClick={() => handleSelectCall(call.id)}
-                  className={`cursor-pointer hover:bg-zinc-50 transition-colors ${
-                    selectedCallId === call.id ? "bg-zinc-100/80 font-medium" : ""
-                  }`}
-                >
-                  <td className="p-3.5">
+              filteredCalls.map((call) => {
+                const isDone = call.is_followed_up ?? markedFollowedUp[call.id] ?? false;
+
+                return (
+                  <tr
+                    key={call.id}
+                    onClick={() => handleSelectCall(call.id)}
+                    className={`cursor-pointer hover:bg-zinc-50 transition-colors ${
+                      selectedCallId === call.id ? "bg-zinc-100/80 font-medium" : ""
+                    }`}
+                  >
+                    <td className="p-3.5">
+                      {call.urgency === "emergency" ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
+                          🚨 Emergency
+                        </span>
+                      ) : call.urgency === "urgent" ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                          ⚠️ Urgent
+                        </span>
+                      ) : call.outcome === "message_taken" ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          📝 Message
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] text-zinc-600 bg-zinc-100 border border-zinc-200">
+                          Normal
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3.5 font-sans">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-zinc-900 text-xs">
+                          {call.caller_name || "Unknown Caller"}
+                        </span>
+                        {call.service_requested && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-zinc-100 text-zinc-700 border border-zinc-200">
+                            {call.service_requested}
+                          </span>
+                        )}
+                      </div>
+                      {call.summary && (
+                        <p
+                          className="text-[11px] text-zinc-600 italic line-clamp-1 max-w-sm mt-0.5"
+                          title={call.summary}
+                        >
+                          &ldquo;{call.summary}&rdquo;
+                        </p>
+                      )}
+                    </td>
+                    <td className="p-3.5">
+                      <div className="text-zinc-800 font-semibold font-mono text-xs">
+                        {call.caller_number || "Unavailable"}
+                      </div>
+                      <div
+                        className="text-[11px] text-zinc-500 font-sans truncate max-w-[170px]"
+                        title={call.service_address || "None specified"}
+                      >
+                        {call.service_address || "None specified"}
+                      </div>
+                    </td>
+                    <td className="p-3.5 text-zinc-600 font-mono">
+                      <div>
+                        {Math.floor(call.duration_s / 60)}m {Math.floor(call.duration_s % 60)}s
+                      </div>
+                      <div className="text-[10px] text-zinc-400 font-sans">
+                        {call.turn_count} turns
+                      </div>
+                    </td>
+                    <td className="p-3.5">
+                      <div className="flex items-center gap-1.5 font-mono">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            (call.qa_score ?? 100) >= 85
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : (call.qa_score ?? 100) >= 70
+                              ? "bg-amber-50 text-amber-700 border border-amber-200"
+                              : "bg-red-50 text-red-700 border border-red-200"
+                          }`}
+                        >
+                          {call.qa_score !== undefined ? `${Math.round(call.qa_score)}%` : "100%"}
+                        </span>
+                        <span className="text-zinc-700 font-sans text-[11px] font-bold flex items-center gap-0.5">
+                          <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                          {call.csat_score !== undefined ? call.csat_score.toFixed(1) : "5.0"}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-3.5 text-right font-sans">
+                      <div className="font-semibold text-zinc-900 text-xs">
+                        {new Date(call.started_at).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 font-mono">
+                        {new Date(call.started_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </div>
+                    </td>
+                    <td className="p-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1 font-sans">
+                        {call.caller_number && (
+                          <a
+                            href={`tel:${call.caller_number}`}
+                            className="p-1.5 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold flex items-center gap-1 border border-emerald-200 transition-colors shadow-2xs"
+                            title="Call customer back"
+                          >
+                            <PhoneCall className="w-3 h-3 text-emerald-600" />
+                            <span>Call</span>
+                          </a>
+                        )}
+                        {call.caller_number && (
+                          <a
+                            href={`sms:${call.caller_number}?body=Hi%20${encodeURIComponent(
+                              call.caller_name || ""
+                            )},%20this%20is%20regarding%20your%20call.`}
+                            className="p-1.5 px-2 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-bold flex items-center gap-1 border border-zinc-200 transition-colors shadow-2xs"
+                            title="Send SMS"
+                          >
+                            <Send className="w-3 h-3" />
+                            <span>SMS</span>
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleSelectCall(call.id);
+                            setTimeout(() => {
+                              handleTogglePlay();
+                            }, 300);
+                          }}
+                          className="p-1.5 px-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition-colors"
+                          title="Play Call Audio"
+                        >
+                          <Play className="w-3 h-3 fill-current text-emerald-400" />
+                          <span>Play</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFollowup(call.id, !isDone)}
+                          className={`p-1.5 px-2 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 border transition-colors shadow-2xs ${
+                            isDone
+                              ? "bg-emerald-50 border-emerald-300 text-emerald-700 font-bold"
+                              : "border-zinc-200 text-zinc-500 hover:bg-zinc-100"
+                          }`}
+                          title="Toggle Handled / Contacted status"
+                        >
+                          {isDone ? "✓ Handled" : "Contact"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Responsive Call List: Mobile Cards (< 768px) */}
+      <div className="block md:hidden space-y-3">
+        {loading ? (
+          <div className="p-8 text-center text-zinc-500 font-mono text-xs bg-white rounded-2xl border border-zinc-200">
+            Loading call records...
+          </div>
+        ) : filteredCalls.length === 0 ? (
+          <div className="p-8 text-center text-zinc-500 font-sans text-xs bg-white rounded-2xl border border-zinc-200">
+            No calls matching your criteria.
+          </div>
+        ) : (
+          filteredCalls.map((call) => {
+            const isDone = call.is_followed_up ?? markedFollowedUp[call.id] ?? false;
+
+            return (
+              <div
+                key={call.id}
+                onClick={() => handleSelectCall(call.id)}
+                className={`p-4 rounded-2xl border bg-white shadow-xs space-y-3 transition-colors cursor-pointer ${
+                  selectedCallId === call.id
+                    ? "border-emerald-500 bg-emerald-50/20 ring-1 ring-emerald-500"
+                    : "border-zinc-200 hover:border-zinc-300"
+                }`}
+              >
+                {/* Header: Urgency + Time + Handled status */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5">
                     {call.urgency === "emergency" ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-200">
                         🚨 Emergency
@@ -1135,76 +1677,112 @@ export default function CallsPage() {
                         Normal
                       </span>
                     )}
-                  </td>
-                  <td className="p-3.5 font-sans font-bold text-zinc-900">
-                    {call.caller_name || "Unknown Caller"}
-                  </td>
-                  <td className="p-3.5 text-zinc-800 font-semibold">
-                    {call.caller_number || "Unavailable"}
-                  </td>
-                  <td className="p-3.5 text-zinc-600 font-sans truncate max-w-xs">
-                    {call.service_address || "None specified"}
-                  </td>
-                  <td className="p-3.5 text-zinc-600">
-                    {Math.floor(call.duration_s / 60)}m {Math.floor(call.duration_s % 60)}s ({call.turn_count} turns)
-                  </td>
-                  <td className="p-3.5">
-                    <span
-                      className={`font-bold font-mono px-2 py-0.5 rounded-md text-[11px] ${
-                        call.latency_p50_ms < 1200
-                          ? "text-emerald-800 bg-emerald-100"
-                          : call.latency_p50_ms < 1600
-                          ? "text-amber-800 bg-amber-100"
-                          : "text-red-800 bg-red-100"
-                      }`}
-                    >
-                      {call.latency_p50_ms ? `${call.latency_p50_ms}ms` : "—"}
+
+                    <span className="text-[11px] font-mono text-zinc-500">
+                      {Math.floor(call.duration_s / 60)}m {Math.floor(call.duration_s % 60)}s
                     </span>
-                  </td>
-                  <td className="p-3.5">
-                    <div className="flex items-center gap-1.5 font-mono">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          (call.qa_score ?? 100) >= 85
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : (call.qa_score ?? 100) >= 70
-                            ? "bg-amber-50 text-amber-700 border border-amber-200"
-                            : "bg-red-50 text-red-700 border border-red-200"
-                        }`}
-                      >
-                        {call.qa_score !== undefined ? `${Math.round(call.qa_score)}%` : "100%"}
-                      </span>
-                      <span className="text-zinc-700 font-sans text-[11px] font-bold flex items-center gap-0.5">
-                        <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                        {call.csat_score !== undefined ? call.csat_score.toFixed(1) : "5.0"}
-                      </span>
-                      {call.qa_flags && call.qa_flags.length > 0 && (
-                        <span title={call.qa_flags.join(", ")} className="text-amber-600 text-xs">
-                          ⚠️
-                        </span>
-                      )}
+                  </div>
+
+                  <span className="text-[11px] font-sans text-zinc-500 font-medium">
+                    {new Date(call.started_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+
+                {/* Caller & Contact Info */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-zinc-900 font-sans">
+                      {call.caller_name || "Unknown Caller"}
+                    </span>
+                    <span className="text-xs font-mono font-semibold text-zinc-700">
+                      {call.caller_number || "Unavailable"}
+                    </span>
+                  </div>
+                  {call.service_address && (
+                    <div className="flex items-center gap-1.5 text-xs text-zinc-500 font-sans truncate">
+                      <MapPin className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                      <span className="truncate">{call.service_address}</span>
                     </div>
-                  </td>
-                  <td className="p-3.5 text-right font-sans">
-                    <div className="font-semibold text-zinc-900 text-xs">
-                      {new Date(call.started_at).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </div>
-                    <div className="text-[11px] text-zinc-500 font-mono">
-                      {new Date(call.started_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  )}
+                </div>
+
+                {/* Customer Request Summary Box */}
+                {(call.summary || call.service_requested) && (
+                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200/80 text-xs text-zinc-800 space-y-1">
+                    {call.service_requested && (
+                      <div className="font-semibold text-zinc-900 text-[11px]">
+                        🛠 {call.service_requested}
+                      </div>
+                    )}
+                    {call.summary && (
+                      <p className="text-zinc-600 italic line-clamp-2">
+                        &ldquo;{call.summary}&rdquo;
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Mobile Quick Action Buttons (Large, Touch-Friendly) */}
+                <div
+                  className="grid grid-cols-4 gap-1.5 pt-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {call.caller_number ? (
+                    <a
+                      href={`tel:${call.caller_number}`}
+                      className="py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-xs transition-colors"
+                    >
+                      <PhoneCall className="w-3.5 h-3.5" />
+                      Call
+                    </a>
+                  ) : (
+                    <div />
+                  )}
+                  {call.caller_number ? (
+                    <a
+                      href={`sms:${call.caller_number}?body=Hi%20${encodeURIComponent(
+                        call.caller_name || ""
+                      )},%20this%20is%20regarding%20your%20call.`}
+                      className="py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold text-xs flex items-center justify-center gap-1 border border-zinc-200 transition-colors"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      SMS
+                    </a>
+                  ) : (
+                    <div />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSelectCall(call.id);
+                      setTimeout(() => {
+                        handleTogglePlay();
+                      }, 300);
+                    }}
+                    className="py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-xs transition-colors"
+                  >
+                    <Play className="w-3 h-3 fill-current text-emerald-400" />
+                    Play
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleFollowup(call.id, !isDone)}
+                    className={`py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 border transition-colors ${
+                      isDone
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-800 font-bold"
+                        : "border-zinc-200 bg-white text-zinc-600"
+                    }`}
+                  >
+                    {isDone ? "✓ Done" : "Mark"}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Slide-out Call Detail Drawer with Audio Waveform & Turn Waterfall */}
@@ -1253,7 +1831,10 @@ export default function CallsPage() {
               )}
             </div>
             <button
-              onClick={() => setSelectedCallId(null)}
+              onClick={() => {
+                stopAudioPlayback();
+                setSelectedCallId(null);
+              }}
               className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors"
             >
               <X className="w-4 h-4" />
@@ -1299,22 +1880,28 @@ export default function CallsPage() {
                     </span>
 
                     {/* Dynamic Sound Source Badge */}
-                    <span className="text-[9px] uppercase tracking-wider bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
-                      <span className={`w-1.5 h-1.5 rounded-full bg-emerald-600 ${isPlaying ? "animate-ping" : ""}`} />
-                      Telephony Recording (HD Audio)
-                    </span>
+                    {audioSourceType === "stream" ? (
+                      <span className="text-[9px] uppercase tracking-wider bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
+                        <span className={`w-1.5 h-1.5 rounded-full bg-emerald-600 ${isPlaying ? "animate-ping" : ""}`} />
+                        Telephony HD Recording
+                      </span>
+                    ) : (
+                      <span className="text-[9px] uppercase tracking-wider bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
+                        <span className={`w-1.5 h-1.5 rounded-full bg-indigo-600 ${isPlaying ? "animate-ping" : ""}`} />
+                        Dual-Voice Replay (Receptionist ♀ &amp; Caller ♂)
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-1.5">
                     {/* Playback Speed Toggles */}
-                    {[1, 1.5, 2].map((spd) => (
+                    {([1, 1.25, 1.5, 2] as const).map((spd) => (
                       <button
                         key={spd}
                         type="button"
                         onClick={() => {
-                          const s = spd as 1 | 1.5 | 2;
-                          setPlaybackSpeed(s);
-                          if (audioRef.current) audioRef.current.playbackRate = s;
+                          setPlaybackSpeed(spd);
+                          if (audioRef.current) audioRef.current.playbackRate = spd;
                         }}
                         className={`px-2 py-0.5 rounded-lg text-[10px] font-mono transition-colors ${
                           playbackSpeed === spd
@@ -1351,16 +1938,36 @@ export default function CallsPage() {
                   })}
                 </div>
 
-                {/* Player Controls Bar */}
-                <div className="flex items-center justify-between gap-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleTogglePlay}
-                    className="p-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold transition-colors flex items-center gap-1.5 text-xs shadow-sm"
-                  >
-                    {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                    <span>{isPlaying ? "Pause" : "Play Recording"}</span>
-                  </button>
+                {/* Player Controls Bar with Skip and Turn-by-Turn Telemetry */}
+                <div className="flex items-center justify-between gap-2.5 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSkipTurn(-1)}
+                      title="Previous Turn / Skip -5s"
+                      className="p-2 rounded-lg bg-zinc-200/80 hover:bg-zinc-300 text-zinc-800 transition-colors shadow-2xs"
+                    >
+                      <SkipBack className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleTogglePlay}
+                      className="p-2 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold transition-colors flex items-center gap-1.5 text-xs shadow-sm"
+                    >
+                      {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                      <span>{isPlaying ? "Pause" : "Play Recording"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSkipTurn(1)}
+                      title="Next Turn / Skip +5s"
+                      className="p-2 rounded-lg bg-zinc-200/80 hover:bg-zinc-300 text-zinc-800 transition-colors shadow-2xs"
+                    >
+                      <SkipForward className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
                   <div
                     onClick={handleSeek}
@@ -1373,8 +1980,10 @@ export default function CallsPage() {
                     />
                   </div>
 
-                  <span className="text-[11px] font-mono text-zinc-600 font-semibold min-w-[70px] text-right">
-                    {Math.floor(audioCurrentTime)}s / {Math.round(detailCall.duration_s)}s
+                  <span className="text-[11px] font-mono text-zinc-600 font-semibold min-w-[85px] text-right">
+                    {activePlayingTurnIndex !== null && detailCall.transcript?.length
+                      ? `Turn ${activePlayingTurnIndex + 1}/${detailCall.transcript.length}`
+                      : `${Math.floor(audioCurrentTime)}s / ${Math.round(detailCall.duration_s)}s`}
                   </span>
                 </div>
               </div>
@@ -1449,13 +2058,26 @@ export default function CallsPage() {
                         )}
                       </div>
 
-                      <a
-                        href={`tel:${detailCall.message.phone}`}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-1 transition-colors shadow-xs"
-                      >
-                        <PhoneForwarded className="w-3 h-3" />
-                        Call Back
-                      </a>
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href={`tel:${detailCall.message.phone}`}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-1 transition-colors shadow-xs"
+                          title="Call customer"
+                        >
+                          <PhoneForwarded className="w-3 h-3" />
+                          Call Back
+                        </a>
+                        <a
+                          href={`sms:${detailCall.message.phone}?body=Hi%20${encodeURIComponent(
+                            detailCall.message.name || ""
+                          )},%20this%20is%20regarding%20your%20call.`}
+                          className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-bold flex items-center gap-1 transition-colors border border-zinc-200 shadow-xs"
+                          title="Text customer"
+                        >
+                          <Send className="w-3 h-3" />
+                          SMS
+                        </a>
+                      </div>
                     </div>
 
                     {detailCall.message.address && (
@@ -1507,19 +2129,20 @@ export default function CallsPage() {
 
                     <button
                       type="button"
-                      onClick={() =>
-                        setMarkedFollowedUp({
-                          ...markedFollowedUp,
-                          [detailCall.id]: !markedFollowedUp[detailCall.id],
-                        })
-                      }
-                      className={`text-[11px] font-mono px-2.5 py-1 rounded-lg border transition-colors ${
-                        markedFollowedUp[detailCall.id]
-                          ? "bg-emerald-50 border-emerald-300 text-emerald-700 font-bold"
+                      onClick={() => {
+                        const current =
+                          detailCall.is_followed_up ?? markedFollowedUp[detailCall.id] ?? false;
+                        handleToggleFollowup(detailCall.id, !current);
+                      }}
+                      className={`text-[11px] font-mono px-2.5 py-1 rounded-lg border transition-colors flex items-center gap-1 ${
+                        detailCall.is_followed_up ?? markedFollowedUp[detailCall.id]
+                          ? "bg-emerald-50 border-emerald-300 text-emerald-700 font-bold shadow-xs"
                           : "border-zinc-200 text-zinc-600 hover:bg-zinc-100"
                       }`}
                     >
-                      {markedFollowedUp[detailCall.id] ? "✓ Followed Up" : "Mark as Contacted"}
+                      {detailCall.is_followed_up ?? markedFollowedUp[detailCall.id]
+                        ? "✓ Followed Up (Saved)"
+                        : "Mark as Contacted"}
                     </button>
                   </div>
                 </div>
@@ -1753,38 +2376,107 @@ export default function CallsPage() {
                 </div>
               )}
 
-              {/* Turn-by-Turn Transcript with Micro-Latency Badges */}
+              {/* Turn-by-Turn Transcript with Micro-Latency Badges & Real-Time Speaking Sync */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
-                    Turn-by-Turn Transcript ({detailCall.transcript.length} turns)
-                  </h3>
-                  <span className="text-[10px] text-zinc-500 font-mono">
-                    Dialed: {detailCall.dialed_number}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
+                      Turn-by-Turn Transcript ({detailCall.transcript.length} turns)
+                    </h3>
+                    <span className="text-[10px] text-zinc-500 font-sans hidden sm:inline">
+                      • Click any turn to play
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAutoScrollTranscript(!autoScrollTranscript)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-mono border transition-colors flex items-center gap-1.5 ${
+                        autoScrollTranscript
+                          ? "bg-emerald-50 border-emerald-300 text-emerald-800 font-bold"
+                          : "bg-zinc-100 border-zinc-200 text-zinc-500"
+                      }`}
+                      title="Toggle auto-scrolling to active speech turn"
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          autoScrollTranscript ? "bg-emerald-600 animate-pulse" : "bg-zinc-400"
+                        }`}
+                      />
+                      Auto-scroll {autoScrollTranscript ? "On" : "Off"}
+                    </button>
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                      Dialed: {detailCall.dialed_number}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
                   {detailCall.transcript.map((entry, idx) => {
                     const isAssistant = entry.role === "assistant";
+                    const isCurrentSpeaking = activePlayingTurnIndex === idx;
                     const turnLatency =
                       isAssistant && detailCall.turn_latencies_ms?.[Math.floor(idx / 2)];
+                    const cleanedTurnText = cleanDialogueText(
+                      entry.text || (entry as any).content || ""
+                    );
 
                     return (
                       <div
                         key={idx}
-                        className={`p-3 rounded-xl text-xs leading-relaxed space-y-1 ${
-                          isAssistant
-                            ? "bg-indigo-50/60 border border-indigo-100 text-zinc-900"
-                            : "bg-white border border-zinc-200 text-zinc-900 font-medium shadow-2xs"
+                        id={`transcript-turn-${idx}`}
+                        onClick={() => handleJumpToTurn(idx)}
+                        title="Click to play from this sentence"
+                        className={`group p-3.5 rounded-2xl text-xs leading-relaxed space-y-2 cursor-pointer transition-all duration-200 relative ${
+                          isCurrentSpeaking
+                            ? "bg-emerald-50/95 border-2 border-emerald-500 shadow-md ring-2 ring-emerald-300/40 scale-[1.01]"
+                            : isAssistant
+                            ? "bg-violet-50/60 border border-violet-100/90 text-zinc-900 hover:border-violet-300"
+                            : "bg-white border border-zinc-200 text-zinc-900 font-medium shadow-2xs hover:border-zinc-300"
                         }`}
                       >
                         <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500">
-                          <span className={`uppercase font-bold ${isAssistant ? "text-indigo-700" : "text-zinc-700"}`}>
-                            {isAssistant ? "🤖 AI Receptionist" : "👤 Caller"}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`uppercase font-bold flex items-center gap-1.5 ${
+                                isCurrentSpeaking
+                                  ? "text-emerald-700 font-black"
+                                  : isAssistant
+                                  ? "text-violet-700"
+                                  : "text-zinc-700"
+                              }`}
+                            >
+                              {isAssistant ? (
+                                <>
+                                  <span className="px-1 py-0.2 rounded bg-violet-100 text-violet-800">
+                                    🤖
+                                  </span>
+                                  AI Receptionist (Female)
+                                </>
+                              ) : (
+                                <>
+                                  <span className="px-1 py-0.2 rounded bg-zinc-100 text-zinc-700">
+                                    👤
+                                  </span>
+                                  Caller (Male)
+                                </>
+                              )}
+                            </span>
+
+                            {isCurrentSpeaking && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[9px] font-bold shadow-2xs animate-pulse">
+                                <Volume2 className="w-2.5 h-2.5 text-emerald-600 animate-bounce" />
+                                Speaking now
+                              </span>
+                            )}
+                          </div>
 
                           <div className="flex items-center gap-2">
+                            {/* Hover Play Turn action indicator */}
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-emerald-700 font-sans flex items-center gap-0.5 font-bold">
+                              <Play className="w-2.5 h-2.5 fill-current" /> Play Turn
+                            </span>
+
                             {turnLatency && (
                               <span
                                 className={`px-1.5 py-0.5 rounded font-bold ${
@@ -1794,6 +2486,7 @@ export default function CallsPage() {
                                     ? "text-amber-700 bg-amber-50 border border-amber-200"
                                     : "text-red-700 bg-red-50 border border-red-200"
                                 }`}
+                                title={`Full Turnaround Latency: ${Math.round(turnLatency)}ms`}
                               >
                                 {Math.round(turnLatency)}ms
                               </span>
@@ -1801,7 +2494,9 @@ export default function CallsPage() {
                             <span>{entry.time ? new Date(entry.time).toLocaleTimeString() : ""}</span>
                           </div>
                         </div>
-                        <p className="font-sans leading-relaxed text-zinc-800">{entry.text}</p>
+                        <p className="font-sans leading-relaxed text-zinc-800 text-xs">
+                          {cleanedTurnText || entry.text}
+                        </p>
                       </div>
                     );
                   })}

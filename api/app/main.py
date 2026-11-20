@@ -1,6 +1,8 @@
 """FastAPI application entrypoint for VedaVoice platform."""
 
+import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -760,6 +762,10 @@ def init_db() -> None:
                         "ALTER TABLE calls ADD COLUMN supervisor_whispers JSON DEFAULT '[]' NOT NULL"
                     )
                 )
+            if "is_followed_up" not in existing_call_cols:
+                conn.execute(
+                    text("ALTER TABLE calls ADD COLUMN is_followed_up BOOLEAN DEFAULT 0 NOT NULL")
+                )
 
             # Usage records table columns
             cursor = conn.execute(text("PRAGMA table_info(usage_records)"))
@@ -1066,23 +1072,82 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE phone_numbers_new RENAME TO phone_numbers;"))
                 conn.execute(text("PRAGMA foreign_keys=ON;"))
 
+            # CRM connections table columns (Secret Vault Key Fingerprint)
+            cursor = conn.execute(text("PRAGMA table_info(crm_connections)"))
+            existing_crm_cols = {row[1] for row in cursor.fetchall()}
+            if "key_fingerprint" not in existing_crm_cols:
+                conn.execute(
+                    text("ALTER TABLE crm_connections ADD COLUMN key_fingerprint VARCHAR(32) NULL")
+                )
+
             conn.commit()
     seed_initial_data()
 
 
-# Database schema initialized cleanly in lifespan below
+# ============================================================================
+# AUTOMATED CRM TRANSACTIONAL OUTBOX BACKGROUND SWEEPER LOOP (GAP #1)
+# ============================================================================
+
+logger = logging.getLogger("vedavoice.outbox_sweeper")
+
+
+async def run_crm_outbox_sweeper_cycle(batch_size: int = 50) -> dict[str, Any]:
+    """Execute one pass of the outbox processor using an isolated DB session."""
+    from api.app.services.integrations.outbox_worker import process_outbox_batch
+
+    with SessionLocal() as db:
+        return await process_outbox_batch(db, batch_size=batch_size)
+
+
+async def _crm_outbox_sweeper_loop(
+    stop_event: asyncio.Event, interval_seconds: float = 60.0
+) -> None:
+    """Background periodic worker polling the CRM transactional outbox for pending & retryable sync jobs."""
+    logger.info("CRM Outbox Sweeper loop started (interval: %ss).", interval_seconds)
+    while not stop_event.is_set():
+        try:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+                break  # stop_event was signaled
+            except TimeoutError:
+                pass
+
+            res = await run_crm_outbox_sweeper_cycle()
+            if res.get("processed", 0) > 0:
+                logger.info(
+                    "CRM Outbox Sweeper completed cycle: %d processed, %d succeeded, %d failed, %d dead.",
+                    res["processed"],
+                    res["succeeded"],
+                    res["failed"],
+                    res["dead"],
+                )
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning("CRM Outbox Sweeper cycle encountered error: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    """Startup and shutdown events."""
+    """Startup and shutdown lifecycle with automated outbox sweeper."""
     try:
         init_db()
     except Exception as exc:
-        import logging
-
         logging.getLogger("uvicorn.error").error(f"Startup DB init error: {exc}")
-    yield
+
+    # Start automated 60-second background outbox sweeper
+    stop_event = asyncio.Event()
+    sweeper_task = asyncio.create_task(_crm_outbox_sweeper_loop(stop_event))
+
+    try:
+        yield
+    finally:
+        stop_event.set()
+        sweeper_task.cancel()
+        try:
+            await asyncio.wait_for(sweeper_task, timeout=5.0)
+        except (asyncio.CancelledError, TimeoutError, Exception):
+            pass
 
 
 app = FastAPI(

@@ -59,6 +59,16 @@ class SupervisorActionRequest(BaseModel):
     payload: dict[str, Any] = {}
 
 
+class CallFollowupUpdateRequest(BaseModel):
+    is_followed_up: bool
+
+
+class CallFollowupUpdateResponse(BaseModel):
+    id: str
+    call_id: str
+    is_followed_up: bool
+
+
 class CallListItem(BaseModel):
     id: str
     call_id: str
@@ -72,6 +82,9 @@ class CallListItem(BaseModel):
     latency_p50_ms: float
     caller_name: str | None = None
     service_address: str | None = None
+    summary: str | None = None
+    service_requested: str | None = None
+    is_followed_up: bool = False
     sentiment_label: str = "neutral"
     lead_score: float = 50.0
     lost_reason: str | None = None
@@ -96,6 +109,9 @@ class CallDetailResponse(BaseModel):
     turn_latencies_ms: list[float]
     transcript: list[dict[str, Any]]
     message: dict[str, Any] | None
+    summary: str | None = None
+    service_requested: str | None = None
+    is_followed_up: bool = False
     tags: list[str]
     recording_url: str | None = None
     sentiment_score: float = 0.0
@@ -369,6 +385,23 @@ def list_calls(
             seen_call_ids.add(c.call_id)
         caller_name = c.message.get("name") if c.message else None
         service_address = c.message.get("address") if c.message else None
+        summary = None
+        service_requested = None
+        if c.message:
+            summary = (
+                c.message.get("summary")
+                or c.message.get("issue")
+                or c.message.get("message")
+                or c.message.get("notes")
+            )
+            service_requested = c.message.get("service_requested") or c.message.get("service")
+        if not summary and c.transcript:
+            for t in c.transcript:
+                role = t.get("role", "")
+                text = t.get("text") or t.get("content") or ""
+                if role in ("caller", "user", "customer") and text.strip():
+                    summary = text.strip()[:140]
+                    break
 
         results.append(
             CallListItem(
@@ -384,6 +417,9 @@ def list_calls(
                 latency_p50_ms=c.latency_p50_ms,
                 caller_name=caller_name,
                 service_address=service_address,
+                summary=summary,
+                service_requested=service_requested,
+                is_followed_up=bool(getattr(c, "is_followed_up", False)),
                 sentiment_label=getattr(c, "sentiment_label", "neutral") or "neutral",
                 lead_score=getattr(c, "lead_score", 50.0) or 50.0,
                 lost_reason=getattr(c, "lost_reason", None),
@@ -413,6 +449,24 @@ def get_call_detail(
     if not call:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
 
+    summary = None
+    service_requested = None
+    if call.message:
+        summary = (
+            call.message.get("summary")
+            or call.message.get("issue")
+            or call.message.get("message")
+            or call.message.get("notes")
+        )
+        service_requested = call.message.get("service_requested") or call.message.get("service")
+    if not summary and call.transcript:
+        for t in call.transcript:
+            role = t.get("role", "")
+            text = t.get("text") or t.get("content") or ""
+            if role in ("caller", "user", "customer") and text.strip():
+                summary = text.strip()[:140]
+                break
+
     return CallDetailResponse(
         id=call.id,
         call_id=call.call_id,
@@ -429,6 +483,9 @@ def get_call_detail(
         turn_latencies_ms=call.turn_latencies_ms,
         transcript=call.transcript,
         message=call.message,
+        summary=summary,
+        service_requested=service_requested,
+        is_followed_up=bool(getattr(call, "is_followed_up", False)),
         tags=call.tags,
         recording_url=call.recording_url or f"/api/v1/portal/calls/{call.call_id}/audio-stream",
         sentiment_score=getattr(call, "sentiment_score", 0.0) or 0.0,
@@ -448,6 +505,32 @@ def get_call_detail(
         csat_rationale=getattr(call, "csat_rationale", None),
         qa_reviewed_by=getattr(call, "qa_reviewed_by", None),
         qa_reviewed_at=getattr(call, "qa_reviewed_at", None),
+    )
+
+
+@router.patch("/calls/{call_id}/followup", response_model=CallFollowupUpdateResponse)
+def update_call_followup(
+    call_id: str,
+    req: CallFollowupUpdateRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> Any:
+    """Update or toggle follow-up / handled status on a call record strictly for this tenant."""
+    stmt = select(Call).where(
+        (Call.id == call_id) | (Call.call_id == call_id), Call.tenant_id == tenant.id
+    )
+    call = db.scalars(stmt).first()
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call record not found")
+
+    call.is_followed_up = req.is_followed_up
+    db.commit()
+    db.refresh(call)
+
+    return CallFollowupUpdateResponse(
+        id=call.id,
+        call_id=call.call_id,
+        is_followed_up=call.is_followed_up,
     )
 
 

@@ -79,6 +79,7 @@ class Call(Base):
     csat_rationale: Mapped[str | None] = mapped_column(String(512), nullable=True)
     qa_reviewed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qa_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_followed_up: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

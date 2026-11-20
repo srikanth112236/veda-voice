@@ -43,6 +43,9 @@ export interface CallListItem {
   latency_p50_ms: number;
   caller_name: string | null;
   service_address: string | null;
+  summary?: string | null;
+  service_requested?: string | null;
+  is_followed_up?: boolean;
   sentiment_label?: string;
   lead_score?: number;
   lost_reason?: string | null;
@@ -74,6 +77,9 @@ export interface CallDetail {
     address?: string;
     phone_confirmed?: boolean;
   } | null;
+  summary?: string | null;
+  service_requested?: string | null;
+  is_followed_up?: boolean;
   tags: string[];
   recording_url?: string | null;
   sentiment_score?: number;
@@ -543,6 +549,7 @@ export interface CRMIntegrationItem {
   last_synced_at?: string | null;
   last_sync_at?: string | null;
   last_error?: string | null;
+  key_fingerprint?: string | null;
   credentials_masked?: Record<string, string>;
   created_at: string;
 }
@@ -655,6 +662,15 @@ export const api = {
 
   getPortalCallDetail: (callId: string) =>
     request<CallDetail>(`/api/v1/portal/calls/${callId}`),
+
+  updateCallFollowup: (callId: string, isFollowedUp: boolean) =>
+    request<{ id: string; call_id: string; is_followed_up: boolean }>(
+      `/api/v1/portal/calls/${callId}/followup`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ is_followed_up: isFollowedUp }),
+      }
+    ),
 
   createTestCallSession: () =>
     request<TestCallSessionResponse>("/api/v1/portal/calls/test-session", {
