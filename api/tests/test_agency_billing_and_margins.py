@@ -64,8 +64,8 @@ def test_setup_agency_admin() -> dict[str, Any]:
                     tenant_id=tenant.id,
                     call_id=f"call-analytics-{i}-{tenant.id[:8]}",
                     direction="inbound",
-                    from_e164="+15125550199",
-                    to_e164="+15125550100",
+                    caller_number="+15125550199",
+                    dialed_number="+15125550100",
                     started_at=datetime.now(UTC) - timedelta(minutes=10 * (i + 1)),
                     ended_at=datetime.now(UTC) - timedelta(minutes=10 * i),
                     duration_s=180,  # 3 minutes
