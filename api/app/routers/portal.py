@@ -219,6 +219,9 @@ class UpdateAgentProfileRequest(BaseModel):
     mid_call_sms_enabled: bool | None = None
     disconnect_recovery_sms_enabled: bool | None = None
     disconnect_recovery_sms_text: str | None = None
+    auto_sms_reminders_enabled: bool | None = None
+    reminder_lead_hours: int | None = None
+    custom_reminder_template: str | None = None
 
 
 class AgentProfileResponse(BaseModel):
@@ -265,6 +268,9 @@ class AgentProfileResponse(BaseModel):
     mid_call_sms_enabled: bool = True
     disconnect_recovery_sms_enabled: bool = True
     disconnect_recovery_sms_text: str = ""
+    auto_sms_reminders_enabled: bool = True
+    reminder_lead_hours: int = 24
+    custom_reminder_template: str = ""
 
 
 @router.get("/dashboard", response_model=TenantDashboardStats)
@@ -1504,6 +1510,11 @@ def get_agent_profile(
         if getattr(profile, "disconnect_recovery_sms_enabled", None) is None
         else bool(profile.disconnect_recovery_sms_enabled),
         disconnect_recovery_sms_text=getattr(profile, "disconnect_recovery_sms_text", "") or "",
+        auto_sms_reminders_enabled=True
+        if getattr(profile, "auto_sms_reminders_enabled", None) is None
+        else bool(profile.auto_sms_reminders_enabled),
+        reminder_lead_hours=int(getattr(profile, "reminder_lead_hours", 24) or 24),
+        custom_reminder_template=getattr(profile, "custom_reminder_template", "") or "",
     )
 
 
@@ -1611,6 +1622,12 @@ def update_agent_profile(
         profile.disconnect_recovery_sms_enabled = req.disconnect_recovery_sms_enabled
     if req.disconnect_recovery_sms_text is not None:
         profile.disconnect_recovery_sms_text = req.disconnect_recovery_sms_text
+    if req.auto_sms_reminders_enabled is not None:
+        profile.auto_sms_reminders_enabled = req.auto_sms_reminders_enabled
+    if req.reminder_lead_hours is not None:
+        profile.reminder_lead_hours = req.reminder_lead_hours
+    if req.custom_reminder_template is not None:
+        profile.custom_reminder_template = req.custom_reminder_template
 
     profile.updated_at = datetime.now(UTC)
     db.commit()
@@ -1696,6 +1713,11 @@ def update_agent_profile(
         if getattr(profile, "disconnect_recovery_sms_enabled", None) is None
         else bool(profile.disconnect_recovery_sms_enabled),
         disconnect_recovery_sms_text=getattr(profile, "disconnect_recovery_sms_text", "") or "",
+        auto_sms_reminders_enabled=True
+        if getattr(profile, "auto_sms_reminders_enabled", None) is None
+        else bool(profile.auto_sms_reminders_enabled),
+        reminder_lead_hours=int(getattr(profile, "reminder_lead_hours", 24) or 24),
+        custom_reminder_template=getattr(profile, "custom_reminder_template", "") or "",
     )
 
 

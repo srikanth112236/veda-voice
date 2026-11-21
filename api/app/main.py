@@ -31,6 +31,7 @@ from api.app.routers.admin import router as admin_router
 from api.app.routers.agency import router as agency_router
 from api.app.routers.auth import router as auth_router
 from api.app.routers.calendar import router as calendar_router
+from api.app.routers.campaigns import router as campaigns_router
 from api.app.routers.compliance import router as compliance_router
 from api.app.routers.crm import router as crm_router
 from api.app.routers.forms import router as forms_router
@@ -42,6 +43,7 @@ from api.app.routers.leads import router as leads_router
 from api.app.routers.locations import router as locations_router
 from api.app.routers.numbers import router as numbers_router
 from api.app.routers.portal import router as portal_router
+from api.app.routers.public_reschedule import router as public_reschedule_router
 from api.app.routers.staff import router as staff_router
 from api.app.routers.subscriptions import router as subscriptions_router
 from api.app.services.entitlements import DEFAULT_FEATURE_FLAGS, PLAN_ENTITLEMENTS_MATRIX
@@ -809,6 +811,24 @@ def init_db() -> None:
                         "ALTER TABLE agent_profiles ADD COLUMN calendar_buffer_reason VARCHAR(64) DEFAULT 'travel_and_reset' NOT NULL"
                     )
                 )
+            if "auto_sms_reminders_enabled" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN auto_sms_reminders_enabled BOOLEAN DEFAULT 1 NOT NULL"
+                    )
+                )
+            if "reminder_lead_hours" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN reminder_lead_hours INTEGER DEFAULT 24 NOT NULL"
+                    )
+                )
+            if "custom_reminder_template" not in existing_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE agent_profiles ADD COLUMN custom_reminder_template TEXT DEFAULT '' NOT NULL"
+                    )
+                )
 
             # Tenants table capacity columns
             cursor = conn.execute(text("PRAGMA table_info(tenants)"))
@@ -1135,6 +1155,20 @@ def init_db() -> None:
                 conn.execute(
                     text("ALTER TABLE bookings ADD COLUMN arrival_window_end DATETIME NULL")
                 )
+            if "reschedule_token" not in existing_booking_cols:
+                conn.execute(
+                    text("ALTER TABLE bookings ADD COLUMN reschedule_token VARCHAR(64) NULL")
+                )
+            if "reminder_sent_at" not in existing_booking_cols:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN reminder_sent_at DATETIME NULL"))
+            if "confirmed_via_sms_at" not in existing_booking_cols:
+                conn.execute(
+                    text("ALTER TABLE bookings ADD COLUMN confirmed_via_sms_at DATETIME NULL")
+                )
+            if "confirmation_channel" not in existing_booking_cols:
+                conn.execute(
+                    text("ALTER TABLE bookings ADD COLUMN confirmation_channel VARCHAR(32) NULL")
+                )
 
             # Multi-Location columns (Milestone M11)
             cursor = conn.execute(text("PRAGMA table_info(phone_numbers)"))
@@ -1255,9 +1289,16 @@ def init_db() -> None:
                 "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_minutes INTEGER DEFAULT 15 NOT NULL;",
                 "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_mode VARCHAR(32) DEFAULT 'after' NOT NULL;",
                 "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_reason VARCHAR(64) DEFAULT 'travel_and_reset' NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS auto_sms_reminders_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS reminder_lead_hours INTEGER DEFAULT 24 NOT NULL;",
+                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS custom_reminder_template TEXT DEFAULT '' NOT NULL;",
                 "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_arrival_window BOOLEAN DEFAULT FALSE NOT NULL;",
                 "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS arrival_window_start TIMESTAMP WITH TIME ZONE NULL;",
                 "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS arrival_window_end TIMESTAMP WITH TIME ZONE NULL;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reschedule_token VARCHAR(64) NULL;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP WITH TIME ZONE NULL;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmed_via_sms_at TIMESTAMP WITH TIME ZONE NULL;",
+                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmation_channel VARCHAR(32) NULL;",
             ]
             for stmt in pg_statements:
                 try:
@@ -1374,6 +1415,11 @@ app.include_router(industry_packs_router, prefix="/api/v1")
 app.include_router(industry_packs_router)
 app.include_router(locations_router, prefix="/api/v1")
 app.include_router(locations_router)
+app.include_router(public_reschedule_router, prefix="/api/v1")
+app.include_router(public_reschedule_router, prefix="/v1")
+app.include_router(public_reschedule_router)
+app.include_router(campaigns_router, prefix="/api/v1")
+app.include_router(campaigns_router)
 
 
 @app.get("/", tags=["system"])

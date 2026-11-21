@@ -150,6 +150,9 @@ class AgentProfile(Base):
     calendar_buffer_reason: Mapped[str] = mapped_column(
         String(64), default="travel_and_reset", nullable=False
     )
+    auto_sms_reminders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    reminder_lead_hours: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
+    custom_reminder_template: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

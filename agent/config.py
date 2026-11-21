@@ -251,14 +251,17 @@ def load_tenants_registry(
             if not norm_num:
                 continue
 
-            # Reject two distinct tenants sharing a number at load time
+            # Warn on duplicate dialed number across distinct tenants and overwrite with latest
             if norm_num in registry and registry[norm_num].tenant_id != tenant.tenant_id:
                 if registry[norm_num].business.strip().lower() == tenant.business.strip().lower():
                     # Same business name (e.g. database sync vs static config) - keep the current one without error
                     continue
-                raise ValueError(
-                    f"Duplicate dialed number '{norm_num}' assigned to multiple tenants: "
-                    f"'{registry[norm_num].tenant_id}' and '{tenant.tenant_id}'"
+                logger.warning(
+                    "Duplicate dialed number '%s' assigned to multiple tenants: "
+                    "'%s' and '%s'. Overwriting with latest config.",
+                    norm_num,
+                    registry[norm_num].tenant_id,
+                    tenant.tenant_id,
                 )
             registry[norm_num] = tenant
 

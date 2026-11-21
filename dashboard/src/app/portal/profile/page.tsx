@@ -205,6 +205,11 @@ export default function ReceptionistProfilePage() {
           disconnect_recovery_sms_text:
             profRes.disconnect_recovery_sms_text ||
             "We noticed our call disconnected! Tap here to resume your service request or view technician status: https://app.vedavoice.com/resume",
+          auto_sms_reminders_enabled: profRes.auto_sms_reminders_enabled !== false,
+          reminder_lead_hours: profRes.reminder_lead_hours || 24,
+          custom_reminder_template:
+            profRes.custom_reminder_template ||
+            "Reminder from {{tenant_name}}: Your {{service_type}} appointment is on {{date}} at {{time}}. Reply C to confirm or click: {{reschedule_link}}. Reply STOP to opt out.",
           pricing_mode: profRes.pricing_mode || "no_quote",
           price_items:
             profRes.price_items && profRes.price_items.length > 0
@@ -2187,6 +2192,127 @@ export default function ReceptionistProfilePage() {
                     "We noticed our call disconnected! Tap here to resume: https://app.vedavoice.com/resume"}
                 </div>
               </div>
+            </div>
+
+            {/* 2-Way SMS Confirmation & Automated 24h Reminders */}
+            <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-emerald-500" />
+                    <span>Automated Appointment Reminder Texts & 2-Way Reschedule</span>
+                  </h4>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    Sends automatic SMS reminders to booked customers with 1-tap reschedule links and 2-way text responses (Reply C to confirm, CANCEL, or RESCHEDULE).
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={profile.auto_sms_reminders_enabled !== false}
+                    onChange={(e) =>
+                      setProfile({ ...profile, auto_sms_reminders_enabled: e.target.checked })
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+
+              {profile.auto_sms_reminders_enabled !== false && (
+                <div className="space-y-4 p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800">
+                  {/* Lead Hours Selector */}
+                  <div>
+                    <label className="block text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-1.5">
+                      Reminder Dispatch Timing Before Appointment
+                    </label>
+                    <div className="flex gap-2">
+                      {[12, 24, 48].map((hours) => (
+                        <button
+                          key={hours}
+                          type="button"
+                          onClick={() => setProfile({ ...profile, reminder_lead_hours: hours })}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                            (profile.reminder_lead_hours || 24) === hours
+                              ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-500 dark:text-emerald-400"
+                              : "bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300"
+                          }`}
+                        >
+                          {hours} Hours Prior {hours === 24 ? "(Recommended)" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Template Editor */}
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+                      SMS Template Customizer
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={profile.custom_reminder_template || ""}
+                      onChange={(e) =>
+                        setProfile({ ...profile, custom_reminder_template: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 font-mono text-zinc-900 dark:text-zinc-100"
+                    />
+
+                    {/* Variable Pills */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-zinc-400 mr-1">Insert Variable:</span>
+                      {[
+                        "{{customer_name}}",
+                        "{{service_type}}",
+                        "{{tenant_name}}",
+                        "{{date}}",
+                        "{{time}}",
+                        "{{reschedule_link}}",
+                      ].map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => {
+                            const cur = profile.custom_reminder_template || "";
+                            setProfile({
+                              ...profile,
+                              custom_reminder_template: `${cur} ${tag}`.trim(),
+                            });
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Smartphone Reminder Preview */}
+                  <div className="pt-2">
+                    <span className="block text-[10px] font-mono uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Live Customer Handset Preview
+                    </span>
+                    <div className="w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-300 dark:border-zinc-700 p-3 shadow-xs">
+                      <div className="flex items-center justify-between text-[10px] text-zinc-400 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                        <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                          {profile.business_name || "Apex Plumbing"}
+                        </span>
+                        <span>SMS • 24h Reminder</span>
+                      </div>
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-emerald-600 text-white text-[11px] font-sans leading-relaxed">
+                        {(profile.custom_reminder_template || "")
+                          .replace("{{customer_name}}", "Jane Doe")
+                          .replace("{{service_type}}", "Drain Cleaning")
+                          .replace("{{tenant_name}}", profile.business_name || "Apex Plumbing")
+                          .replace("{{date}}", "Tomorrow, 2:00 PM")
+                          .replace("{{time}}", "2:00 PM EST")
+                          .replace("{{reschedule_link}}", "https://app.vedavoice.com/reschedule/sample-token") ||
+                          `Reminder from ${profile.business_name || "Apex Plumbing"}: Your Drain Cleaning appointment is tomorrow at 2:00 PM EST. Reply C to confirm or 1-tap: https://app.vedavoice.com/reschedule/sample-token. Reply STOP to opt out.`}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

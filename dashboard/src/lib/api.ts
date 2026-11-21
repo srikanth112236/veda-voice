@@ -327,6 +327,61 @@ export interface AgentProfile {
   mid_call_sms_enabled?: boolean;
   disconnect_recovery_sms_enabled?: boolean;
   disconnect_recovery_sms_text?: string;
+  auto_sms_reminders_enabled?: boolean;
+  reminder_lead_hours?: number;
+  custom_reminder_template?: string;
+}
+
+export interface PublicBookingDetails {
+  booking_id: string;
+  reschedule_token: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email?: string | null;
+  service_type: string;
+  service_label: string;
+  status: string;
+  start_at: string;
+  end_at: string;
+  duration_minutes: number;
+  timezone: string;
+  business_name: string;
+  business_phone: string;
+  formatted_time: string;
+  formatted_date: string;
+  is_arrival_window?: boolean;
+  arrival_window_start?: string | null;
+  arrival_window_end?: string | null;
+}
+
+export interface PublicRescheduleSlot {
+  start_iso: string;
+  end_iso: string;
+  display_time: string;
+  is_available: boolean;
+  is_arrival_window?: boolean;
+  window_start_iso?: string | null;
+  window_end_iso?: string | null;
+  buffer_minutes?: number;
+}
+
+export interface PublicAvailableSlotsResponse {
+  tenant_id: string;
+  target_date: string;
+  timezone: string;
+  slots: PublicRescheduleSlot[];
+  available_count: number;
+}
+
+export interface PublicRescheduleResult {
+  success: boolean;
+  booking_id: string;
+  status: string;
+  new_start_at: string;
+  new_end_at: string;
+  formatted_date: string;
+  formatted_time: string;
+  message: string;
 }
 
 export interface AvailableNumberItem {
@@ -425,6 +480,11 @@ export interface PlatformStats {
   avg_latency_p50_ms: number;
   active_phone_numbers: number;
   // Concurrency Telemetry
+  scale_plan_limit?: number;
+  warn_threshold_concurrency?: number;
+  critical_threshold_concurrency?: number;
+  concurrency_alert_level?: "normal" | "warning_60" | "critical_80";
+  concurrency_alert_message?: string;
   global_max_concurrent: number;
   active_inbound_calls: number;
   inbound_saturation_pct: number;
@@ -452,6 +512,10 @@ export interface TenantSummary {
   monthly_minute_quota?: number;
   minutes_used?: number;
   health_status?: string;
+  plan_code?: string;
+  monthly_revenue_usd?: number;
+  monthly_cogs_usd?: number;
+  gross_margin_pct?: number;
 }
 
 export interface ContactItem {
@@ -1657,6 +1721,21 @@ export const api = {
       message?: string;
       location: Partial<TenantLocation> | null;
     }>("/api/v1/portal/locations/resolve", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // Public Customer 1-Tap Reschedule
+  getPublicBooking: (token: string) =>
+    request<PublicBookingDetails>(`/api/v1/public/reschedule/${token}`),
+
+  getPublicRescheduleSlots: (token: string, targetDate?: string) =>
+    request<PublicAvailableSlotsResponse>(
+      `/api/v1/public/reschedule/${token}/slots${targetDate ? `?target_date=${targetDate}` : ""}`
+    ),
+
+  executePublicReschedule: (token: string, data: { slot_start: string; notes?: string }) =>
+    request<PublicRescheduleResult>(`/api/v1/public/reschedule/${token}`, {
       method: "POST",
       body: JSON.stringify(data),
     }),

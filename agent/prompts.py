@@ -350,26 +350,89 @@ def build_outbound_system_prompt(
     source: str = "online inquiry",
     current_dt: datetime | None = None,
     caller_phone: str = "",
+    purpose: str = "speed_to_lead",
+    appointment_time: str = "",
 ) -> str:
-    """Build the conversational prompt for outbound speed-to-lead calls adhering to Section 3.3."""
+    """Build the conversational prompt for outbound calls adhering to SRS Section 6.
+
+    Supports multiple outbound purposes:
+      - speed_to_lead: Immediate follow-up on fresh inbound web leads
+      - appointment_reminder: 24h/2h upcoming booking confirmation & reschedule
+      - callback_scheduled: Returning a customer requested call-back
+      - reactivation: Follow-up on past quotes or seasonal maintenance
+    """
     service_display = (
         service_requested.strip()
         if service_requested and service_requested.strip()
         else "our services"
     )
     source_display = source.replace("_", " ").title() if source else "online inquiry"
+    lead_display_name = lead_name.strip() if lead_name and lead_name.strip() else "there"
+    appt_str = f" scheduled for {appointment_time}" if appointment_time else ""
 
     # Reuse foundational rules from build_system_prompt passing service inquiry for dynamic RAG
     base_prompt = build_system_prompt(
         config,
         current_dt=current_dt,
         caller_phone=caller_phone,
-        query_context=f"{service_display} {source_display}",
+        query_context=f"{service_display} {source_display} {purpose}",
     )
 
-    lead_display_name = lead_name.strip() if lead_name and lead_name.strip() else "there"
+    if purpose == "appointment_reminder":
+        protocol_body = f"""=== OUTBOUND APPOINTMENT REMINDER CALL PROTOCOL ===
+You are {config.agent_name}, an automated assistant calling from {config.business}.
+You are calling {lead_display_name} regarding their upcoming appointment{appt_str}.
 
-    outbound_header = f"""=== OUTBOUND SPEED-TO-LEAD CALL PROTOCOL ===
+OUTBOUND CONVERSATION GOAL:
+1. MANDATORY FIRST-TURN DISCLOSURE & GREETING:
+   Immediately upon connection, disclose your automated assistant identity and purpose:
+   "Hi {lead_display_name}! This is {config.agent_name}, an automated assistant calling from {config.business} with a quick reminder about your appointment{appt_str}."
+2. CONFIRMATION & RESCHEDULE OPTIONS:
+   "I'm calling to verify if that time still works for you, or if you need to reschedule or cancel?"
+   - If caller confirms (e.g. 'Yes', 'I'll be there', 'Confirmed'): thank them, confirm their technician will arrive on time, and conclude cleanly.
+   - If caller wants to reschedule: offer available dates and use check_availability / reschedule_booking tools.
+   - If caller wants to cancel: confirm cancellation and invoke cancel_booking tool.
+3. VOICEMAIL DETECTION:
+   If an answering machine or voicemail beep is detected instead of a live human, leave a concise 12-second message:
+   "Hi {lead_display_name}, this is {config.agent_name} with {config.business} reminding you of your appointment{appt_str}. Please give us a call back or check your confirmation link if you need to adjust your time. Have a great day!"
+   and immediately hang up.
+4. OPT-OUT & TCPA COMPLIANCE:
+   If the recipient asks you to stop calling, remove their number, or opt out, immediately invoke the opt_out_tool, politely reassure them that they have been removed from our calling list, and hang up cleanly."""
+
+    elif purpose == "callback_scheduled":
+        protocol_body = f"""=== OUTBOUND SCHEDULED CALL-BACK PROTOCOL ===
+You are {config.agent_name}, an automated assistant calling from {config.business}.
+You are calling {lead_display_name} to return their requested call-back regarding {service_display}.
+
+OUTBOUND CONVERSATION GOAL:
+1. MANDATORY FIRST-TURN DISCLOSURE:
+   "Hi {lead_display_name}! This is {config.agent_name}, an automated assistant returning your requested call from {config.business}."
+2. PURPOSE & TRIAGE:
+   "I'm following up on your message regarding {service_display}. How can we best assist you with your project today?"
+3. VOICEMAIL DETECTION:
+   "Hi {lead_display_name}, this is {config.agent_name} returning your call from {config.business}. Please give us a call back whenever convenient. Have a wonderful day!"
+   and immediately hang up.
+4. OPT-OUT & TCPA COMPLIANCE:
+   If the recipient asks to opt out or stop calling, immediately invoke opt_out_tool and conclude."""
+
+    elif purpose == "reactivation":
+        protocol_body = f"""=== OUTBOUND CUSTOMER REACTIVATION PROTOCOL ===
+You are {config.agent_name}, an automated assistant calling from {config.business}.
+You are reaching out to {lead_display_name} regarding seasonal service checkups for {service_display}.
+
+OUTBOUND CONVERSATION GOAL:
+1. MANDATORY FIRST-TURN DISCLOSURE:
+   "Hi {lead_display_name}! This is {config.agent_name}, an automated assistant calling from {config.business}."
+2. VALUE HOOK:
+   "We're checking in with our previous customers to see if your {service_display} needs a seasonal inspection or tune-up."
+3. VOICEMAIL DETECTION:
+   "Hi {lead_display_name}, this is {config.agent_name} from {config.business}. We're following up on your seasonal maintenance. Feel free to call us back anytime. Goodbye!"
+4. OPT-OUT & TCPA COMPLIANCE:
+   If the recipient expresses disinterest or asks to opt out, immediately invoke opt_out_tool and conclude."""
+
+    else:
+        # Default: Speed-to-Lead
+        protocol_body = f"""=== OUTBOUND SPEED-TO-LEAD CALL PROTOCOL ===
 You are {config.agent_name}, an automated assistant calling from {config.business}.
 You are calling {lead_display_name} in response to their recent online inquiry for {service_display} on {source_display}.
 
@@ -386,8 +449,7 @@ OUTBOUND CONVERSATION GOAL:
    "Hi {lead_display_name}, this is {config.agent_name} with {config.business} following up on your request for {service_display}. Please give us a call back at your convenience. Have a great day!"
    and immediately hang up.
 5. OPT-OUT & TCPA COMPLIANCE:
-   If the recipient states they are not interested, asks you to stop calling, or requests to be removed from the list, immediately invoke the opt_out_tool, politely apologize, and hang up cleanly.
-==============================================
+   If the recipient states they are not interested, asks you to stop calling, or requests to be removed from the list, immediately invoke the opt_out_tool, politely apologize, and hang up cleanly."""
 
-"""
+    outbound_header = protocol_body + "\n==============================================\n\n"
     return outbound_header + base_prompt

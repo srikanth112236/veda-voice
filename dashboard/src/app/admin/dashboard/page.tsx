@@ -481,6 +481,65 @@ function AdminDashboardContent() {
         </div>
       </div>
 
+      {/* LiveKit Scale Plan Concurrency Warning / Alarm Banner (SRS 4.3, 17.1) */}
+      {(stats?.concurrency_alert_level === "critical_80" ||
+        stats?.concurrency_alert_level === "warning_60" ||
+        (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 30)) && (
+        <div
+          className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs ${
+            stats?.concurrency_alert_level === "critical_80" ||
+            (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
+              ? "bg-rose-50 border-rose-200 text-rose-900"
+              : "bg-amber-50 border-amber-200 text-amber-900"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                stats?.concurrency_alert_level === "critical_80" ||
+                (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
+                  ? "bg-rose-100 text-rose-600"
+                  : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-xs font-bold font-mono uppercase tracking-wide flex items-center gap-2">
+                <span>
+                  {stats?.concurrency_alert_level === "critical_80" ||
+                  (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
+                    ? "Critical Concurrency Alert (80% Scale Limit)"
+                    : "Concurrency Advisory (60% Scale Limit)"}
+                </span>
+                <span className="px-2 py-0.2 rounded-full text-[10px] font-mono bg-white/80 border border-current">
+                  {(stats?.active_inbound_calls || 0) + (stats?.active_outbound_calls || 0)} /{" "}
+                  {stats?.scale_plan_limit || 50} Channels Active
+                </span>
+              </div>
+              <p className="text-xs mt-0.5 opacity-90">
+                {stats?.concurrency_alert_message ||
+                  "Platform concurrency has reached the advisory threshold. Request a project limit increase in the LiveKit Console before peak traffic."}
+              </p>
+            </div>
+          </div>
+          <a
+            href="https://cloud.livekit.io/projects/settings"
+            target="_blank"
+            rel="noreferrer"
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 flex items-center gap-1.5 shadow-xs transition-colors ${
+              stats?.concurrency_alert_level === "critical_80" ||
+              (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
+                ? "bg-rose-600 hover:bg-rose-700 text-white"
+                : "bg-amber-700 hover:bg-amber-800 text-white"
+            }`}
+          >
+            <span>LiveKit Console</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      )}
+
       {/* Primary KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
@@ -1980,7 +2039,8 @@ function AdminDashboardContent() {
                 <th className="p-3">Organization Name</th>
                 <th className="p-3">Timezone / Hours</th>
                 <th className="p-3">Dedicated Carrier Number</th>
-                <th className="p-3">Channel Throttle</th>
+                <th className="p-3">Plan &amp; MRR</th>
+                <th className="p-3">Gross Margin</th>
                 <th className="p-3">Minute Quota</th>
                 <th className="p-3">Call Volume</th>
                 <th className="p-3">Health Status</th>
@@ -2021,12 +2081,32 @@ function AdminDashboardContent() {
                     </td>
 
                     <td className="p-3 text-zinc-800 font-mono">
-                      <div className="flex items-center gap-1 text-[11px]">
-                        <span className="text-emerald-700 font-semibold">{t.max_concurrent_inbound || 4} In</span>
-                        <span className="text-zinc-300">/</span>
-                        <span className="text-indigo-700 font-semibold">{t.max_concurrent_outbound || 2} Out</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-zinc-100 text-zinc-700 border border-zinc-200">
+                          {t.plan_code || "growth"}
+                        </span>
+                        <span className="font-bold text-zinc-900">
+                          ${t.monthly_revenue_usd || 499}
+                        </span>
                       </div>
-                      <div className="text-[10px] text-zinc-500">Dedicated limit</div>
+                      <div className="text-[10px] text-zinc-500">Base + overages</div>
+                    </td>
+
+                    <td className="p-3 font-mono">
+                      <div className="flex items-center gap-1">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            (t.gross_margin_pct ?? 95) >= 80
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-amber-50 text-amber-700 border border-amber-200"
+                          }`}
+                        >
+                          {(t.gross_margin_pct ?? 95).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-zinc-400">
+                        CoGS: ${(t.monthly_cogs_usd ?? 0).toFixed(2)}
+                      </div>
                     </td>
 
                     <td className="p-3 font-mono">

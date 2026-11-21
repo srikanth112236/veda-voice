@@ -10,9 +10,38 @@ permissions:
   contents: read
 
 jobs:
-  build-and-deploy:
-    name: Build & Deploy Production
+  test:
+    name: Pre-deployment Contract & Isolation Verification
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r api/requirements.txt
+          pip install -r api/requirements-dev.txt
+
+      - name: Run Core Test Suite
+        env:
+          JWT_SECRET: test-jwt-secret-minimum-32-chars-long
+          INTERNAL_SIGNING_KEY: test-internal-hmac-key-32-bytes-minimum
+        run: |
+          pytest api/tests -v --maxfail=5
+
+  deploy-staging:
+    name: Deploy to Staging & Run Smoke Tests
+    needs: test
+    if: secrets.AZURE_RG_STAGING != ''
+    runs-on: ubuntu-latest
+    environment: staging
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -24,7 +53,70 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Set Image Tags
+      - name: Set Image Tags & Variables
+        id: vars
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          echo "SHA_SHORT=${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+          RG="${{ secrets.AZURE_RG_STAGING }}"
+          if [ -z "$RG" ]; then
+            RG="rg-vagency-staging"
+          fi
+          echo "AZURE_RG=${RG}" >> $GITHUB_OUTPUT
+
+          ACR=$(az acr list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "acrvagencystaging")
+          if [ -z "$ACR" ]; then
+            ACR="acrvagencystaging"
+          fi
+          echo "ACR_NAME=${ACR}" >> $GITHUB_OUTPUT
+          echo "ACR_SERVER=${ACR}.azurecr.io" >> $GITHUB_OUTPUT
+
+      - name: Build & Push Images to ACR
+        run: |
+          az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image api:${{ steps.vars.outputs.SHA_SHORT }} --image api:staging --file api/Dockerfile .
+          az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image dashboard:${{ steps.vars.outputs.SHA_SHORT }} --image dashboard:staging --file dashboard/Dockerfile .
+          az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image agent:${{ steps.vars.outputs.SHA_SHORT }} --image agent:staging --file agent/Dockerfile .
+
+      - name: Run Database Migration Job (Alembic)
+        run: |
+          az containerapp job start --name db-migrate-job --resource-group ${{ steps.vars.outputs.AZURE_RG }} || echo "db-migrate-job skipped or not yet provisioned"
+
+      - name: Update Staging Container Apps
+        run: |
+          ACR_SERVER="${{ steps.vars.outputs.ACR_SERVER }}"
+          TAG="${{ steps.vars.outputs.SHA_SHORT }}"
+          RG="${{ steps.vars.outputs.AZURE_RG }}"
+
+          az containerapp update -n api -g "$RG" --image "${ACR_SERVER}/api:${TAG}" || az containerapp update -n api -g "$RG" --image "${ACR_SERVER}/api:staging" || true
+          az containerapp update -n dashboard -g "$RG" --image "${ACR_SERVER}/dashboard:${TAG}" || az containerapp update -n dashboard -g "$RG" --image "${ACR_SERVER}/dashboard:staging" || true
+
+      - name: Run Staging Smoke Tests
+        env:
+          STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+        if: env.STAGING_API_URL != ''
+        run: |
+          python -m pip install httpx pytest
+          python scripts/smoke_test_prod.py --base-url "${{ env.STAGING_API_URL }}"
+
+  deploy-production:
+    name: Promote to Production
+    needs: [test, deploy-staging]
+    if: always() && needs.test.result == 'success' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure OIDC Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set Production Tags
         id: vars
         run: |
           SHA_SHORT=$(git rev-parse --short HEAD)
@@ -36,93 +128,31 @@ jobs:
           fi
           echo "AZURE_RG=${RG}" >> $GITHUB_OUTPUT
 
-          # Dynamically resolve the live ACR name from Azure to prevent secret mismatch
           ACR=$(az acr list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "acrvagencyprod6eac3")
           if [ -z "$ACR" ]; then
             ACR="acrvagencyprod6eac3"
           fi
           echo "ACR_NAME=${ACR}" >> $GITHUB_OUTPUT
           echo "ACR_SERVER=${ACR}.azurecr.io" >> $GITHUB_OUTPUT
-          echo "::notice title=Resolved ACR::Targeting Azure Registry: $ACR"
 
-      - name: Build & Push API Image to ACR
+      - name: Build & Push Production Images to ACR
         run: |
-          az acr build \
-            --registry ${{ steps.vars.outputs.ACR_NAME }} \
-            --image api:${{ steps.vars.outputs.SHA_SHORT }} \
-            --image api:latest \
-            --file api/Dockerfile .
+          az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image api:${{ steps.vars.outputs.SHA_SHORT }} --image api:latest --file api/Dockerfile .
+          az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image dashboard:${{ steps.vars.outputs.SHA_SHORT }} --image dashboard:latest --file dashboard/Dockerfile .
+          az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image agent:${{ steps.vars.outputs.SHA_SHORT }} --image agent:latest --file agent/Dockerfile .
 
-      - name: Build & Push Dashboard Image to ACR
+      - name: Run Production Database Migration Job (Alembic)
         run: |
-          az acr build \
-            --registry ${{ steps.vars.outputs.ACR_NAME }} \
-            --image dashboard:${{ steps.vars.outputs.SHA_SHORT }} \
-            --image dashboard:latest \
-            --file dashboard/Dockerfile .
+          az containerapp job start --name db-migrate-job --resource-group ${{ steps.vars.outputs.AZURE_RG }} || echo "db-migrate-job skipped or not yet provisioned"
 
-      - name: Build & Push Voice Agent Worker Image to ACR
-        run: |
-          az acr build \
-            --registry ${{ steps.vars.outputs.ACR_NAME }} \
-            --image agent:${{ steps.vars.outputs.SHA_SHORT }} \
-            --image agent:latest \
-            --file agent/Dockerfile .
-
-      - name: Run Database Migration Job (Alembic)
-        run: |
-          echo "Triggering database migration job in Container Apps..."
-          az containerapp job start \
-            --name db-migrate-job \
-            --resource-group ${{ steps.vars.outputs.AZURE_RG }} || echo "db-migrate-job not provisioned or skipped"
-
-      - name: Deploy Revisions to Running Container Apps
+      - name: Deploy Production Revisions
         run: |
           ACR_SERVER="${{ steps.vars.outputs.ACR_SERVER }}"
           TAG="${{ steps.vars.outputs.SHA_SHORT }}"
+          RG="${{ steps.vars.outputs.AZURE_RG }}"
 
-          echo "Querying all Container Apps across subscription..."
-          APPS_INFO=$(az containerapp list --query "[].{name:name, rg:resourceGroup}" -o tsv)
-          echo "::warning title=Discovered Container Apps::$(echo "$APPS_INFO" | tr '\n' ' ')"
-
-          if [ -z "$APPS_INFO" ]; then
-            echo "::error title=No Container Apps Found::az containerapp list returned empty"
-            exit 1
-          fi
-
-          echo "$APPS_INFO" | while read -r APP RG; do
-            [ -z "$APP" ] && continue
-            echo "========================================================"
-            echo "--> Updating Container App: $APP in Resource Group: $RG"
-
-            IMAGE_ROLE="api"
-            case "$APP" in
-              *dash*)
-                IMAGE_ROLE="dashboard"
-                ;;
-              *agent*)
-                IMAGE_ROLE="agent"
-                ;;
-              *api*)
-                IMAGE_ROLE="api"
-                ;;
-            esac
-
-            TARGET_IMAGE="${ACR_SERVER}/${IMAGE_ROLE}:${TAG}"
-            echo "    Target image: $TARGET_IMAGE"
-
-            az containerapp update \
-              --name "$APP" \
-              --resource-group "$RG" \
-              --image "$TARGET_IMAGE" || {
-                echo "    Falling back to :latest..."
-                az containerapp update \
-                  --name "$APP" \
-                  --resource-group "$RG" \
-                  --image "${ACR_SERVER}/${IMAGE_ROLE}:latest"
-              }
-            echo "    [SUCCESS] Updated $APP"
-          done
+          az containerapp update -n api -g "$RG" --image "${ACR_SERVER}/api:${TAG}" || az containerapp update -n api -g "$RG" --image "${ACR_SERVER}/api:latest"
+          az containerapp update -n dashboard -g "$RG" --image "${ACR_SERVER}/dashboard:${TAG}" || az containerapp update -n dashboard -g "$RG" --image "${ACR_SERVER}/dashboard:latest"
 
       - name: Deploy Voice Agent to LiveKit Cloud
         env:
@@ -134,7 +164,7 @@ jobs:
           lk cloud auth --token ${{ secrets.LIVEKIT_ACCESS_TOKEN }}
           lk agent deploy
 
-      - name: Run Production Smoke Tests
+      - name: Run Production Post-Deployment Smoke Tests
         env:
           PROD_API_URL: ${{ secrets.PROD_API_URL }}
         if: env.PROD_API_URL != ''

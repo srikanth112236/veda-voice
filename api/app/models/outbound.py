@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.app.models.base import Base
@@ -114,3 +114,86 @@ class ConsentRecord(Base):
     __table_args__ = (Index("ix_consent_tenant_phone", "tenant_id", "phone_number"),)
 
     tenant: Mapped["Tenant"] = relationship("Tenant", backref="consent_records")
+
+
+class VoiceCampaign(Base):
+    """Voice campaign specification per SRS Section 6.5.
+
+    Tracks tenant outbound campaigns (reminders, callbacks, speed-to-lead, reactivation)
+    with execution windows, caps, retry policy, and real-time pause/resume control.
+    """
+
+    __tablename__ = "voice_campaigns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    purpose: Mapped[str] = mapped_column(
+        String(64), default="appointment_reminder", nullable=False
+    )  # appointment_reminder, callback_scheduled, speed_to_lead, reactivation
+    prompt_variant: Mapped[str] = mapped_column(String(128), default="default", nullable=False)
+    caller_id_e164: Mapped[str] = mapped_column(String(32), nullable=False)
+    schedule_window_start: Mapped[str] = mapped_column(String(5), default="09:00", nullable=False)
+    schedule_window_end: Mapped[str] = mapped_column(String(5), default="18:00", nullable=False)
+    max_attempts_per_contact: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    retry_interval_hours: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="draft", nullable=False
+    )  # draft, scheduled, running, paused, completed
+    total_contacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completed_contacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    successful_contacts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (Index("ix_voice_campaigns_tenant_status", "tenant_id", "status"),)
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", backref="voice_campaigns")
+    contacts: Mapped[list["CampaignContact"]] = relationship(
+        "CampaignContact", back_populates="campaign", cascade="all, delete-orphan"
+    )
+
+
+class CampaignContact(Base):
+    """Target contact row in a voice campaign with attempt history and compliance outcomes."""
+
+    __tablename__ = "campaign_contacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    campaign_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("voice_campaigns.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    contact_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    phone_number: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    recipient_name: Mapped[str] = mapped_column(String(255), default="there", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", nullable=False
+    )  # pending, calling, completed, skipped, failed
+    attempts_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_outcome: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_camp_contact_tenant_status", "tenant_id", "status"),
+        Index("ix_camp_contact_campaign_phone", "campaign_id", "phone_number"),
+    )
+
+    campaign: Mapped["VoiceCampaign"] = relationship("VoiceCampaign", back_populates="contacts")

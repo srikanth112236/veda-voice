@@ -9,11 +9,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -879,3 +881,279 @@ def dispatch_booking_notifications(
         return {"status": "error", "error": str(e)}
     finally:
         db.close()
+
+
+# ===========================================================================
+# 2-Way SMS Confirmation, 24-Hour Reminder Texts & 1-Tap Reschedule Suite
+# ===========================================================================
+
+
+def get_dashboard_base_url() -> str:
+    """Resolve production or local dashboard base URL for customer links."""
+    if settings.APP_BASE_URL and not settings.APP_BASE_URL.startswith("http://localhost"):
+        return settings.APP_BASE_URL.rstrip("/")
+    return "https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
+
+
+def generate_reschedule_token() -> str:
+    """Generate cryptographically secure URL-safe 1-tap reschedule token."""
+    return secrets.token_urlsafe(20)
+
+
+def format_24h_reminder_sms(
+    booking: Booking,
+    tenant: Tenant,
+    reschedule_url: str | None = None,
+    custom_template: str | None = None,
+) -> str:
+    """Format high-deliverability 24-hour appointment reminder SMS with 1-tap reschedule link."""
+    tz_str = tenant.timezone or "America/New_York"
+    try:
+        tz = ZoneInfo(tz_str)
+        local_dt = booking.start_at.astimezone(tz)
+    except Exception:
+        local_dt = booking.start_at
+
+    date_str = local_dt.strftime("%a, %b %d")
+    time_str = local_dt.strftime("%I:%M %p").lstrip("0")
+    if tz_str == "America/New_York":
+        tz_abbr = "EST"
+    elif tz_str == "America/Chicago":
+        tz_abbr = "CST"
+    elif tz_str in ("America/Denver", "America/Phoenix"):
+        tz_abbr = "MST"
+    elif tz_str == "America/Los_Angeles":
+        tz_abbr = "PST"
+    else:
+        tz_abbr = ""
+
+    time_display = f"{time_str} {tz_abbr}".strip()
+    link_part = f" Reschedule: {reschedule_url}" if reschedule_url else ""
+    srv_clean = booking.service_type.replace("_", " ").title()
+
+    if custom_template and custom_template.strip():
+        text = custom_template
+        text = text.replace("{{customer_name}}", booking.customer_name)
+        text = text.replace("{{service_type}}", srv_clean)
+        text = text.replace("{{tenant_name}}", tenant.name)
+        text = text.replace("{{date}}", date_str)
+        text = text.replace("{{time}}", time_display)
+        text = text.replace("{{reschedule_link}}", reschedule_url or "")
+        return text.strip()
+
+    return (
+        f"Reminder from {tenant.name}: Your {srv_clean} appointment is on "
+        f"{date_str} at {time_display}. Reply C to confirm or click to{link_part}. Reply STOP to opt out."
+    )
+
+
+def dispatch_24h_booking_reminders(
+    db: Any,
+    tenant_id: str | None = None,
+    sms_dispatcher: SmsDispatcher | None = None,
+    lead_hours: int = 24,
+) -> dict[str, Any]:
+    """Scan for confirmed upcoming bookings within lead_hours and dispatch 24h reminder SMS."""
+    now = datetime.now(UTC)
+    window_end = now + timedelta(hours=lead_hours + 6)
+
+    stmt = select(Booking).where(
+        Booking.status == "confirmed",
+        Booking.reminder_sent_at.is_(None),
+        Booking.start_at >= now,
+        Booking.start_at <= window_end,
+    )
+    if tenant_id:
+        stmt = stmt.where(Booking.tenant_id == tenant_id)
+
+    bookings = db.scalars(stmt).all()
+    sms_worker = sms_dispatcher or TelnyxSmsDispatcher()
+
+    dispatched = []
+    skipped = []
+
+    for b in bookings:
+        tenant = db.scalar(select(Tenant).where(Tenant.id == b.tenant_id))
+        if not tenant:
+            continue
+        profile = tenant.agent_profile
+        if profile and not getattr(profile, "auto_sms_reminders_enabled", True):
+            skipped.append({"booking_id": b.id, "reason": "auto_sms_reminders_disabled"})
+            continue
+
+        if not b.customer_phone or len(b.customer_phone.strip()) < 10:
+            skipped.append({"booking_id": b.id, "reason": "invalid_phone"})
+            continue
+
+        if not b.reschedule_token:
+            b.reschedule_token = generate_reschedule_token()
+
+        reschedule_url = f"{get_dashboard_base_url()}/reschedule/{b.reschedule_token}"
+        custom_tpl = getattr(profile, "custom_reminder_template", "") if profile else ""
+        sms_body = format_24h_reminder_sms(b, tenant, reschedule_url, custom_tpl)
+
+        sent = sms_worker.send(b.customer_phone, sms_body)
+        if sent:
+            b.reminder_sent_at = datetime.now(UTC)
+            dispatched.append(
+                {
+                    "booking_id": b.id,
+                    "customer_name": b.customer_name,
+                    "customer_phone": b.customer_phone,
+                    "reschedule_token": b.reschedule_token,
+                    "start_at": b.start_at.isoformat(),
+                }
+            )
+
+    db.commit()
+    return {
+        "status": "success",
+        "reminders_dispatched": len(dispatched),
+        "reminders_skipped": len(skipped),
+        "dispatched_details": dispatched,
+    }
+
+
+def process_inbound_sms(
+    from_phone: str,
+    message_body: str,
+    db: Any,
+    tenant_id: str | None = None,
+    sms_dispatcher: SmsDispatcher | None = None,
+) -> dict[str, Any]:
+    """Process 2-Way SMS confirmation, cancellation, or reschedule request from customer."""
+    clean_body = (message_body or "").strip()
+    upper_body = clean_body.upper()
+    sms_worker = sms_dispatcher or TelnyxSmsDispatcher()
+
+    digits_only = "".join(filter(str.isdigit, from_phone))
+    phone_search = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+
+    stmt = (
+        select(Booking)
+        .where(
+            Booking.customer_phone.like(f"%{phone_search}%"),
+            Booking.status.in_(["confirmed", "held"]),
+        )
+        .order_by(Booking.start_at.asc())
+    )
+    if tenant_id:
+        stmt = stmt.where(Booking.tenant_id == tenant_id)
+
+    booking = db.scalar(stmt)
+    if not booking:
+        fallback_stmt = (
+            select(Booking)
+            .where(Booking.customer_phone.like(f"%{phone_search}%"))
+            .order_by(Booking.created_at.desc())
+        )
+        if tenant_id:
+            fallback_stmt = fallback_stmt.where(Booking.tenant_id == tenant_id)
+        booking = db.scalar(fallback_stmt)
+
+    if not booking:
+        logger.warning("No booking found for inbound SMS from %s: '%s'", from_phone, clean_body)
+        return {
+            "status": "unmatched",
+            "from_phone": from_phone,
+            "message": "No booking found matching phone number.",
+        }
+
+    tenant = db.scalar(select(Tenant).where(Tenant.id == booking.tenant_id))
+    tenant_name = tenant.name if tenant else "Service Provider"
+    tenant_phone = (
+        getattr(tenant.agent_profile, "transfer_number", "")
+        if tenant and tenant.agent_profile
+        else ""
+    )
+    if not tenant_phone:
+        tenant_phone = "our main office"
+
+    if not booking.reschedule_token:
+        booking.reschedule_token = generate_reschedule_token()
+
+    reschedule_url = f"{get_dashboard_base_url()}/reschedule/{booking.reschedule_token}"
+
+    tz_str = tenant.timezone if tenant and tenant.timezone else "America/New_York"
+    try:
+        tz = ZoneInfo(tz_str)
+        local_dt = booking.start_at.astimezone(tz)
+    except Exception:
+        local_dt = booking.start_at
+    date_str = local_dt.strftime("%a, %b %d")
+    time_str = local_dt.strftime("%I:%M %p").lstrip("0")
+
+    is_confirm = upper_body in (
+        "C",
+        "CONFIRM",
+        "YES",
+        "Y",
+        "1",
+        "OK",
+        "CONFIRMED",
+        "ACCEPT",
+    ) or upper_body.startswith("CONFIRM")
+    is_cancel = upper_body in (
+        "CANCEL",
+        "NO",
+        "N",
+        "STOP",
+        "UNSUBSCRIBE",
+        "DECLINE",
+    ) or upper_body.startswith("CANCEL")
+    is_reschedule = upper_body in (
+        "RESCHEDULE",
+        "CHANGE",
+        "MOVE",
+        "2",
+        "LATER",
+    ) or upper_body.startswith("RESCHEDULE")
+
+    action_taken = ""
+    reply_text = ""
+
+    if is_confirm:
+        booking.status = "confirmed"
+        booking.confirmed_via_sms_at = datetime.now(UTC)
+        booking.confirmation_channel = "sms"
+        action_taken = "confirmed"
+        reply_text = (
+            f"Thanks {booking.customer_name}! Your appointment with {tenant_name} on {date_str} at {time_str} is confirmed. "
+            f"Need to change? Tap here: {reschedule_url}"
+        )
+    elif is_cancel:
+        booking.status = "cancelled"
+        booking.confirmation_channel = "sms_cancelled"
+        action_taken = "cancelled"
+        reply_text = (
+            f"Your appointment with {tenant_name} on {date_str} has been cancelled. "
+            f"If you would like to reschedule, please call {tenant_phone} or visit: {reschedule_url}"
+        )
+    elif is_reschedule:
+        action_taken = "reschedule_requested"
+        reply_text = (
+            f"Hi {booking.customer_name}, to pick a new date or time for your {tenant_name} appointment, "
+            f"please tap your secure 1-tap reschedule link: {reschedule_url}"
+        )
+    else:
+        action_taken = "help_sent"
+        reply_text = (
+            f"{tenant_name}: Reply C to confirm your appointment on {date_str} at {time_str}, "
+            f"or 1-tap here to reschedule: {reschedule_url}. Questions? Call {tenant_phone}."
+        )
+
+    db.commit()
+
+    reply_sent = sms_worker.send(from_phone, reply_text) if reply_text else False
+    return {
+        "status": "success",
+        "action": action_taken,
+        "booking_id": booking.id,
+        "customer_name": booking.customer_name,
+        "booking_status": booking.status,
+        "confirmed_via_sms_at": (
+            booking.confirmed_via_sms_at.isoformat() if booking.confirmed_via_sms_at else None
+        ),
+        "reply_text": reply_text,
+        "reply_sent": reply_sent,
+    }

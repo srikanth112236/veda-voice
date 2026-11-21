@@ -63,6 +63,10 @@ class TenantSummaryResponse(BaseModel):
     monthly_minute_quota: int = 500
     minutes_used: float = 0.0
     health_status: str = "operational"
+    plan_code: str = "growth"
+    monthly_revenue_usd: float = 499.00
+    monthly_cogs_usd: float = 0.00
+    gross_margin_pct: float = 95.0
 
 
 class CarrierTrunkHealth(BaseModel):
@@ -96,7 +100,12 @@ class PlatformStatsResponse(BaseModel):
     emergency_calls: int
     avg_latency_p50_ms: float
     active_phone_numbers: int
-    # Concurrency Telemetry
+    # Concurrency Telemetry & LiveKit Scale Limits
+    scale_plan_limit: int = 50
+    warn_threshold_concurrency: int = 30
+    critical_threshold_concurrency: int = 40
+    concurrency_alert_level: str = "normal"  # normal, warning_60, critical_80
+    concurrency_alert_message: str = ""
     global_max_concurrent: int = 40
     active_inbound_calls: int = 0
     inbound_saturation_pct: float = 0.0
@@ -133,6 +142,27 @@ def get_platform_stats(db: Session = Depends(get_db)) -> Any:
     inbound_sat = round((active_inbound / settings.GLOBAL_MAX_CONCURRENT) * 100, 1)
     outbound_sat = round((active_outbound / settings.GLOBAL_MAX_OUTBOUND) * 100, 1)
 
+    total_active_concurrency = active_inbound + active_outbound
+    scale_plan_limit = 50
+    warn_threshold = 30
+    critical_threshold = 40
+
+    if total_active_concurrency >= critical_threshold:
+        alert_lvl = "critical_80"
+        alert_msg = (
+            f"CRITICAL: Platform concurrency at {total_active_concurrency}/{scale_plan_limit} "
+            f"channels (80% ceiling reached). Request immediate Scale concurrency increase in LiveKit Console."
+        )
+    elif total_active_concurrency >= warn_threshold:
+        alert_lvl = "warning_60"
+        alert_msg = (
+            f"WARNING: Platform concurrency at {total_active_concurrency}/{scale_plan_limit} "
+            f"channels (60% threshold). Consider requesting a LiveKit Scale limit increase before peak hours."
+        )
+    else:
+        alert_lvl = "normal"
+        alert_msg = "Operating within normal parameters. Healthy concurrency headroom available."
+
     cogs_per_min = 0.0225
     est_telephony_cost = round(billable_mins * cogs_per_min, 2)
     monthly_rev = round(float(total_tenants) * 499.00, 2)
@@ -147,6 +177,11 @@ def get_platform_stats(db: Session = Depends(get_db)) -> Any:
         emergency_calls=emergency_calls,
         avg_latency_p50_ms=round(float(avg_latency), 2),
         active_phone_numbers=active_numbers,
+        scale_plan_limit=scale_plan_limit,
+        warn_threshold_concurrency=warn_threshold,
+        critical_threshold_concurrency=critical_threshold,
+        concurrency_alert_level=alert_lvl,
+        concurrency_alert_message=alert_msg,
         global_max_concurrent=settings.GLOBAL_MAX_CONCURRENT,
         active_inbound_calls=active_inbound,
         inbound_saturation_pct=inbound_sat,
@@ -169,6 +204,14 @@ def list_tenants(db: Session = Depends(get_db)) -> Any:
     tenants = db.scalars(select(Tenant).order_by(Tenant.created_at.desc())).all()
     results = []
 
+    plan_pricing = {
+        "lite": 99.00,
+        "starter": 299.00,
+        "growth": 399.00,
+        "pro": 499.00,
+        "scale": 999.00,
+    }
+
     for t in tenants:
         phone_nums = [p.e164 for p in t.phone_numbers if p.status == "active"]
         call_count = db.scalar(select(func.count(Call.id)).where(Call.tenant_id == t.id)) or 0
@@ -184,6 +227,22 @@ def list_tenants(db: Session = Depends(get_db)) -> Any:
             db.scalar(select(func.sum(Call.duration_s)).where(Call.tenant_id == t.id)) or 0.0
         )
         tenant_mins = round(tenant_seconds / 60.0, 1)
+
+        # Plan revenue & COGS calculations
+        plan_code = getattr(t, "plan", "growth") or "growth"
+        base_fee = plan_pricing.get(plan_code.lower(), 399.00)
+        overage_mins = max(0.0, tenant_mins - float(t.monthly_minute_quota or 500))
+        overage_fee = round(overage_mins * 0.35, 2)
+        total_rev = round(base_fee + overage_fee, 2)
+
+        # Carrier lines cost ($1.50/mo per DID) + per-minute model & carrier COGS ($0.0225/min)
+        carrier_did_cogs = len(phone_nums) * 1.50
+        usage_cogs = round(tenant_mins * 0.0225, 2)
+        total_cogs = round(carrier_did_cogs + usage_cogs, 2)
+
+        margin_pct = (
+            round(((total_rev - total_cogs) / total_rev) * 100, 1) if total_rev > 0 else 95.0
+        )
 
         results.append(
             TenantSummaryResponse(
@@ -201,6 +260,10 @@ def list_tenants(db: Session = Depends(get_db)) -> Any:
                 monthly_minute_quota=t.monthly_minute_quota,
                 minutes_used=tenant_mins,
                 health_status="operational",
+                plan_code=plan_code,
+                monthly_revenue_usd=total_rev,
+                monthly_cogs_usd=total_cogs,
+                gross_margin_pct=margin_pct,
             )
         )
 

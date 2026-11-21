@@ -139,7 +139,20 @@ module containerAppsModule 'modules/containerapps.bicep' = {
   }
 }
 
-// 7. Azure Monitor Metric Alerts
+// 7. Key Vault RBAC Role Assignments (Key Vault Secrets User for Managed Identities - SRS 15.3)
+module keyVaultAccessModule 'modules/keyvault-access.bicep' = {
+  name: 'keyVaultAccessDeployment'
+  params: {
+    keyVaultName: keyVaultName
+    principalIds: [
+      containerAppsModule.outputs.apiPrincipalId
+      containerAppsModule.outputs.dialerPrincipalId
+      containerAppsModule.outputs.notifierPrincipalId
+    ]
+  }
+}
+
+// 8. Azure Monitor Metric Alerts
 module alertsModule 'modules/alerts.bicep' = if (empty(existingPostgresFqdn)) {
   name: 'alertsDeployment'
   params: {
