@@ -532,3 +532,39 @@ def test_minute_vs_second_telecom_billing_mode() -> None:
         c2 = db.query(Call).filter(Call.call_id == call_id_2).first()
         assert c2 is not None
         assert c2.billable_minutes == 1.25
+
+
+def test_subscription_quote_and_refund_eligibility_api_v1() -> None:
+    """Verify that quote and refund-eligibility endpoints are cleanly accessible under /api/v1/."""
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "owner@apexplumbing.com", "password": "ApexOwner2026!"},
+    )
+    assert login_res.status_code == 200
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Test quote endpoint under /api/v1/subscriptions/quote
+    quote_res = client.get("/api/v1/subscriptions/quote?tier=starter", headers=headers)
+    assert quote_res.status_code == 200
+    q = quote_res.json()
+    assert q["tier"] == "starter"
+    assert q["base_price_usd"] == 299.0
+    assert "onboarding_fee_usd" in q
+    assert "total_due_today_usd" in q
+    assert q["included_minutes"] == 1000
+
+    # 2. Test refund-eligibility endpoint under /api/v1/subscriptions/refund-eligibility
+    refund_res = client.get("/api/v1/subscriptions/refund-eligibility", headers=headers)
+    assert refund_res.status_code == 200
+    r = refund_res.json()
+    assert "eligible" in r
+    assert "usage_pct" in r
+    assert "monthly_included_minutes" in r
+    assert "policy_terms" in r
+
+    # 3. Test topup-packs endpoint under /api/v1/subscriptions/topup-packs
+    packs_res = client.get("/api/v1/subscriptions/topup-packs", headers=headers)
+    assert packs_res.status_code == 200
+    packs = packs_res.json()
+    assert len(packs) >= 4
