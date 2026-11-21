@@ -1157,3 +1157,81 @@ def process_inbound_sms(
         "reply_text": reply_text,
         "reply_sent": reply_sent,
     }
+
+
+def format_emergency_transfer_sms(
+    business_name: str,
+    customer_name: str,
+    customer_phone: str,
+    reason: str,
+    whisper_briefing: str = "",
+    service_address: str = "",
+) -> str:
+    """Format high-priority on-call technician emergency SMS dispatch alert."""
+    addr_part = f" Address: {service_address}." if service_address else ""
+    brief_part = f" Briefing: {whisper_briefing}." if whisper_briefing else ""
+    c_name = customer_name or "Caller"
+    c_phone = customer_phone or "Unverified"
+    return (
+        f"🚨 EMERGENCY DISPATCH [{business_name}]: Incoming live transfer from {c_name} ({c_phone}). "
+        f"Reason: {reason}.{addr_part}{brief_part}"
+    ).strip()
+
+
+def dispatch_emergency_transfer_alert(
+    tenant_id: str,
+    recipient_phone: str,
+    customer_name: str,
+    customer_phone: str,
+    reason: str,
+    whisper_briefing: str = "",
+    service_address: str = "",
+    call_id: str = "",
+    sms_dispatcher: SmsDispatcher | None = None,
+    db: Any | None = None,
+) -> bool:
+    """Send immediate high-priority SMS dispatch alert to on-call technician or branch emergency line."""
+    if not recipient_phone:
+        logger.warning(
+            "No recipient_phone provided for emergency transfer alert (tenant: %s)", tenant_id
+        )
+        return False
+
+    biz_name = "VedaVoice Emergency"
+    if db:
+        try:
+            from api.app.models.tenant import Tenant
+
+            tenant_rec = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+            if tenant_rec and tenant_rec.name:
+                biz_name = tenant_rec.name
+        except Exception as e:
+            logger.debug("Could not resolve tenant name for emergency SMS: %s", e)
+
+    sms_body = format_emergency_transfer_sms(
+        business_name=biz_name,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        reason=reason,
+        whisper_briefing=whisper_briefing,
+        service_address=service_address,
+    )
+
+    dispatcher = sms_dispatcher or TelnyxSmsDispatcher()
+    try:
+        sent = dispatcher.send(to_phone=recipient_phone, body=sms_body)
+        logger.info(
+            "Emergency transfer alert SMS sent to %s for call %s (success=%s)",
+            recipient_phone,
+            call_id or "untracked",
+            sent,
+        )
+        return sent
+    except Exception as err:
+        logger.error(
+            "Failed to send emergency transfer SMS to %s: %s",
+            recipient_phone,
+            err,
+            exc_info=True,
+        )
+        return False

@@ -98,6 +98,9 @@ export interface CallDetail {
   takeover_active?: boolean;
   transfer_to_number?: string | null;
   transferred_at?: string | null;
+  whisper_briefing?: string | null;
+  emergency_alert_dispatched?: boolean;
+  emergency_recipient_phone?: string | null;
   qa_score?: number;
   qa_rubric?: Record<string, any>;
   qa_flags?: string[];

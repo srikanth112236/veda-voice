@@ -2417,6 +2417,34 @@ export default function CallsPage() {
                 </div>
               )}
 
+              {/* Emergency Whisper Briefing Card (Phase D) */}
+              {detailCall.whisper_briefing && (
+                <div className="p-3.5 rounded-xl border border-red-200 bg-red-50/80 text-red-950 space-y-2 shadow-2xs">
+                  <div className="flex items-center justify-between text-xs font-bold font-mono">
+                    <span className="flex items-center gap-1.5 text-red-700">
+                      <AlertTriangle className="w-4 h-4 text-red-600" />
+                      Life Safety Emergency Briefing (On-Call Tech)
+                    </span>
+                    {detailCall.emergency_alert_dispatched && (
+                      <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-[10px] font-bold">
+                        🚨 Urgent SMS Dispatched
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white/90 border border-red-200 text-xs font-mono text-red-900">
+                    &ldquo;{detailCall.whisper_briefing}&rdquo;
+                  </div>
+                  {detailCall.emergency_recipient_phone && (
+                    <p className="text-[11px] text-red-800">
+                      Dispatched to On-Call Tech Line:{" "}
+                      <span className="font-mono font-bold text-red-950">
+                        {detailCall.emergency_recipient_phone}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Supervisor Whispers Log */}
               {detailCall.supervisor_whispers && detailCall.supervisor_whispers.length > 0 && (
                 <div className="p-3.5 rounded-xl border border-amber-200 bg-amber-50/60 text-amber-900 space-y-2">

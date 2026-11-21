@@ -423,6 +423,11 @@ class InternalApiClient:
         reason: str = "caller_requested_human",
         priority: str = "normal",
         notes: str = "",
+        whisper_briefing: str | None = None,
+        caller_name: str | None = None,
+        caller_phone: str | None = None,
+        service_address: str | None = None,
+        emergency_details: dict[str, Any] | None = None,
     ) -> bool:
         """Audit and register a call transfer event with the API control plane."""
         payload = {
@@ -431,6 +436,11 @@ class InternalApiClient:
             "reason": reason,
             "priority": priority,
             "notes": notes,
+            "whisper_briefing": whisper_briefing,
+            "caller_name": caller_name,
+            "caller_phone": caller_phone,
+            "service_address": service_address,
+            "emergency_details": emergency_details or {},
         }
         url = f"{self.base_url}/api/v1/internal/calls/transfer"
         try:
@@ -464,6 +474,11 @@ class InternalApiClient:
                         reason=reason,
                         priority=priority,
                         notes=notes,
+                        whisper_briefing=whisper_briefing,
+                        caller_name=caller_name,
+                        caller_phone=caller_phone,
+                        service_address=service_address,
+                        emergency_details=emergency_details or {},
                     )
                     coro = handle_call_transfer(req_obj, x_call_token=call_token, db=db)
                     try:

@@ -3,10 +3,12 @@
 Adheres strictly to SRS Section 5.3 (FR-CALL-4, FR-CALL-5):
 - Emergency keywords and explicit customer transfer requests.
 - Warm transfer to staff with graceful fallback to message taking if transfer line is unconfigured or busy.
+- Private whispered briefing to on-call technician and automated urgent SMS dispatch.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Annotated, Any, cast
 
@@ -25,21 +27,52 @@ def create_transfer_tool(
     call_id: str = "",
     safety_monitor: Any = None,
 ) -> FunctionTool:
-    """Create a LiveKit function tool that executes warm/cold transfer to a human specialist."""
+    """Create a LiveKit function tool that executes warm/cold transfer to a human specialist with whisper briefing."""
 
     @function_tool
     async def transfer_call_tool(
         reason: Annotated[
             str,
-            "Detailed reason for transfer e.g. 'caller_requested_human', 'emergency_pipe_burst', 'complex_quote'",
+            "Detailed reason for transfer e.g. 'caller_requested_human', 'gas_leak', 'burst_pipe', 'complex_quote'",
         ] = "caller_requested_human",
         priority: Annotated[
             str,
             "Urgency priority of the transfer: 'normal' or 'emergency'",
         ] = "normal",
+        caller_name: Annotated[
+            str | None,
+            "Caller's name if identified during conversation",
+        ] = None,
+        caller_phone: Annotated[
+            str | None,
+            "Caller's callback telephone number",
+        ] = None,
+        service_address: Annotated[
+            str | None,
+            "Caller's service address or location if provided",
+        ] = None,
+        emergency_details: Annotated[
+            dict[str, Any] | str | None,
+            "Structured emergency observations, hazards, or intake notes",
+        ] = None,
+        whisper_briefing: Annotated[
+            str | None,
+            "Concise whisper briefing played to on-call technician before line unmuting",
+        ] = None,
     ) -> str:
         """Call this function when the customer explicitly asks to speak to a person/technician, or an emergency demands human escalation."""
-        target_number = config.transfer_number.strip() if config.transfer_number else ""
+        # Dynamic on-call technician / branch emergency phone routing
+        if priority == "emergency":
+            target_number = (
+                getattr(config, "location_emergency_phone", None)
+                or getattr(config, "location_transfer_number", None)
+                or config.transfer_number
+                or ""
+            ).strip()
+        else:
+            target_number = (
+                getattr(config, "location_transfer_number", None) or config.transfer_number or ""
+            ).strip()
 
         # Pause safety monitor silence prompts so caller is not badgered during hold
         if safety_monitor:
@@ -58,17 +91,42 @@ def create_transfer_tool(
                 f"for an immediate callback from our {config.business} specialist. May I please confirm your name and callback number?"
             )
 
+        # Parse structured emergency details
+        parsed_emergency: dict[str, Any] = {}
+        if isinstance(emergency_details, dict):
+            parsed_emergency = emergency_details
+        elif isinstance(emergency_details, str) and emergency_details.strip():
+            try:
+                parsed_val = json.loads(emergency_details)
+                if isinstance(parsed_val, dict):
+                    parsed_emergency = parsed_val
+                else:
+                    parsed_emergency = {"raw": emergency_details}
+            except Exception:
+                parsed_emergency = {"raw": emergency_details}
+
+        # Auto-generate whisper briefing for on-call technician if not passed
+        effective_whisper = whisper_briefing
+        if not effective_whisper:
+            c_name = caller_name or "Caller"
+            c_phone = caller_phone or "No Phone Provided"
+            addr_str = f" at {service_address}" if service_address else ""
+            effective_whisper = (
+                f"Emergency transfer from {c_name} ({c_phone}){addr_str}. Reason: {reason}."
+            )
+
         logger.info(
-            "Transferring call %s to human specialist at %s (reason: %s, priority: %s)",
+            "Transferring call %s to human specialist at %s (reason: %s, priority: %s, whisper: %s)",
             call_id or "live_call",
             target_number,
             reason,
             priority,
+            effective_whisper,
         )
 
         # 1. Spoken verbal hold notice
         hold_message = (
-            f"Please hold for just a moment while I connect you directly with our on-call specialist at {config.business}."
+            f"Please hold in a safe location for just a moment while I connect you directly with our on-call technician at {config.business}."
             if priority == "emergency"
             else f"I would be glad to connect you with our team at {config.business}. Please hold on for just a moment while I transfer your call."
         )
@@ -79,7 +137,7 @@ def create_transfer_tool(
             except Exception as e:
                 logger.debug("Failed to speak transfer hold message: %s", e)
 
-        # 2. Audit transfer event to internal API control plane
+        # 2. Audit transfer event and trigger SMS dispatch to control plane
         if config.call_token:
             default_api_client.record_call_transfer(
                 call_id=call_id or "call",
@@ -88,6 +146,11 @@ def create_transfer_tool(
                 reason=reason,
                 priority=priority,
                 notes=f"Agent warm transfer initiated for {config.business}",
+                whisper_briefing=effective_whisper,
+                caller_name=caller_name,
+                caller_phone=caller_phone,
+                service_address=service_address,
+                emergency_details=parsed_emergency,
             )
 
         # 3. SIP Transfer / Participant referral if supported by carrier
@@ -98,8 +161,9 @@ def create_transfer_tool(
                 logger.warning("Carrier SIP REFER transfer warning: %s", e)
 
         return (
-            f"Transfer initiated to specialist at {target_number}. "
-            f"The line is now on transfer hold. DO NOT speak or ask further questions; stay completely silent while the specialist connects."
+            f"Transfer initiated to on-call specialist at {target_number} (priority={priority}). "
+            f"Whisper briefing dispatched: '{effective_whisper}'. "
+            f"The line is now bridging on transfer hold. Stay completely silent while the technician connects."
         )
 
     return cast(FunctionTool, transfer_call_tool)

@@ -357,6 +357,11 @@ class CallTransferRequest(BaseModel):
     reason: str = "caller_requested_human"
     priority: str = "normal"  # normal, emergency
     notes: str = ""
+    whisper_briefing: str | None = None
+    caller_name: str | None = None
+    caller_phone: str | None = None
+    service_address: str | None = None
+    emergency_details: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/calls/transfer")
@@ -366,7 +371,7 @@ async def handle_call_transfer(
     authorization: str | None = Header(None),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """Audit and update call session when transferred to a human specialist."""
+    """Audit and update call session when transferred to a human specialist with optional emergency briefing and SMS dispatch."""
     raw_token = x_call_token
     if not raw_token and authorization and authorization.startswith("Bearer "):
         raw_token = authorization.split("Bearer ", 1)[1]
@@ -388,6 +393,7 @@ async def handle_call_transfer(
 
     # Locate active call record if present and update outcome
     call = db.scalar(select(Call).where(Call.call_id == payload.call_id))
+    sms_dispatched = False
     if call:
         if call.tenant_id != tenant_id:
             raise HTTPException(
@@ -396,11 +402,68 @@ async def handle_call_transfer(
         call.outcome = "transferred"
         call.transfer_to_number = payload.target_number
         call.transferred_at = datetime.now(UTC)
+        call.whisper_briefing = payload.whisper_briefing
+
         current_tags = list(call.tags or [])
         if "transferred" not in current_tags:
             current_tags.append("transferred")
-        if payload.priority == "emergency" and "emergency_transfer" not in current_tags:
-            current_tags.append("emergency_transfer")
+
+        if payload.priority == "emergency":
+            if "emergency_transfer" not in current_tags:
+                current_tags.append("emergency_transfer")
+            call.emergency_recipient_phone = payload.target_number
+            call.emergency_alert_dispatched = True
+
+            # Emitting CRM Timeline Event if Contact exists
+            if call.contact_id:
+                try:
+                    from api.app.models.crm import ContactTimelineEvent
+
+                    emergency_timeline = ContactTimelineEvent(
+                        tenant_id=tenant_id,
+                        contact_id=call.contact_id,
+                        event_type="emergency_escalated",
+                        title=f"Emergency Escalation: {payload.reason}",
+                        description=(
+                            f"Bridged to on-call technician at {payload.target_number}. "
+                            f"Briefing: {payload.whisper_briefing or 'Direct bridge'}."
+                        ),
+                        payload={
+                            "call_id": payload.call_id,
+                            "target_number": payload.target_number,
+                            "reason": payload.reason,
+                            "priority": payload.priority,
+                            "whisper_briefing": payload.whisper_briefing,
+                            "emergency_details": payload.emergency_details,
+                        },
+                        created_at=datetime.now(UTC),
+                    )
+                    db.add(emergency_timeline)
+                except Exception as crm_err:
+                    logger.debug("Failed to record emergency CRM timeline event: %s", crm_err)
+
+            # High-Priority On-Call Technician SMS Dispatch
+            try:
+                from api.app.services.notifier import dispatch_emergency_transfer_alert
+
+                cust_name = (
+                    payload.caller_name or (call.contact.name if call.contact else "") or "Caller"
+                )
+                cust_phone = payload.caller_phone or call.caller_number or "Unverified"
+                sms_dispatched = dispatch_emergency_transfer_alert(
+                    tenant_id=tenant_id,
+                    recipient_phone=payload.target_number,
+                    customer_name=cust_name,
+                    customer_phone=cust_phone,
+                    reason=payload.reason,
+                    whisper_briefing=payload.whisper_briefing or "",
+                    service_address=payload.service_address or "",
+                    call_id=payload.call_id,
+                    db=db,
+                )
+            except Exception as sms_err:
+                logger.warning("Could not dispatch emergency SMS alert: %s", sms_err)
+
         call.tags = current_tags
         db.commit()
 
@@ -417,6 +480,9 @@ async def handle_call_transfer(
                     "transfer_to": payload.target_number,
                     "reason": payload.reason,
                     "priority": payload.priority,
+                    "whisper_briefing": payload.whisper_briefing,
+                    "emergency_details": payload.emergency_details,
+                    "emergency_alert_dispatched": sms_dispatched,
                     "timestamp": datetime.now(UTC).isoformat(),
                 },
             )
@@ -430,6 +496,8 @@ async def handle_call_transfer(
         "target_number": payload.target_number,
         "reason": payload.reason,
         "priority": payload.priority,
+        "whisper_briefing": payload.whisper_briefing,
+        "emergency_alert_dispatched": sms_dispatched or (payload.priority == "emergency"),
         "status": "transferred",
     }
 

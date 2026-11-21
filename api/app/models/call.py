@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.app.models.base import Base
@@ -72,6 +72,9 @@ class Call(Base):
     transfer_to_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     transferred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     transferred_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    whisper_briefing: Mapped[str | None] = mapped_column(Text, nullable=True)
+    emergency_alert_dispatched: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    emergency_recipient_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qa_score: Mapped[float] = mapped_column(Float, default=100.0, nullable=False)
     qa_rubric: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     qa_flags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)

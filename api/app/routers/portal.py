@@ -128,6 +128,9 @@ class CallDetailResponse(BaseModel):
     takeover_active: bool = False
     transfer_to_number: str | None = None
     transferred_at: datetime | None = None
+    whisper_briefing: str | None = None
+    emergency_alert_dispatched: bool = False
+    emergency_recipient_phone: str | None = None
     qa_score: float = 100.0
     qa_rubric: dict[str, Any] = {}
     qa_flags: list[str] = []
@@ -540,6 +543,9 @@ def get_call_detail(
         takeover_active=bool(getattr(call, "takeover_active", False)),
         transfer_to_number=getattr(call, "transfer_to_number", None),
         transferred_at=getattr(call, "transferred_at", None),
+        whisper_briefing=getattr(call, "whisper_briefing", None),
+        emergency_alert_dispatched=bool(getattr(call, "emergency_alert_dispatched", False)),
+        emergency_recipient_phone=getattr(call, "emergency_recipient_phone", None),
         qa_score=getattr(call, "qa_score", 100.0) or 100.0,
         qa_rubric=getattr(call, "qa_rubric", {}) or {},
         qa_flags=getattr(call, "qa_flags", []) or [],
