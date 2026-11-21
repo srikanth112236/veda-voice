@@ -27,6 +27,7 @@ import {
   Award,
   TrendingUp,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
 import {
   api,
   TenantLocation,
@@ -43,6 +44,10 @@ export default function LocationsPage() {
   const [editingLoc, setEditingLoc] = useState<TenantLocation | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Pagination
+  const [locPage, setLocPage] = useState<number>(1);
+  const [locPageSize, setLocPageSize] = useState<number>(6);
 
   // Simulator state
   const [simZip, setSimZip] = useState<string>("");
@@ -514,8 +519,11 @@ export default function LocationsPage() {
       </div>
 
       {/* Locations Card Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {locations.map((loc) => (
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {locations
+            .slice((locPage - 1) * locPageSize, locPage * locPageSize)
+            .map((loc) => (
           <div
             key={loc.id}
             className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm hover:shadow transition flex flex-col justify-between space-y-4"
@@ -644,6 +652,20 @@ export default function LocationsPage() {
             </div>
           </div>
         ))}
+        </div>
+
+        {locations.length > 6 && (
+          <div className="pt-2">
+            <PaginationBar
+              currentPage={locPage}
+              totalItems={locations.length}
+              pageSize={locPageSize}
+              onPageChange={setLocPage}
+              onPageSizeChange={setLocPageSize}
+              pageSizeOptions={[6, 12, 24]}
+            />
+          </div>
+        )}
       </div>
 
       {locations.length === 0 && !loading && (

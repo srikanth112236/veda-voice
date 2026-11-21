@@ -39,6 +39,7 @@ import {
   Timer,
   Truck,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
 import {
   api,
   StaffMember,
@@ -104,6 +105,8 @@ export default function StaffAndDispatchPage() {
   const [selectedBooking, setSelectedBooking] = useState<CalendarBookingItem | null>(null);
   const [bookingSearchQuery, setBookingSearchQuery] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState("all");
+  const [bookingPage, setBookingPage] = useState(1);
+  const [bookingPageSize, setBookingPageSize] = useState(10);
 
   // Manual Booking Modal State
   const [showNewBookingModal, setShowNewBookingModal] = useState(false);
@@ -1199,133 +1202,165 @@ export default function StaffAndDispatchPage() {
             </div>
           </div>
 
-          <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-white shadow-xs">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 uppercase font-mono text-[10px]">
-                <tr>
-                  <th className="px-4 py-3">Customer</th>
-                  <th className="px-4 py-3">Service</th>
-                  <th className="px-4 py-3">Scheduled Window</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Google Meet</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 font-mono">
-                {bookingsList
-                  .filter((b) => {
-                    const matchesQuery =
-                      !bookingSearchQuery ||
-                      b.customer_name.toLowerCase().includes(bookingSearchQuery.toLowerCase()) ||
-                      b.customer_phone.includes(bookingSearchQuery) ||
-                      (b.customer_email && b.customer_email.toLowerCase().includes(bookingSearchQuery.toLowerCase())) ||
-                      b.service_type.toLowerCase().includes(bookingSearchQuery.toLowerCase());
-                    const matchesStatus =
-                      bookingStatusFilter === "all" || b.status === bookingStatusFilter;
-                    return matchesQuery && matchesStatus;
-                  })
-                  .map((b) => (
-                    <tr key={b.id} className="hover:bg-zinc-50/70 transition">
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-zinc-900">{b.customer_name}</div>
-                        <div className="text-[11px] text-zinc-500">{b.customer_phone}</div>
-                        {b.customer_email && <div className="text-[10px] text-zinc-400">{b.customer_email}</div>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="capitalize text-zinc-800 font-medium font-sans">
-                          {b.service_type.replace(/_/g, " ")}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-zinc-700">
-                        <div className="font-semibold text-zinc-900 text-xs font-sans">
-                          {formatUSDate(b.start_at, tenantTimezone, { weekday: "short", includeYear: true })}
-                        </div>
-                        <div className="mt-0.5">
-                          <USTimeRangeBadge
-                            start={b.start_at}
-                            end={b.end_at}
-                            timeZone={tenantTimezone}
-                            isArrivalWindow={Boolean(b.arrival_window_start && b.arrival_window_end)}
-                            arrivalStart={b.arrival_window_start}
-                            arrivalEnd={b.arrival_window_end}
-                          />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            b.status === "confirmed"
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : b.status === "held"
-                              ? "bg-amber-50 text-amber-700 border border-amber-200"
-                              : "bg-zinc-100 text-zinc-600 border border-zinc-200"
-                          }`}
-                        >
-                          {b.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {b.meet_link ? (
-                          <a
-                            href={b.meet_link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold hover:bg-blue-100"
-                          >
-                            <Video className="w-3 h-3 text-blue-600" />
-                            Join Meet
-                            <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-zinc-400 italic">In-Person Dispatch</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5 font-sans">
-                          {b.call_id ? (
-                            <a
-                              href={`/portal/calls?call_id=${encodeURIComponent(b.call_id)}&autoplay=true`}
-                              className="px-2 py-1 rounded border border-purple-200 hover:bg-purple-50 text-purple-700 text-[11px] font-semibold flex items-center gap-1 transition"
-                              title="Listen to call that booked this slot"
-                            >
-                              <Play className="w-2.5 h-2.5" />
-                              <span>Play Call</span>
-                            </a>
-                          ) : (
-                            <a
-                              href={`/portal/calls?search=${encodeURIComponent(b.customer_phone)}&autoplay=true`}
-                              className="px-2 py-1 rounded border border-zinc-200 hover:bg-zinc-100 text-zinc-600 text-[11px] font-semibold flex items-center gap-1 transition"
-                              title="Look up call logs by phone"
-                            >
-                              <Play className="w-2.5 h-2.5" />
-                              <span>Calls</span>
-                            </a>
-                          )}
+          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+            {(() => {
+              const filteredBookings = bookingsList.filter((b) => {
+                const matchesQuery =
+                  !bookingSearchQuery ||
+                  b.customer_name.toLowerCase().includes(bookingSearchQuery.toLowerCase()) ||
+                  b.customer_phone.includes(bookingSearchQuery) ||
+                  (b.customer_email && b.customer_email.toLowerCase().includes(bookingSearchQuery.toLowerCase())) ||
+                  b.service_type.toLowerCase().includes(bookingSearchQuery.toLowerCase());
+                const matchesStatus =
+                  bookingStatusFilter === "all" || b.status === bookingStatusFilter;
+                return matchesQuery && matchesStatus;
+              });
 
-                          <button
-                            type="button"
-                            onClick={() => setSelectedBooking(b)}
-                            className="px-2.5 py-1 rounded border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-[11px] font-semibold transition"
-                          >
-                            Details
-                          </button>
+              const paginatedBookings = filteredBookings.slice(
+                (bookingPage - 1) * bookingPageSize,
+                bookingPage * bookingPageSize
+              );
 
-                          {b.status !== "cancelled" && (
-                            <button
-                              type="button"
-                              onClick={() => handleCancelBooking(b.id)}
-                              disabled={cancellingBookingId === b.id}
-                              className="px-2 py-1 rounded border border-red-200 hover:bg-red-50 text-red-600 text-[11px] font-semibold transition"
-                            >
-                              {cancellingBookingId === b.id ? "Cancelling..." : "Cancel"}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+              return (
+                <>
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-mono text-[10px]">
+                      <tr>
+                        <th className="px-4 py-3">Customer</th>
+                        <th className="px-4 py-3">Service</th>
+                        <th className="px-4 py-3">Scheduled Window</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Google Meet</th>
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-mono">
+                      {filteredBookings.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-12 text-center text-slate-400 font-sans">
+                            No appointments found matching your query.
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedBookings.map((b) => (
+                          <tr key={b.id} className="hover:bg-slate-50/70 transition">
+                            <td className="px-4 py-3">
+                              <div className="font-bold text-slate-900">{b.customer_name}</div>
+                              <div className="text-[11px] text-slate-500">{b.customer_phone}</div>
+                              {b.customer_email && <div className="text-[10px] text-slate-400">{b.customer_email}</div>}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="capitalize text-slate-800 font-medium font-sans">
+                                {b.service_type.replace(/_/g, " ")}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">
+                              <div className="font-semibold text-slate-900 text-xs font-sans">
+                                {formatUSDate(b.start_at, tenantTimezone, { weekday: "short", includeYear: true })}
+                              </div>
+                              <div className="mt-0.5">
+                                <USTimeRangeBadge
+                                  start={b.start_at}
+                                  end={b.end_at}
+                                  timeZone={tenantTimezone}
+                                  isArrivalWindow={Boolean(b.arrival_window_start && b.arrival_window_end)}
+                                  arrivalStart={b.arrival_window_start}
+                                  arrivalEnd={b.arrival_window_end}
+                                />
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                  b.status === "confirmed"
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : b.status === "held"
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200"
+                                    : "bg-slate-100 text-slate-600 border border-slate-200"
+                                }`}
+                              >
+                                {b.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {b.meet_link ? (
+                                <a
+                                  href={b.meet_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold hover:bg-blue-100"
+                                >
+                                  <Video className="w-3 h-3 text-blue-600" />
+                                  Join Meet
+                                  <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">In-Person Dispatch</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1.5 font-sans">
+                                {b.call_id ? (
+                                  <a
+                                    href={`/portal/calls?call_id=${encodeURIComponent(b.call_id)}&autoplay=true`}
+                                    className="px-2 py-1 rounded border border-purple-200 hover:bg-purple-50 text-purple-700 text-[11px] font-semibold flex items-center gap-1 transition"
+                                    title="Listen to call that booked this slot"
+                                  >
+                                    <Play className="w-2.5 h-2.5" />
+                                    <span>Play Call</span>
+                                  </a>
+                                ) : (
+                                  <a
+                                    href={`/portal/calls?search=${encodeURIComponent(b.customer_phone)}&autoplay=true`}
+                                    className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] font-semibold flex items-center gap-1 transition"
+                                    title="Look up call logs by phone"
+                                  >
+                                    <Play className="w-2.5 h-2.5" />
+                                    <span>Calls</span>
+                                  </a>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedBooking(b)}
+                                  className="px-2.5 py-1 rounded border border-slate-200 hover:bg-slate-100 text-slate-700 text-[11px] font-semibold transition"
+                                >
+                                  Details
+                                </button>
+
+                                {b.status !== "cancelled" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelBooking(b.id)}
+                                    disabled={cancellingBookingId === b.id}
+                                    className="px-2 py-1 rounded border border-red-200 hover:bg-red-50 text-red-600 text-[11px] font-semibold transition"
+                                  >
+                                    {cancellingBookingId === b.id ? "Cancelling..." : "Cancel"}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+
+                  {filteredBookings.length > 0 && (
+                    <div className="p-4 border-t border-slate-100 bg-slate-50/50">
+                      <PaginationBar
+                        currentPage={bookingPage}
+                        totalItems={filteredBookings.length}
+                        pageSize={bookingPageSize}
+                        onPageChange={setBookingPage}
+                        onPageSizeChange={setBookingPageSize}
+                        pageSizeOptions={[10, 25, 50]}
+                      />
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
