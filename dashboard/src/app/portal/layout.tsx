@@ -61,6 +61,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const navItems = [
     { label: "Dashboard Overview", href: "/portal/dashboard", icon: LayoutDashboard },
     { label: "Call Explorer & Audio", href: "/portal/calls", icon: PhoneCall },
+    { label: "Outbound Campaigns", href: "/portal/campaigns", icon: Radio },
     { label: "Native CRM Pipeline", href: "/portal/crm", icon: Users },
     { label: "Integrations & Sync", href: "/portal/integrations", icon: Share2 },
     { label: "Knowledge Base RAG", href: "/portal/knowledge", icon: BookOpen },

@@ -170,8 +170,21 @@ jobs:
           TAG="${{ steps.vars.outputs.SHA_SHORT }}"
           RG="${{ steps.vars.outputs.AZURE_RG }}"
 
-          az containerapp update -n api -g "$RG" --image "${ACR_SERVER}/api:${TAG}" || az containerapp update -n api -g "$RG" --image "${ACR_SERVER}/api:latest"
-          az containerapp update -n dashboard -g "$RG" --image "${ACR_SERVER}/dashboard:${TAG}" || az containerapp update -n dashboard -g "$RG" --image "${ACR_SERVER}/dashboard:latest"
+          API_APP=$(az containerapp list -g "$RG" --query "[?contains(name, 'api')].name | [0]" -o tsv 2>/dev/null || echo "")
+          if [ -n "$API_APP" ] && [ "$API_APP" != "None" ]; then
+            echo "Updating API Container App: $API_APP"
+            az containerapp update -n "$API_APP" -g "$RG" --image "${ACR_SERVER}/api:${TAG}" || az containerapp update -n "$API_APP" -g "$RG" --image "${ACR_SERVER}/api:latest"
+          else
+            echo "No container app matching 'api' found in $RG, skipping revision update."
+          fi
+
+          DASH_APP=$(az containerapp list -g "$RG" --query "[?contains(name, 'dashboard')].name | [0]" -o tsv 2>/dev/null || echo "")
+          if [ -n "$DASH_APP" ] && [ "$DASH_APP" != "None" ]; then
+            echo "Updating Dashboard Container App: $DASH_APP"
+            az containerapp update -n "$DASH_APP" -g "$RG" --image "${ACR_SERVER}/dashboard:${TAG}" || az containerapp update -n "$DASH_APP" -g "$RG" --image "${ACR_SERVER}/dashboard:latest"
+          else
+            echo "No container app matching 'dashboard' found in $RG, skipping revision update."
+          fi
 
       - name: Deploy Voice Agent to LiveKit Cloud
         env:

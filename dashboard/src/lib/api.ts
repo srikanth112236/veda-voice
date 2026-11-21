@@ -1739,6 +1739,43 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // Outbound Voice Campaigns & Dialer
+  getVoiceCampaigns: () =>
+    request<VoiceCampaignSummary[]>("/api/v1/portal/campaigns"),
+
+  getVoiceCampaign: (campaignId: string) =>
+    request<VoiceCampaignDetail>(`/api/v1/portal/campaigns/${campaignId}`),
+
+  createVoiceCampaign: (data: CreateVoiceCampaignInput) =>
+    request<VoiceCampaignSummary>("/api/v1/portal/campaigns", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  pauseVoiceCampaign: (campaignId: string) =>
+    request<{ id: string; status: string; message: string }>(
+      `/api/v1/portal/campaigns/${campaignId}/pause`,
+      { method: "POST" }
+    ),
+
+  resumeVoiceCampaign: (campaignId: string) =>
+    request<{ id: string; status: string; message: string }>(
+      `/api/v1/portal/campaigns/${campaignId}/resume`,
+      { method: "POST" }
+    ),
+
+  runVoiceCampaign: (campaignId: string) =>
+    request<{
+      campaign_id: string;
+      eligible_contacts_found: number;
+      dispatches_attempted: number;
+      dispatches_succeeded: number;
+      dispatches_skipped: number;
+      contacts_completed: number;
+    }>(`/api/v1/portal/campaigns/${campaignId}/run`, {
+      method: "POST",
+    }),
 };
 
 export interface KnowledgeDocument {
@@ -2035,5 +2072,50 @@ export interface TenantLocation {
     total_calls: number;
     total_bookings: number;
   };
+}
+
+export interface VoiceCampaignSummary {
+  id: string;
+  name: string;
+  purpose: "appointment_reminder" | "callback_scheduled" | "speed_to_lead" | "reactivation";
+  status: "draft" | "scheduled" | "running" | "paused" | "completed";
+  caller_id: string;
+  total_contacts: number;
+  completed_contacts: number;
+  successful_contacts: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VoiceCampaignContact {
+  id: string;
+  phone_number: string;
+  recipient_name: string;
+  status: "pending" | "calling" | "completed" | "skipped" | "failed";
+  attempts_count: number;
+  last_outcome?: string | null;
+  skip_reason?: string | null;
+  next_attempt_at?: string | null;
+}
+
+export interface VoiceCampaignDetail extends VoiceCampaignSummary {
+  contacts: VoiceCampaignContact[];
+}
+
+export interface CreateVoiceCampaignInput {
+  name: string;
+  purpose?: string;
+  prompt_variant?: string;
+  caller_id_e164?: string;
+  schedule_window_start?: string;
+  schedule_window_end?: string;
+  max_attempts_per_contact?: number;
+  retry_interval_hours?: number;
+  contacts: Array<{
+    phone_number: string;
+    recipient_name?: string;
+    contact_id?: string;
+    metadata_json?: Record<string, any>;
+  }>;
 }
 
