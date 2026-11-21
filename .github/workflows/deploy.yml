@@ -170,21 +170,64 @@ jobs:
           TAG="${{ steps.vars.outputs.SHA_SHORT }}"
           RG="${{ steps.vars.outputs.AZURE_RG }}"
 
-          API_APP=$(az containerapp list -g "$RG" --query "[?contains(name, 'api')].name | [0]" -o tsv 2>/dev/null || echo "")
-          if [ -n "$API_APP" ] && [ "$API_APP" != "None" ]; then
-            echo "Updating API Container App: $API_APP"
-            az containerapp update -n "$API_APP" -g "$RG" --image "${ACR_SERVER}/api:${TAG}" || az containerapp update -n "$API_APP" -g "$RG" --image "${ACR_SERVER}/api:latest"
-          else
-            echo "No container app matching 'api' found in $RG, skipping revision update."
+          echo "========================================================"
+          echo "--> Inspecting and Updating Container Apps across Azure..."
+          echo "Target Resource Group: $RG"
+          echo "ACR Server: $ACR_SERVER"
+          echo "Image Tag: $TAG"
+
+          # Query all container apps in the target RG, or fallback to subscription-wide search
+          APPS_INFO=$(az containerapp list -g "$RG" --query "[].{name:name, rg:resourceGroup}" -o tsv 2>/dev/null || true)
+          if [ -z "$APPS_INFO" ]; then
+            echo "::warning title=No Apps in RG::Querying all Container Apps across subscription..."
+            APPS_INFO=$(az containerapp list --query "[].{name:name, rg:resourceGroup}" -o tsv 2>/dev/null || true)
           fi
 
-          DASH_APP=$(az containerapp list -g "$RG" --query "[?contains(name, 'dashboard')].name | [0]" -o tsv 2>/dev/null || echo "")
-          if [ -n "$DASH_APP" ] && [ "$DASH_APP" != "None" ]; then
-            echo "Updating Dashboard Container App: $DASH_APP"
-            az containerapp update -n "$DASH_APP" -g "$RG" --image "${ACR_SERVER}/dashboard:${TAG}" || az containerapp update -n "$DASH_APP" -g "$RG" --image "${ACR_SERVER}/dashboard:latest"
-          else
-            echo "No container app matching 'dashboard' found in $RG, skipping revision update."
+          echo "Discovered Container Apps:"
+          echo "$APPS_INFO"
+
+          if [ -z "$APPS_INFO" ]; then
+            echo "::error title=No Container Apps Found::az containerapp list returned empty"
+            exit 1
           fi
+
+          echo "$APPS_INFO" | while read -r APP APP_RG; do
+            [ -z "$APP" ] && continue
+            echo "--------------------------------------------------------"
+            echo "Updating Container App '$APP' in resource group '$APP_RG'..."
+
+            IMAGE_ROLE=""
+            case "$APP" in
+              *dash*)
+                IMAGE_ROLE="dashboard"
+                ;;
+              *agent*)
+                IMAGE_ROLE="agent"
+                ;;
+              *api*)
+                IMAGE_ROLE="api"
+                ;;
+              *)
+                IMAGE_ROLE="api"
+                ;;
+            esac
+
+            TARGET_IMAGE="${ACR_SERVER}/${IMAGE_ROLE}:${TAG}"
+            LATEST_IMAGE="${ACR_SERVER}/${IMAGE_ROLE}:latest"
+            echo "Setting image for '$APP' to $TARGET_IMAGE (fallback: $LATEST_IMAGE)..."
+
+            az containerapp update \
+              --name "$APP" \
+              --resource-group "$APP_RG" \
+              --image "$TARGET_IMAGE" || {
+                echo "Warning: Update with tag $TAG failed, falling back to :latest..."
+                az containerapp update \
+                  --name "$APP" \
+                  --resource-group "$APP_RG" \
+                  --image "$LATEST_IMAGE"
+              }
+            echo "[SUCCESS] Finished revision rollout for '$APP'."
+          done
 
       - name: Deploy Voice Agent to LiveKit Cloud
         env:
