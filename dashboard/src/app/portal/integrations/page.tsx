@@ -48,6 +48,7 @@ import {
   Database,
   Lock,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
 
 export default function IntegrationsPage() {
   const { user } = useAuth();
@@ -98,6 +99,8 @@ export default function IntegrationsPage() {
 
   // Outbox job inspection modal
   const [selectedOutboxJob, setSelectedOutboxJob] = useState<any | null>(null);
+  const [outboxPage, setOutboxPage] = useState(1);
+  const [outboxPageSize, setOutboxPageSize] = useState(5);
 
   // New Webhook state
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
@@ -1671,8 +1674,10 @@ export default function IntegrationsPage() {
                   )}
                 </div>
 
-                <div className="border border-zinc-200 rounded-2xl overflow-hidden bg-zinc-50/50 divide-y divide-zinc-200 text-xs">
-                  {outboxData.recent_jobs.slice(0, 10).map((job) => {
+                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50 divide-y divide-slate-200 text-xs">
+                  {outboxData.recent_jobs
+                    .slice((outboxPage - 1) * outboxPageSize, outboxPage * outboxPageSize)
+                    .map((job) => {
                     const isDead = job.status === "dead";
                     const isDone = job.status === "done";
                     const isFailed = job.status === "failed";
@@ -1680,7 +1685,7 @@ export default function IntegrationsPage() {
                     return (
                       <div
                         key={job.id}
-                        className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors hover:bg-zinc-100/60 ${
+                        className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors hover:bg-slate-100/60 ${
                           isDead ? "bg-rose-50/40" : ""
                         }`}
                       >
@@ -1694,15 +1699,15 @@ export default function IntegrationsPage() {
                                   ? "bg-rose-100 text-rose-800"
                                   : isFailed
                                   ? "bg-amber-100 text-amber-800"
-                                  : "bg-zinc-200 text-zinc-700"
+                                  : "bg-slate-200 text-slate-700"
                               }`}
                             >
                               {job.status}
                             </span>
-                            <span className="font-mono text-zinc-900 font-semibold">
+                            <span className="font-mono text-slate-900 font-semibold">
                               {job.entity}:{job.op}
                             </span>
-                            <span className="text-[10px] font-mono text-zinc-500">
+                            <span className="text-[10px] font-mono text-slate-500">
                               attempt #{job.attempt}
                             </span>
                           </div>
@@ -1722,7 +1727,7 @@ export default function IntegrationsPage() {
                             <span>Inspect Payload</span>
                             <ChevronRight className="w-3 h-3" />
                           </button>
-                          <span className="text-[10px] text-zinc-400 font-mono">
+                          <span className="text-[10px] text-slate-400 font-mono">
                             {new Date(job.created_at).toLocaleTimeString()}
                           </span>
                         </div>
@@ -1730,6 +1735,19 @@ export default function IntegrationsPage() {
                     );
                   })}
                 </div>
+
+                {outboxData.recent_jobs.length > 5 && (
+                  <div className="pt-2">
+                    <PaginationBar
+                      currentPage={outboxPage}
+                      totalItems={outboxData.recent_jobs.length}
+                      pageSize={outboxPageSize}
+                      onPageChange={setOutboxPage}
+                      onPageSizeChange={setOutboxPageSize}
+                      pageSizeOptions={[5, 10, 20]}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

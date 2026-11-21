@@ -67,6 +67,7 @@ import {
   XCircle,
   Download,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
 
 function AdminDashboardContent() {
   const router = useRouter();
@@ -84,6 +85,8 @@ function AdminDashboardContent() {
 
   // Agency Sub-Accounts & Impersonation state (Milestone M8b)
   const [subAccounts, setSubAccounts] = useState<AgencySubAccount[]>([]);
+  const [subPage, setSubPage] = useState(1);
+  const [subPageSize, setSubPageSize] = useState(10);
   const [auditLogs, setAuditLogs] = useState<AgencyAuditLog[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditActionFilter, setAuditActionFilter] = useState<string>("");
@@ -169,6 +172,8 @@ function AdminDashboardContent() {
 
   // Platform Admin Refunds, Top-Ups & Onboarding Fees (Billing Polish)
   const [refundRequests, setRefundRequests] = useState<AdminRefundRequestRecord[]>([]);
+  const [refundPage, setRefundPage] = useState(1);
+  const [refundPageSize, setRefundPageSize] = useState(10);
   const [topupOrders, setTopupOrders] = useState<AdminTopupOrderRecord[]>([]);
   const [refundActionModal, setRefundActionModal] = useState<{ request: AdminRefundRequestRecord; action: "approve" | "reject" } | null>(null);
   const [refundNotes, setRefundNotes] = useState("");
@@ -2407,6 +2412,7 @@ function AdminDashboardContent() {
                       req.reason?.toLowerCase().includes(q)
                     );
                   })
+                  .slice((refundPage - 1) * refundPageSize, refundPage * refundPageSize)
                   .map((req: any) => (
                   <tr key={req.id} className="hover:bg-zinc-50/80 transition-colors">
                     <td className="p-3">
@@ -2520,6 +2526,19 @@ function AdminDashboardContent() {
                 )}
               </tbody>
             </table>
+
+            {refundRequests.length > 5 && (
+              <div className="p-3 border-t border-slate-100 bg-slate-50/50">
+                <PaginationBar
+                  currentPage={refundPage}
+                  totalItems={refundRequests.length}
+                  pageSize={refundPageSize}
+                  onPageChange={setRefundPage}
+                  onPageSizeChange={setRefundPageSize}
+                  pageSizeOptions={[5, 10, 25]}
+                />
+              </div>
+            )}
           </div>
         </div>
         )}
@@ -3481,7 +3500,9 @@ function AdminDashboardContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {subAccounts.map((sub) => {
+                {subAccounts
+                  .slice((subPage - 1) * subPageSize, subPage * subPageSize)
+                  .map((sub) => {
                   return (
                     <tr key={sub.id} className="hover:bg-zinc-50/80 transition-colors">
                       <td className="p-3">
@@ -3544,6 +3565,19 @@ function AdminDashboardContent() {
                 })}
               </tbody>
             </table>
+
+            {subAccounts.length > 5 && (
+              <div className="p-3 border-t border-slate-100 bg-slate-50/50">
+                <PaginationBar
+                  currentPage={subPage}
+                  totalItems={subAccounts.length}
+                  pageSize={subPageSize}
+                  onPageChange={setSubPage}
+                  onPageSizeChange={setSubPageSize}
+                  pageSizeOptions={[5, 10, 25]}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

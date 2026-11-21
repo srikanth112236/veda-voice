@@ -28,12 +28,17 @@ import {
   Sliders,
   Layers,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
 
 export default function LeadFormBuilderPage() {
   const [forms, setForms] = useState<LeadFormItem[]>([]);
   const [leads, setLeads] = useState<CapturedLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Pagination for Captured Leads
+  const [leadPage, setLeadPage] = useState(1);
+  const [leadPageSize, setLeadPageSize] = useState(5);
 
   // Form Builder Drawer / Creator State
   const [showBuilder, setShowBuilder] = useState(false);
@@ -481,80 +486,97 @@ export default function LeadFormBuilderPage() {
             No leads captured yet. Submit a test inquiry through your form above!
           </div>
         ) : (
-          <div className="space-y-3">
-            {leads.map((lead) => {
-              const isEmergency = lead.urgency === "emergency";
-              return (
-                <div
-                  key={lead.id}
-                  className={`p-4 rounded-xl border transition-all space-y-3 ${
-                    isEmergency
-                      ? "border-red-200 bg-red-50/40"
-                      : "border-zinc-200 bg-zinc-50/60"
-                  }`}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-white border border-zinc-200 flex items-center justify-center font-bold text-zinc-700 text-xs shadow-sm">
-                        {lead.caller_name ? lead.caller_name[0] : "L"}
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs text-zinc-900 flex items-center gap-2">
-                          <span>{lead.caller_name || "Website Lead"}</span>
-                          <span
-                            className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase ${
-                              isEmergency
-                                ? "bg-red-100 text-red-700 border border-red-200"
-                                : "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                            }`}
-                          >
-                            {isEmergency ? "🚨 Emergency" : "📝 Normal"}
+          <div className="space-y-4">
+            <div className="space-y-3">
+              {leads
+                .slice((leadPage - 1) * leadPageSize, leadPage * leadPageSize)
+                .map((lead) => {
+                  const isEmergency = lead.urgency === "emergency";
+                  return (
+                    <div
+                      key={lead.id}
+                      className={`p-4 rounded-xl border transition-all space-y-3 ${
+                        isEmergency
+                          ? "border-red-200 bg-red-50/40"
+                          : "border-slate-200 bg-slate-50/60"
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs shadow-sm">
+                            {lead.caller_name ? lead.caller_name[0] : "L"}
+                          </div>
+                          <div>
+                            <div className="font-bold text-xs text-slate-900 flex items-center gap-2">
+                              <span>{lead.caller_name || "Website Lead"}</span>
+                              <span
+                                className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase ${
+                                  isEmergency
+                                    ? "bg-red-100 text-red-700 border border-red-200"
+                                    : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                }`}
+                              >
+                                {isEmergency ? "🚨 Emergency" : "📝 Normal"}
+                              </span>
+                            </div>
+                            <div className="text-xs font-mono font-bold text-slate-700">
+                              <a href={`tel:${lead.caller_phone}`} className="hover:underline text-emerald-700">
+                                {lead.caller_phone}
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-slate-500">
+                            {new Date(lead.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                           </span>
-                        </div>
-                        <div className="text-xs font-mono font-bold text-zinc-700">
-                          <a href={`tel:${lead.caller_phone}`} className="hover:underline text-emerald-700">
-                            {lead.caller_phone}
-                          </a>
+                          <select
+                            value={lead.status}
+                            onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
+                            className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-xs font-semibold text-slate-800 shadow-sm"
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="contacted">Contacted</option>
+                            <option value="dispatched">Dispatched</option>
+                            <option value="converted">Converted</option>
+                          </select>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-zinc-500">
-                        {new Date(lead.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                      <select
-                        value={lead.status}
-                        onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                        className="px-2.5 py-1 rounded-lg bg-white border border-zinc-300 text-xs font-semibold text-zinc-800 shadow-sm"
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="contacted">Contacted</option>
-                        <option value="dispatched">Dispatched</option>
-                        <option value="converted">Converted</option>
-                      </select>
-                    </div>
-                  </div>
+                      {lead.service_requested && (
+                        <div className="text-xs text-slate-700 font-medium">
+                          Service: <strong className="text-slate-900">{lead.service_requested}</strong>
+                          {lead.service_address && ` &bull; Address: ${lead.service_address}`}
+                        </div>
+                      )}
 
-                  {lead.service_requested && (
-                    <div className="text-xs text-zinc-700 font-medium">
-                      Service: <strong className="text-zinc-900">{lead.service_requested}</strong>
-                      {lead.service_address && ` &bull; Address: ${lead.service_address}`}
+                      {lead.custom_data && Object.keys(lead.custom_data).length > 0 && (
+                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 text-[11px] font-mono text-slate-600 flex flex-wrap gap-2">
+                          {Object.entries(lead.custom_data).map(([k, v]) => (
+                            <span key={k}>
+                              <strong>{k}:</strong> {String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  );
+                })}
+            </div>
 
-                  {lead.custom_data && Object.keys(lead.custom_data).length > 0 && (
-                    <div className="p-2.5 rounded-lg bg-white border border-zinc-200 text-[11px] font-mono text-zinc-600 flex flex-wrap gap-2">
-                      {Object.entries(lead.custom_data).map(([k, v]) => (
-                        <span key={k}>
-                          <strong>{k}:</strong> {String(v)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {leads.length > 5 && (
+              <div className="pt-2">
+                <PaginationBar
+                  currentPage={leadPage}
+                  totalItems={leads.length}
+                  pageSize={leadPageSize}
+                  onPageChange={setLeadPage}
+                  onPageSizeChange={setLeadPageSize}
+                  pageSizeOptions={[5, 10, 20]}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

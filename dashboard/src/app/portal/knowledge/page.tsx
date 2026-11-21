@@ -41,6 +41,7 @@ import {
   ShieldAlert,
   MessageSquare,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
 
 interface PromptVariantConfig {
   id: "daytime" | "after_hours" | "speed_to_lead" | "custom";
@@ -146,6 +147,8 @@ export default function KnowledgeBasePage() {
   // Documents State
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(true);
+  const [docPage, setDocPage] = useState(1);
+  const [docPageSize, setDocPageSize] = useState(5);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
@@ -159,6 +162,8 @@ export default function KnowledgeBasePage() {
   // Direct FAQs State
   const [faqs, setFaqs] = useState<FAQItem[]>([]);
   const [loadingFaqs, setLoadingFaqs] = useState(true);
+  const [faqPage, setFaqPage] = useState(1);
+  const [faqPageSize, setFaqPageSize] = useState(6);
   const [faqSearchQuery, setFaqSearchQuery] = useState("");
   const [faqCategoryFilter, setFaqCategoryFilter] = useState("all");
   const [showAddFaqModal, setShowAddFaqModal] = useState(false);
@@ -1202,71 +1207,88 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
               </button>
             </div>
           ) : (
-            <div className="space-y-3">
-              {filteredFaqs.map((faq, index) => {
-                const isSpeakingThis = currentlySpeaking === `faq-${index}`;
-                return (
-                  <div
-                    key={index}
-                    className="p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm hover:border-zinc-300 transition-all space-y-2.5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold">
-                            {faq.category || "General"}
-                          </span>
-                          <h3 className="text-xs font-bold text-zinc-900">{faq.question}</h3>
+            <div className="space-y-4">
+              <div className="space-y-3">
+                {filteredFaqs
+                  .slice((faqPage - 1) * faqPageSize, faqPage * faqPageSize)
+                  .map((faq, index) => {
+                  const isSpeakingThis = currentlySpeaking === `faq-${index}`;
+                  return (
+                    <div
+                      key={index}
+                      className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm hover:border-slate-300 transition-all space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold">
+                              {faq.category || "General"}
+                            </span>
+                            <h3 className="text-xs font-bold text-slate-900">{faq.question}</h3>
+                          </div>
+                          <p className="text-xs text-slate-700 leading-relaxed font-sans">{faq.answer}</p>
                         </div>
-                        <p className="text-xs text-zinc-700 leading-relaxed font-sans">{faq.answer}</p>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleSpeakText(faq.answer, `faq-${index}`)}
-                          className={`p-1.5 rounded-lg border text-xs font-semibold transition-colors flex items-center gap-1 ${
-                            isSpeakingThis
-                              ? "bg-indigo-600 text-white border-indigo-600 shadow-sm animate-pulse"
-                              : "border-zinc-200 hover:bg-indigo-50 text-indigo-700 hover:border-indigo-200"
-                          }`}
-                          title={isSpeakingThis ? "Stop Voice Simulation" : "Audition Voice Receptionist Response"}
-                        >
-                          {isSpeakingThis ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                          <span className="text-[10px] hidden sm:inline">
-                            {isSpeakingThis ? "Stop" : "Listen"}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteFaq(faq)}
-                          className="p-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-xs"
-                          title="Delete FAQ"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Alternate Phrasings */}
-                    {faq.alternate_phrasings && faq.alternate_phrasings.length > 0 && (
-                      <div className="pt-2 border-t border-zinc-100 flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-mono text-zinc-400 flex items-center gap-1">
-                          <Tag className="w-2.5 h-2.5" />
-                          Phrasings:
-                        </span>
-                        {faq.alternate_phrasings.map((alt, i) => (
-                          <span
-                            key={i}
-                            className="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 text-[10px] font-medium"
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleSpeakText(faq.answer, `faq-${index}`)}
+                            className={`p-1.5 rounded-lg border text-xs font-semibold transition-colors flex items-center gap-1 ${
+                              isSpeakingThis
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm animate-pulse"
+                                : "border-slate-200 hover:bg-indigo-50 text-indigo-700 hover:border-indigo-200"
+                            }`}
+                            title={isSpeakingThis ? "Stop Voice Simulation" : "Audition Voice Receptionist Response"}
                           >
-                            {alt}
-                          </span>
-                        ))}
+                            {isSpeakingThis ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                            <span className="text-[10px] hidden sm:inline">
+                              {isSpeakingThis ? "Stop" : "Listen"}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteFaq(faq)}
+                            className="p-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-xs"
+                            title="Delete FAQ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                      {/* Alternate Phrasings */}
+                      {faq.alternate_phrasings && faq.alternate_phrasings.length > 0 && (
+                        <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
+                            <Tag className="w-2.5 h-2.5" />
+                            Phrasings:
+                          </span>
+                          {faq.alternate_phrasings.map((alt, i) => (
+                            <span
+                              key={i}
+                              className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-medium"
+                            >
+                              {alt}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {filteredFaqs.length > 6 && (
+                <div className="pt-1">
+                  <PaginationBar
+                    currentPage={faqPage}
+                    totalItems={filteredFaqs.length}
+                    pageSize={faqPageSize}
+                    onPageChange={setFaqPage}
+                    onPageSizeChange={setFaqPageSize}
+                    pageSizeOptions={[6, 12, 24]}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1322,23 +1344,25 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
                       </td>
                     </tr>
                   ) : (
-                    documents.map((doc) => (
-                      <tr key={doc.id} className="hover:bg-zinc-50/80 transition-colors">
+                    documents
+                      .slice((docPage - 1) * docPageSize, docPage * docPageSize)
+                      .map((doc) => (
+                      <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="p-3">
-                          <div className="font-semibold text-zinc-900 flex items-center gap-2">
+                          <div className="font-semibold text-slate-900 flex items-center gap-2">
                             {getFormatIcon(doc.filename)}
                             <span className="truncate max-w-[180px]">{doc.filename}</span>
                           </div>
-                          <div className="text-[10px] text-zinc-400 font-mono">
+                          <div className="text-[10px] text-slate-400 font-mono">
                             {new Date(doc.created_at).toLocaleDateString()}
                           </div>
                         </td>
-                        <td className="p-3 font-mono text-zinc-600">
+                        <td className="p-3 font-mono text-slate-600">
                           {doc.file_size_bytes > 1024 * 1024
                             ? `${(doc.file_size_bytes / (1024 * 1024)).toFixed(1)} MB`
                             : `${Math.round(doc.file_size_bytes / 1024)} KB`}
                         </td>
-                        <td className="p-3 font-mono text-zinc-900 font-bold">
+                        <td className="p-3 font-mono text-slate-900 font-bold">
                           {doc.chunk_count} chunks
                         </td>
                         <td className="p-3">
@@ -1352,7 +1376,7 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
                             <button
                               type="button"
                               onClick={() => handleInspectChunks(doc)}
-                              className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold"
+                              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold"
                               title="Inspect Chunks"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -1373,6 +1397,19 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
                 </tbody>
               </table>
             </div>
+
+            {documents.length > 5 && (
+              <div className="pt-2">
+                <PaginationBar
+                  currentPage={docPage}
+                  totalItems={documents.length}
+                  pageSize={docPageSize}
+                  onPageChange={setDocPage}
+                  onPageSizeChange={setDocPageSize}
+                  pageSizeOptions={[5, 10, 20]}
+                />
+              </div>
+            )}
           </div>
 
           {/* Right Column: Live RAG Testing Sandbox (5 cols) */}
