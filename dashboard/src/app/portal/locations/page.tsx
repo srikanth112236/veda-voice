@@ -20,8 +20,21 @@ import {
   UserCheck,
   UserX,
   X,
+  BookOpen,
+  HelpCircle,
+  Map,
+  DollarSign,
+  Award,
+  TrendingUp,
 } from "lucide-react";
-import { api, TenantLocation, LocationStaffMember } from "@/lib/api";
+import {
+  api,
+  TenantLocation,
+  LocationStaffMember,
+  LocationOverrides,
+  LocationGeofence,
+  UnservedDemandItem,
+} from "@/lib/api";
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<TenantLocation[]>([]);
@@ -57,6 +70,30 @@ export default function LocationsPage() {
   );
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
   const [loadingSlots, setLoadingSlots] = useState<boolean>(false);
+
+  // Phase A: Local FAQs & Policies State
+  const [overridesModalOpen, setOverridesModalOpen] = useState<boolean>(false);
+  const [selectedLocForOverrides, setSelectedLocForOverrides] = useState<TenantLocation | null>(null);
+  const [overridesParking, setOverridesParking] = useState<string>("");
+  const [overridesFee, setOverridesFee] = useState<string>("");
+  const [overridesLicense, setOverridesLicense] = useState<string>("");
+  const [overridesFaqs, setOverridesFaqs] = useState<Array<{ question: string; answer: string }>>([]);
+  const [savingOverrides, setSavingOverrides] = useState<boolean>(false);
+
+  // Phase B: Smart Geofencing State
+  const [geofenceModalOpen, setGeofenceModalOpen] = useState<boolean>(false);
+  const [selectedLocForGeofence, setSelectedLocForGeofence] = useState<TenantLocation | null>(null);
+  const [geofenceZips, setGeofenceZips] = useState<string>("");
+  const [geofenceHoods, setGeofenceHoods] = useState<string>("");
+  const [geofenceCities, setGeofenceCities] = useState<string>("");
+  const [geofenceAllowsOut, setGeofenceAllowsOut] = useState<boolean>(true);
+  const [geofenceSurcharge, setGeofenceSurcharge] = useState<string>("");
+  const [savingGeofence, setSavingGeofence] = useState<boolean>(false);
+
+  // Unserved Demand State
+  const [unservedModalOpen, setUnservedModalOpen] = useState<boolean>(false);
+  const [unservedItems, setUnservedItems] = useState<UnservedDemandItem[]>([]);
+  const [loadingUnserved, setLoadingUnserved] = useState<boolean>(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -261,6 +298,94 @@ export default function LocationsPage() {
     }
   };
 
+  const openOverridesModal = async (loc: TenantLocation) => {
+    setSelectedLocForOverrides(loc);
+    setOverridesModalOpen(true);
+    try {
+      const res = await api.getLocationOverrides(loc.id);
+      setOverridesParking(res.parking_directions || "");
+      setOverridesFee(res.diagnostic_fee || "");
+      setOverridesLicense(res.regional_license_number || "");
+      setOverridesFaqs(res.faq_overrides || []);
+    } catch {
+      setOverridesParking(loc.parking_directions || "");
+      setOverridesFee(loc.diagnostic_fee || "");
+      setOverridesLicense(loc.regional_license_number || "");
+      setOverridesFaqs(loc.faq_overrides || []);
+    }
+  };
+
+  const handleSaveOverrides = async () => {
+    if (!selectedLocForOverrides) return;
+    try {
+      setSavingOverrides(true);
+      await api.updateLocationOverrides(selectedLocForOverrides.id, {
+        parking_directions: overridesParking,
+        diagnostic_fee: overridesFee,
+        regional_license_number: overridesLicense,
+        faq_overrides: overridesFaqs.filter((f) => f.question.trim()),
+      });
+      setOverridesModalOpen(false);
+      loadLocations();
+    } catch (err: any) {
+      alert(`Failed to save overrides: ${err.message || err}`);
+    } finally {
+      setSavingOverrides(false);
+    }
+  };
+
+  const openGeofenceModal = async (loc: TenantLocation) => {
+    setSelectedLocForGeofence(loc);
+    setGeofenceModalOpen(true);
+    try {
+      const res = await api.getLocationGeofence(loc.id);
+      setGeofenceZips((res.service_territory_zips || []).join(", "));
+      setGeofenceHoods((res.service_neighborhoods || []).join(", "));
+      setGeofenceCities((res.service_cities || []).join(", "));
+      setGeofenceAllowsOut(res.allows_out_of_area_dispatch ?? true);
+      setGeofenceSurcharge(res.extended_dispatch_surcharge || "");
+    } catch {
+      setGeofenceZips((loc.service_territory_zips || []).join(", "));
+      setGeofenceHoods((loc.service_neighborhoods || []).join(", "));
+      setGeofenceCities((loc.service_cities || []).join(", "));
+      setGeofenceAllowsOut(loc.allows_out_of_area_dispatch ?? true);
+      setGeofenceSurcharge(loc.extended_dispatch_surcharge || "");
+    }
+  };
+
+  const handleSaveGeofence = async () => {
+    if (!selectedLocForGeofence) return;
+    try {
+      setSavingGeofence(true);
+      await api.updateLocationGeofence(selectedLocForGeofence.id, {
+        service_territory_zips: geofenceZips.split(",").map((s) => s.trim()).filter(Boolean),
+        service_neighborhoods: geofenceHoods.split(",").map((s) => s.trim()).filter(Boolean),
+        service_cities: geofenceCities.split(",").map((s) => s.trim()).filter(Boolean),
+        allows_out_of_area_dispatch: geofenceAllowsOut,
+        extended_dispatch_surcharge: geofenceSurcharge.trim(),
+      });
+      setGeofenceModalOpen(false);
+      loadLocations();
+    } catch (err: any) {
+      alert(`Failed to save geofence settings: ${err.message || err}`);
+    } finally {
+      setSavingGeofence(false);
+    }
+  };
+
+  const openUnservedModal = async () => {
+    setUnservedModalOpen(true);
+    try {
+      setLoadingUnserved(true);
+      const res = await api.getUnservedDemand(50);
+      setUnservedItems(res.items || []);
+    } catch {
+      setUnservedItems([]);
+    } finally {
+      setLoadingUnserved(false);
+    }
+  };
+
   const handleTestRoute = async () => {
     try {
       setSimulating(true);
@@ -297,6 +422,13 @@ export default function LocationsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={openUnservedModal}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+          >
+            <TrendingUp className="h-3.5 w-3.5 text-amber-600" />
+            Unserved Demand
+          </button>
           <button
             onClick={loadLocations}
             disabled={loading}
@@ -475,22 +607,38 @@ export default function LocationsPage() {
                 <span>{loc.metrics?.total_bookings || 0} Bookings</span>
               </div>
 
-              <div className="flex items-center gap-2 pt-1 border-t border-zinc-50">
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-zinc-50">
                 <button
                   type="button"
                   onClick={() => openStaffModal(loc)}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
                 >
                   <Users className="h-3 w-3 text-indigo-600" />
-                  Manage Technicians
+                  Technicians
                 </button>
                 <button
                   type="button"
                   onClick={() => openSlotsModal(loc)}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
                 >
                   <Calendar className="h-3 w-3 text-teal-600" />
-                  Inspect Slots
+                  Slots
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openOverridesModal(loc)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                >
+                  <BookOpen className="h-3 w-3 text-amber-600" />
+                  Local FAQs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openGeofenceModal(loc)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                >
+                  <Compass className="h-3 w-3 text-blue-600" />
+                  Geofencing
                 </button>
               </div>
             </div>
@@ -936,6 +1084,317 @@ export default function LocationsPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase A: Hyper-Local Knowledge & FAQs Modal */}
+      {overridesModalOpen && selectedLocForOverrides && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-amber-600" />
+                <h3 className="text-sm font-bold text-zinc-900">
+                  Local Knowledge &amp; Policies &bull; {selectedLocForOverrides.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setOverridesModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 p-1 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <p className="text-xs text-zinc-500">
+                These branch policies are directly injected into the voice AI agent runtime, ensuring 100% accurate hyper-local responses for parking, dispatch fees, and regional licenses.
+              </p>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-700 block mb-1">
+                  Parking &amp; Arrival Instructions
+                </label>
+                <textarea
+                  rows={2}
+                  value={overridesParking}
+                  onChange={(e) => setOverridesParking(e.target.value)}
+                  placeholder="e.g. Free parking in rear garage off 4th St, enter via Gate B"
+                  className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-700 block mb-1">
+                    Diagnostic / Dispatch Fee
+                  </label>
+                  <input
+                    type="text"
+                    value={overridesFee}
+                    onChange={(e) => setOverridesFee(e.target.value)}
+                    placeholder="e.g. $89 fee waived with accepted repair"
+                    className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-zinc-700 block mb-1">
+                    State / Trade License #
+                  </label>
+                  <input
+                    type="text"
+                    value={overridesLicense}
+                    onChange={(e) => setOverridesLicense(e.target.value)}
+                    placeholder="e.g. TACLA001234E Master HVAC"
+                    className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Dynamic Q&A editor */}
+              <div className="pt-2 border-t border-zinc-100">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-zinc-800">Branch Q&amp;A Overrides ({overridesFaqs.length})</span>
+                  <button
+                    type="button"
+                    onClick={() => setOverridesFaqs([...overridesFaqs, { question: "", answer: "" }])}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 hover:text-amber-800"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add FAQ
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {overridesFaqs.map((faq, idx) => (
+                    <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-2.5 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Question #{idx + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => setOverridesFaqs(overridesFaqs.filter((_, i) => i !== idx))}
+                          className="text-zinc-400 hover:text-rose-600 text-xs"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="e.g. Do you service commercial rooftop units?"
+                        value={faq.question}
+                        onChange={(e) => {
+                          const updated = [...overridesFaqs];
+                          updated[idx].question = e.target.value;
+                          setOverridesFaqs(updated);
+                        }}
+                        className="w-full rounded border border-zinc-300 bg-white p-1.5 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                      />
+                      <textarea
+                        rows={2}
+                        placeholder="e.g. Yes, our Austin North crew has commercial cranes and certified journeymen."
+                        value={faq.answer}
+                        onChange={(e) => {
+                          const updated = [...overridesFaqs];
+                          updated[idx].answer = e.target.value;
+                          setOverridesFaqs(updated);
+                        }}
+                        className="w-full rounded border border-zinc-300 bg-white p-1.5 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  ))}
+                  {overridesFaqs.length === 0 && (
+                    <div className="py-4 text-center text-xs text-zinc-400 italic border border-dashed rounded-lg">
+                      No custom FAQs configured for this location. Click &apos;Add FAQ&apos; to specify branch-specific answers.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setOverridesModalOpen(false)}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveOverrides}
+                  disabled={savingOverrides}
+                  className="rounded-lg bg-amber-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 transition disabled:opacity-50"
+                >
+                  {savingOverrides ? "Saving..." : "Save Policies & FAQs"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Phase B: Smart Geofencing & Territories Modal */}
+      {geofenceModalOpen && selectedLocForGeofence && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+              <div className="flex items-center gap-2">
+                <Compass className="h-4 w-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-zinc-900">
+                  Smart Geofencing &bull; {selectedLocForGeofence.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setGeofenceModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 p-1 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <p className="text-xs text-zinc-500">
+                Configure postal codes, neighborhoods, landmarks, and out-of-area fallback surcharges for automated voice routing.
+              </p>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-700 block mb-1">
+                  Postal / ZIP Codes (comma separated)
+                </label>
+                <input
+                  type="text"
+                  value={geofenceZips}
+                  onChange={(e) => setGeofenceZips(e.target.value)}
+                  placeholder="e.g. 78701, 78702, 78758, 787*"
+                  className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-blue-500 font-mono"
+                />
+                <span className="text-[10px] text-zinc-400 mt-1 block">Wildcard format &apos;787*&apos; matches any zip starting with 787.</span>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-700 block mb-1">
+                  Covered Neighborhoods &amp; Landmarks (comma separated)
+                </label>
+                <input
+                  type="text"
+                  value={geofenceHoods}
+                  onChange={(e) => setGeofenceHoods(e.target.value)}
+                  placeholder="e.g. The Domain, Arboretum, Downtown, Westlake, Mueller"
+                  className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-700 block mb-1">
+                  Covered Cities &amp; Municipalities (comma separated)
+                </label>
+                <input
+                  type="text"
+                  value={geofenceCities}
+                  onChange={(e) => setGeofenceCities(e.target.value)}
+                  placeholder="e.g. Austin, Round Rock, Pflugerville, Cedar Park"
+                  className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="pt-2 border-t border-zinc-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-zinc-800 block">Allow Out-of-Area Dispatches</span>
+                    <span className="text-[10px] text-zinc-400 block">If caller is just outside this territory, dispatch with an extended surcharge instead of declining.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={geofenceAllowsOut}
+                    onChange={(e) => setGeofenceAllowsOut(e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </div>
+
+                {geofenceAllowsOut && (
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-700 block mb-1">
+                      Extended Dispatch Surcharge
+                    </label>
+                    <input
+                      type="text"
+                      value={geofenceSurcharge}
+                      onChange={(e) => setGeofenceSurcharge(e.target.value)}
+                      placeholder="e.g. $45 extended travel surcharge"
+                      className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setGeofenceModalOpen(false)}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveGeofence}
+                  disabled={savingGeofence}
+                  className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  {savingGeofence ? "Saving..." : "Save Geofence Settings"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unserved Demand Inquiries Modal */}
+      {unservedModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-amber-600" />
+                <h3 className="text-sm font-bold text-zinc-900">
+                  Unserved Territory Customer Demand
+                </h3>
+              </div>
+              <button
+                onClick={() => setUnservedModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 p-1 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <p className="text-xs text-zinc-500">
+                Callers whose location fell outside all active service boundaries. Use these demand signals to prioritize your next technician recruitment or branch expansion.
+              </p>
+
+              {loadingUnserved ? (
+                <div className="py-8 text-center text-xs text-zinc-500">Loading demand signals...</div>
+              ) : unservedItems.length === 0 ? (
+                <div className="py-8 text-center text-xs text-zinc-400 italic border border-dashed rounded-lg">
+                  No unserved territory inquiries recorded yet. All caller inquiries have matched active branches.
+                </div>
+              ) : (
+                <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden">
+                  {unservedItems.map((item) => (
+                    <div key={item.id} className="p-3 flex items-center justify-between bg-white hover:bg-zinc-50 text-xs">
+                      <div>
+                        <div className="font-semibold text-zinc-900">{item.requested_location_raw}</div>
+                        <div className="text-[11px] font-mono text-zinc-500">{item.caller_phone || "Unknown Phone"} {item.postal_code ? `&bull; ${item.postal_code}` : ""}</div>
+                      </div>
+                      <div className="text-[11px] text-zinc-400">
+                        {new Date(item.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

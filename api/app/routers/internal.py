@@ -3,6 +3,7 @@
 import json
 import logging
 import math
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -69,6 +70,14 @@ class InternalTenantConfigResponse(BaseModel):
     location_territory_zips: list[str] = Field(default_factory=list)
     location_transfer_number: str | None = None
     location_emergency_phone: str | None = None
+    location_parking_directions: str | None = None
+    location_diagnostic_fee: str | None = None
+    location_regional_license: str | None = None
+    location_faq_overrides: list[dict[str, str]] = Field(default_factory=list)
+    location_service_neighborhoods: list[str] = Field(default_factory=list)
+    location_service_cities: list[str] = Field(default_factory=list)
+    location_allows_out_of_area: bool = True
+    location_extended_dispatch_surcharge: str = ""
     industry_pack_slug: str | None = None
     industry_pack_prompt: str | None = None
 
@@ -219,6 +228,25 @@ def _build_tenant_config(
         location_territory_zips=location.service_territory_zips if location else [],
         location_transfer_number=location.transfer_number if location else None,
         location_emergency_phone=location.emergency_phone if location else None,
+        location_parking_directions=getattr(location, "parking_directions", None)
+        if location
+        else None,
+        location_diagnostic_fee=getattr(location, "diagnostic_fee", None) if location else None,
+        location_regional_license=getattr(location, "regional_license_number", None)
+        if location
+        else None,
+        location_faq_overrides=getattr(location, "faq_overrides", []) or [] if location else [],
+        location_service_neighborhoods=getattr(location, "service_neighborhoods", []) or []
+        if location
+        else [],
+        location_service_cities=getattr(location, "service_cities", []) or [] if location else [],
+        location_allows_out_of_area=getattr(location, "allows_out_of_area_dispatch", True)
+        if location
+        else True,
+        location_extended_dispatch_surcharge=getattr(location, "extended_dispatch_surcharge", "")
+        or ""
+        if location
+        else "",
         industry_pack_slug=pack_slug,
         industry_pack_prompt=pack_prompt,
     )
@@ -1323,6 +1351,13 @@ class InternalKnowledgeSearchRequest(BaseModel):
     query: str
     top_k: int = 3
     confidence_threshold: float = 0.30
+    location_id: str | None = None
+
+
+class InternalTerritoryResolveRequest(BaseModel):
+    query: str
+    caller_phone: str | None = None
+    postal_code: str | None = None
 
 
 @router.post("/knowledge/search")
@@ -1334,6 +1369,7 @@ def internal_knowledge_search(
     """Internal RAG search endpoint for LiveKit voice agent lookup_business_info tool."""
     claims = _verify_agent_token(authorization)
     tenant_id = claims["tenant_id"]
+    loc_id = payload.location_id or claims.get("location_id")
 
     from api.app.services.knowledge import search_knowledge_base
 
@@ -1343,9 +1379,169 @@ def internal_knowledge_search(
         query=payload.query,
         top_k=payload.top_k,
         confidence_threshold=payload.confidence_threshold,
+        location_id=loc_id,
     )
 
     return result
+
+
+@router.post("/territory/resolve")
+def internal_territory_resolve(
+    payload: InternalTerritoryResolveRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Internal smart geofencing and territory resolution for LiveKit voice agent.
+
+    Supports exact postal code, wildcard zips, neighborhood names, cities, and out-of-area fallback.
+    """
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+
+    from api.app.models.location import Location, UnservedTerritoryLog
+
+    clean_query = payload.query.strip()
+    query_lower = clean_query.lower()
+
+    # Extract any 5-digit zip code if present
+    extracted_zip = payload.postal_code or None
+    if not extracted_zip:
+        m = re.search(r"\b\d{5}\b", clean_query)
+        if m:
+            extracted_zip = m.group(0)
+
+    # 1. Fetch active locations for tenant
+    active_locs = db.scalars(
+        select(Location).where(Location.tenant_id == tenant_id, Location.is_active.is_(True))
+    ).all()
+
+    if not active_locs:
+        return {
+            "serviced": False,
+            "is_out_of_area": True,
+            "message": "No active service locations configured for this business.",
+        }
+
+    matched_loc: Location | None = None
+
+    # Check 1: Postal code match
+    if extracted_zip:
+        for loc in active_locs:
+            zips = loc.service_territory_zips or []
+            if extracted_zip in zips or loc.postal_code == extracted_zip:
+                matched_loc = loc
+                break
+            # Wildcard zip match (e.g. 787*)
+            for z in zips:
+                if z.endswith("*") and extracted_zip.startswith(z[:-1]):
+                    matched_loc = loc
+                    break
+            if matched_loc:
+                break
+
+    # Check 2: Neighborhood & City match
+    if not matched_loc:
+        for loc in active_locs:
+            # Check neighborhoods
+            for n in getattr(loc, "service_neighborhoods", []) or []:
+                if n and (n.lower() in query_lower or query_lower in n.lower()):
+                    matched_loc = loc
+                    break
+            if matched_loc:
+                break
+            # Check cities
+            for c in getattr(loc, "service_cities", []) or []:
+                if c and (c.lower() in query_lower or query_lower in c.lower()):
+                    matched_loc = loc
+                    break
+            if matched_loc:
+                break
+            # Check branch city/name
+            if loc.city and loc.city.lower() in query_lower:
+                matched_loc = loc
+                break
+            if loc.name and loc.name.lower() in query_lower:
+                matched_loc = loc
+                break
+
+    # If direct match found:
+    if matched_loc:
+        msg = f"Service territory confirmed for {matched_loc.name}."
+        if matched_loc.diagnostic_fee:
+            msg += f" Standard diagnostic dispatch fee is {matched_loc.diagnostic_fee}."
+        return {
+            "serviced": True,
+            "is_out_of_area": False,
+            "location_id": matched_loc.id,
+            "location_name": matched_loc.name,
+            "location_code": matched_loc.code,
+            "location_address": f"{matched_loc.address_line1}, {matched_loc.city}, {matched_loc.state} {matched_loc.postal_code}".strip(
+                ", "
+            ),
+            "diagnostic_fee": matched_loc.diagnostic_fee or "",
+            "parking_directions": matched_loc.parking_directions or "",
+            "regional_license": matched_loc.regional_license_number or "",
+            "transfer_number": matched_loc.transfer_number or "",
+            "emergency_phone": matched_loc.emergency_phone or "",
+            "message": msg,
+        }
+
+    # If no direct match: Check out-of-area dispatch fallback
+    fallback_loc = next(
+        (
+            loc
+            for loc in active_locs
+            if getattr(loc, "allows_out_of_area_dispatch", True) and loc.is_primary
+        ),
+        next(
+            (loc for loc in active_locs if getattr(loc, "allows_out_of_area_dispatch", True)),
+            None,
+        ),
+    )
+
+    if fallback_loc:
+        surcharge = fallback_loc.extended_dispatch_surcharge or "$35"
+        msg = (
+            f"Your area is just outside our standard service boundary, but our {fallback_loc.name} "
+            f"can dispatch with an extended territory surcharge of {surcharge}."
+        )
+        return {
+            "serviced": True,
+            "is_out_of_area": True,
+            "location_id": fallback_loc.id,
+            "location_name": fallback_loc.name,
+            "location_code": fallback_loc.code,
+            "location_address": f"{fallback_loc.address_line1}, {fallback_loc.city}, {fallback_loc.state} {fallback_loc.postal_code}".strip(
+                ", "
+            ),
+            "extended_dispatch_surcharge": surcharge,
+            "diagnostic_fee": fallback_loc.diagnostic_fee or "",
+            "parking_directions": fallback_loc.parking_directions or "",
+            "regional_license": fallback_loc.regional_license_number or "",
+            "transfer_number": fallback_loc.transfer_number or "",
+            "emergency_phone": fallback_loc.emergency_phone or "",
+            "message": msg,
+        }
+
+    # Log unserved territory demand
+    try:
+        log_entry = UnservedTerritoryLog(
+            tenant_id=tenant_id,
+            caller_phone=payload.caller_phone or "",
+            requested_location_raw=clean_query,
+            postal_code=extracted_zip or "",
+            notes="Inquiry outside all active branch boundaries with out-of-area dispatch disabled.",
+        )
+        db.add(log_entry)
+        db.commit()
+    except Exception as err:
+        logger.error("Failed to log unserved territory: %s", err)
+
+    return {
+        "serviced": False,
+        "is_out_of_area": True,
+        "message": "We do not currently service this territory, but our dispatch team has logged the inquiry.",
+    }
 
 
 @router.post("/livekit/webhook")

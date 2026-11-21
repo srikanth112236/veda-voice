@@ -93,12 +93,21 @@ def resolve_location_for_caller(
             if matches_location_territory(postal_code, loc.service_territory_zips):
                 return loc
 
-    # 3. Match spoken city
+    # 3. Match spoken city, neighborhood, or landmark
     if spoken_city:
         clean_city = spoken_city.strip().lower()
         for loc in locations:
+            # Check city field
             if loc.city and loc.city.strip().lower() == clean_city:
                 return loc
+            # Check service_cities
+            for c in getattr(loc, "service_cities", []) or []:
+                if c and (c.lower() in clean_city or clean_city in c.lower()):
+                    return loc
+            # Check service_neighborhoods
+            for n in getattr(loc, "service_neighborhoods", []) or []:
+                if n and (n.lower() in clean_city or clean_city in n.lower()):
+                    return loc
 
     # 4. Fallback to Primary Location
     for loc in locations:

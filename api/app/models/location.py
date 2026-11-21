@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -56,6 +56,19 @@ class Location(Base):
     # Territory postal/zip codes served by this branch (e.g. ["78701", "78702", "787*"])
     service_territory_zips: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
+    # Phase B: Smart Geofencing (Neighborhoods & Cities covered)
+    service_neighborhoods: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    service_cities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    allows_out_of_area_dispatch: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    extended_dispatch_surcharge: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+
+    # Phase A: Hyper-Local Knowledge & Disclosures
+    parking_directions: Mapped[str] = mapped_column(String(512), default="", nullable=False)
+    diagnostic_fee: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    regional_license_number: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    faq_overrides: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list, nullable=False)
+    custom_policies: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
     # Location-specific transfer and emergency phone number
     transfer_number: Mapped[str] = mapped_column(String(32), default="", nullable=False)
     emergency_phone: Mapped[str] = mapped_column(String(32), default="", nullable=False)
@@ -88,3 +101,26 @@ class Location(Base):
     )
     bookings: Mapped[list[Booking]] = relationship("Booking", back_populates="location")
     calls: Mapped[list[Call]] = relationship("Call", back_populates="location")
+
+
+class UnservedTerritoryLog(Base):
+    """Tracks caller inquiries falling outside all active location boundaries.
+
+    Provides high-value demand signals for business owners to expand technician territories.
+    """
+
+    __tablename__ = "unserved_territory_logs"
+    __table_args__ = (Index("ix_unserved_territory_tenant_created", "tenant_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    caller_phone: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    requested_location_raw: Mapped[str] = mapped_column(String(255), nullable=False)
+    postal_code: Mapped[str] = mapped_column(String(16), default="", nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )

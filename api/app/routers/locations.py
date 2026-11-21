@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from api.app.core.deps import get_current_tenant, get_current_user
 from api.app.db.session import get_db
-from api.app.models.location import Location
+from api.app.models.location import Location, UnservedTerritoryLog
 from api.app.models.staff import StaffMember
 from api.app.models.subscription import Subscription
 from api.app.models.tenant import PhoneNumber, Tenant
@@ -49,6 +49,15 @@ class LocationCreateUpdateRequest(BaseModel):
     timezone: str = "America/New_York"
     hours: str = "Monday to Friday, 8:00 AM to 6:00 PM"
     service_territory_zips: list[str] = Field(default_factory=list)
+    service_neighborhoods: list[str] = Field(default_factory=list)
+    service_cities: list[str] = Field(default_factory=list)
+    allows_out_of_area_dispatch: bool = True
+    extended_dispatch_surcharge: str = ""
+    parking_directions: str = ""
+    diagnostic_fee: str = ""
+    regional_license_number: str = ""
+    faq_overrides: list[dict[str, str]] = Field(default_factory=list)
+    custom_policies: dict[str, Any] = Field(default_factory=dict)
     transfer_number: str = ""
     emergency_phone: str = ""
     calendar_provider: str = "internal"
@@ -74,6 +83,15 @@ class LocationResponse(BaseModel):
     timezone: str
     hours: str
     service_territory_zips: list[str]
+    service_neighborhoods: list[str] = Field(default_factory=list)
+    service_cities: list[str] = Field(default_factory=list)
+    allows_out_of_area_dispatch: bool = True
+    extended_dispatch_surcharge: str = ""
+    parking_directions: str = ""
+    diagnostic_fee: str = ""
+    regional_license_number: str = ""
+    faq_overrides: list[dict[str, str]] = Field(default_factory=list)
+    custom_policies: dict[str, Any] = Field(default_factory=dict)
     transfer_number: str
     emergency_phone: str
     calendar_provider: str
@@ -90,6 +108,54 @@ class ResolveLocationRequest(BaseModel):
     dialed_number: str | None = None
     postal_code: str | None = None
     spoken_city: str | None = None
+
+
+class LocationOverridesResponse(BaseModel):
+    location_id: str
+    parking_directions: str
+    diagnostic_fee: str
+    regional_license_number: str
+    faq_overrides: list[dict[str, str]]
+    custom_policies: dict[str, Any]
+
+
+class LocationOverridesUpdateRequest(BaseModel):
+    parking_directions: str | None = None
+    diagnostic_fee: str | None = None
+    regional_license_number: str | None = None
+    faq_overrides: list[dict[str, str]] | None = None
+    custom_policies: dict[str, Any] | None = None
+
+
+class LocationGeofenceResponse(BaseModel):
+    location_id: str
+    service_territory_zips: list[str]
+    service_neighborhoods: list[str]
+    service_cities: list[str]
+    allows_out_of_area_dispatch: bool
+    extended_dispatch_surcharge: str
+
+
+class LocationGeofenceUpdateRequest(BaseModel):
+    service_territory_zips: list[str] | None = None
+    service_neighborhoods: list[str] | None = None
+    service_cities: list[str] | None = None
+    allows_out_of_area_dispatch: bool | None = None
+    extended_dispatch_surcharge: str | None = None
+
+
+class UnservedDemandItem(BaseModel):
+    id: str
+    caller_phone: str
+    requested_location_raw: str
+    postal_code: str
+    notes: str | None = None
+    created_at: str
+
+
+class UnservedDemandResponse(BaseModel):
+    total: int
+    items: list[UnservedDemandItem]
 
 
 class LocationStaffResponse(BaseModel):
@@ -129,6 +195,49 @@ class LocationStaffCreateRequest(BaseModel):
     notes: str | None = None
 
 
+# --- Helpers ---
+
+
+def _build_location_response(loc: Location, db: Session) -> LocationResponse:
+    metrics = get_location_metrics(loc.id, db)
+    return LocationResponse(
+        id=loc.id,
+        tenant_id=loc.tenant_id,
+        name=loc.name,
+        code=loc.code,
+        address_line1=loc.address_line1,
+        address_line2=loc.address_line2,
+        city=loc.city,
+        state=loc.state,
+        postal_code=loc.postal_code,
+        country=loc.country,
+        phone=loc.phone,
+        email=loc.email,
+        timezone=loc.timezone,
+        hours=loc.hours,
+        service_territory_zips=loc.service_territory_zips,
+        service_neighborhoods=getattr(loc, "service_neighborhoods", []) or [],
+        service_cities=getattr(loc, "service_cities", []) or [],
+        allows_out_of_area_dispatch=getattr(loc, "allows_out_of_area_dispatch", True),
+        extended_dispatch_surcharge=getattr(loc, "extended_dispatch_surcharge", "") or "",
+        parking_directions=getattr(loc, "parking_directions", "") or "",
+        diagnostic_fee=getattr(loc, "diagnostic_fee", "") or "",
+        regional_license_number=getattr(loc, "regional_license_number", "") or "",
+        faq_overrides=getattr(loc, "faq_overrides", []) or [],
+        custom_policies=getattr(loc, "custom_policies", {}) or {},
+        transfer_number=loc.transfer_number,
+        emergency_phone=loc.emergency_phone,
+        calendar_provider=loc.calendar_provider,
+        calendar_id=loc.calendar_id,
+        is_primary=loc.is_primary,
+        is_active=loc.is_active,
+        notes=loc.notes,
+        created_at=loc.created_at.isoformat(),
+        updated_at=loc.updated_at.isoformat(),
+        metrics=metrics,
+    )
+
+
 # --- Endpoints ---
 
 
@@ -149,40 +258,7 @@ def list_tenant_locations(
 
     # Filter by user location permissions if restricted
     accessible_locations = [loc for loc in locations if user_has_location_access(user, loc.id)]
-
-    results: list[LocationResponse] = []
-    for loc in accessible_locations:
-        metrics = get_location_metrics(loc.id, db)
-        results.append(
-            LocationResponse(
-                id=loc.id,
-                tenant_id=loc.tenant_id,
-                name=loc.name,
-                code=loc.code,
-                address_line1=loc.address_line1,
-                address_line2=loc.address_line2,
-                city=loc.city,
-                state=loc.state,
-                postal_code=loc.postal_code,
-                country=loc.country,
-                phone=loc.phone,
-                email=loc.email,
-                timezone=loc.timezone,
-                hours=loc.hours,
-                service_territory_zips=loc.service_territory_zips,
-                transfer_number=loc.transfer_number,
-                emergency_phone=loc.emergency_phone,
-                calendar_provider=loc.calendar_provider,
-                calendar_id=loc.calendar_id,
-                is_primary=loc.is_primary,
-                is_active=loc.is_active,
-                notes=loc.notes,
-                created_at=loc.created_at.isoformat(),
-                updated_at=loc.updated_at.isoformat(),
-                metrics=metrics,
-            )
-        )
-    return results
+    return [_build_location_response(loc, db) for loc in accessible_locations]
 
 
 @router.post("", response_model=LocationResponse, status_code=status.HTTP_201_CREATED)
@@ -247,6 +323,15 @@ def create_location(
         timezone=req.timezone.strip() or tenant.timezone,
         hours=req.hours.strip() or tenant.hours,
         service_territory_zips=[z.strip() for z in req.service_territory_zips if z.strip()],
+        service_neighborhoods=req.service_neighborhoods,
+        service_cities=req.service_cities,
+        allows_out_of_area_dispatch=req.allows_out_of_area_dispatch,
+        extended_dispatch_surcharge=req.extended_dispatch_surcharge.strip(),
+        parking_directions=req.parking_directions.strip(),
+        diagnostic_fee=req.diagnostic_fee.strip(),
+        regional_license_number=req.regional_license_number.strip(),
+        faq_overrides=req.faq_overrides,
+        custom_policies=req.custom_policies,
         transfer_number=req.transfer_number.strip(),
         emergency_phone=req.emergency_phone.strip(),
         calendar_provider=req.calendar_provider,
@@ -259,34 +344,45 @@ def create_location(
     db.commit()
     db.refresh(loc)
 
-    metrics = get_location_metrics(loc.id, db)
-    return LocationResponse(
-        id=loc.id,
-        tenant_id=loc.tenant_id,
-        name=loc.name,
-        code=loc.code,
-        address_line1=loc.address_line1,
-        address_line2=loc.address_line2,
-        city=loc.city,
-        state=loc.state,
-        postal_code=loc.postal_code,
-        country=loc.country,
-        phone=loc.phone,
-        email=loc.email,
-        timezone=loc.timezone,
-        hours=loc.hours,
-        service_territory_zips=loc.service_territory_zips,
-        transfer_number=loc.transfer_number,
-        emergency_phone=loc.emergency_phone,
-        calendar_provider=loc.calendar_provider,
-        calendar_id=loc.calendar_id,
-        is_primary=loc.is_primary,
-        is_active=loc.is_active,
-        notes=loc.notes,
-        created_at=loc.created_at.isoformat(),
-        updated_at=loc.updated_at.isoformat(),
-        metrics=metrics,
+    return _build_location_response(loc, db)
+
+
+@router.get("/unserved-demand", response_model=UnservedDemandResponse)
+def get_unserved_demand(
+    limit: int = Query(50, ge=1, le=200),
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UnservedDemandResponse:
+    """Retrieve logged caller inquiries that fell outside all active service boundaries."""
+    total = (
+        db.scalar(
+            select(func.count(UnservedTerritoryLog.id)).where(
+                UnservedTerritoryLog.tenant_id == tenant.id
+            )
+        )
+        or 0
     )
+
+    logs = db.scalars(
+        select(UnservedTerritoryLog)
+        .where(UnservedTerritoryLog.tenant_id == tenant.id)
+        .order_by(UnservedTerritoryLog.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    items = [
+        UnservedDemandItem(
+            id=log_entry.id,
+            caller_phone=log_entry.caller_phone,
+            requested_location_raw=log_entry.requested_location_raw,
+            postal_code=log_entry.postal_code,
+            notes=log_entry.notes,
+            created_at=log_entry.created_at.isoformat(),
+        )
+        for log_entry in logs
+    ]
+    return UnservedDemandResponse(total=total, items=items)
 
 
 @router.get("/{location_id}", response_model=LocationResponse)
@@ -311,34 +407,7 @@ def get_location_details(
             detail="You do not have access to view this location.",
         )
 
-    metrics = get_location_metrics(loc.id, db)
-    return LocationResponse(
-        id=loc.id,
-        tenant_id=loc.tenant_id,
-        name=loc.name,
-        code=loc.code,
-        address_line1=loc.address_line1,
-        address_line2=loc.address_line2,
-        city=loc.city,
-        state=loc.state,
-        postal_code=loc.postal_code,
-        country=loc.country,
-        phone=loc.phone,
-        email=loc.email,
-        timezone=loc.timezone,
-        hours=loc.hours,
-        service_territory_zips=loc.service_territory_zips,
-        transfer_number=loc.transfer_number,
-        emergency_phone=loc.emergency_phone,
-        calendar_provider=loc.calendar_provider,
-        calendar_id=loc.calendar_id,
-        is_primary=loc.is_primary,
-        is_active=loc.is_active,
-        notes=loc.notes,
-        created_at=loc.created_at.isoformat(),
-        updated_at=loc.updated_at.isoformat(),
-        metrics=metrics,
-    )
+    return _build_location_response(loc, db)
 
 
 @router.put("/{location_id}", response_model=LocationResponse)
@@ -382,6 +451,15 @@ def update_location(
     loc.timezone = req.timezone.strip()
     loc.hours = req.hours.strip()
     loc.service_territory_zips = [z.strip() for z in req.service_territory_zips if z.strip()]
+    loc.service_neighborhoods = req.service_neighborhoods
+    loc.service_cities = req.service_cities
+    loc.allows_out_of_area_dispatch = req.allows_out_of_area_dispatch
+    loc.extended_dispatch_surcharge = req.extended_dispatch_surcharge.strip()
+    loc.parking_directions = req.parking_directions.strip()
+    loc.diagnostic_fee = req.diagnostic_fee.strip()
+    loc.regional_license_number = req.regional_license_number.strip()
+    loc.faq_overrides = req.faq_overrides
+    loc.custom_policies = req.custom_policies
     loc.transfer_number = req.transfer_number.strip()
     loc.emergency_phone = req.emergency_phone.strip()
     loc.calendar_provider = req.calendar_provider
@@ -393,33 +471,148 @@ def update_location(
     db.commit()
     db.refresh(loc)
 
-    metrics = get_location_metrics(loc.id, db)
-    return LocationResponse(
-        id=loc.id,
-        tenant_id=loc.tenant_id,
-        name=loc.name,
-        code=loc.code,
-        address_line1=loc.address_line1,
-        address_line2=loc.address_line2,
-        city=loc.city,
-        state=loc.state,
-        postal_code=loc.postal_code,
-        country=loc.country,
-        phone=loc.phone,
-        email=loc.email,
-        timezone=loc.timezone,
-        hours=loc.hours,
-        service_territory_zips=loc.service_territory_zips,
-        transfer_number=loc.transfer_number,
-        emergency_phone=loc.emergency_phone,
-        calendar_provider=loc.calendar_provider,
-        calendar_id=loc.calendar_id,
-        is_primary=loc.is_primary,
-        is_active=loc.is_active,
-        notes=loc.notes,
-        created_at=loc.created_at.isoformat(),
-        updated_at=loc.updated_at.isoformat(),
-        metrics=metrics,
+    return _build_location_response(loc, db)
+
+
+@router.get("/{location_id}/overrides", response_model=LocationOverridesResponse)
+def get_location_overrides(
+    location_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationOverridesResponse:
+    """Get hyper-local knowledge, parking, fees, license, and branch FAQ overrides."""
+    if not user_has_location_access(user, location_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this location.",
+        )
+    loc = db.scalar(
+        select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+    )
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+    return LocationOverridesResponse(
+        location_id=loc.id,
+        parking_directions=loc.parking_directions or "",
+        diagnostic_fee=loc.diagnostic_fee or "",
+        regional_license_number=loc.regional_license_number or "",
+        faq_overrides=loc.faq_overrides or [],
+        custom_policies=loc.custom_policies or {},
+    )
+
+
+@router.patch("/{location_id}/overrides", response_model=LocationOverridesResponse)
+def update_location_overrides(
+    location_id: str,
+    req: LocationOverridesUpdateRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationOverridesResponse:
+    """Update hyper-local knowledge, parking, fees, license, and branch FAQ overrides."""
+    if not user_has_location_access(user, location_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have administrative access to this location.",
+        )
+    loc = db.scalar(
+        select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+    )
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+
+    if req.parking_directions is not None:
+        loc.parking_directions = req.parking_directions.strip()
+    if req.diagnostic_fee is not None:
+        loc.diagnostic_fee = req.diagnostic_fee.strip()
+    if req.regional_license_number is not None:
+        loc.regional_license_number = req.regional_license_number.strip()
+    if req.faq_overrides is not None:
+        loc.faq_overrides = req.faq_overrides
+    if req.custom_policies is not None:
+        loc.custom_policies = req.custom_policies
+
+    db.commit()
+    db.refresh(loc)
+    return LocationOverridesResponse(
+        location_id=loc.id,
+        parking_directions=loc.parking_directions or "",
+        diagnostic_fee=loc.diagnostic_fee or "",
+        regional_license_number=loc.regional_license_number or "",
+        faq_overrides=loc.faq_overrides or [],
+        custom_policies=loc.custom_policies or {},
+    )
+
+
+@router.get("/{location_id}/geofence", response_model=LocationGeofenceResponse)
+def get_location_geofence(
+    location_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationGeofenceResponse:
+    """Get smart geofencing territories, neighborhoods, cities, and out-of-area settings."""
+    if not user_has_location_access(user, location_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this location.",
+        )
+    loc = db.scalar(
+        select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+    )
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+    return LocationGeofenceResponse(
+        location_id=loc.id,
+        service_territory_zips=loc.service_territory_zips or [],
+        service_neighborhoods=loc.service_neighborhoods or [],
+        service_cities=loc.service_cities or [],
+        allows_out_of_area_dispatch=loc.allows_out_of_area_dispatch,
+        extended_dispatch_surcharge=loc.extended_dispatch_surcharge or "",
+    )
+
+
+@router.patch("/{location_id}/geofence", response_model=LocationGeofenceResponse)
+def update_location_geofence(
+    location_id: str,
+    req: LocationGeofenceUpdateRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationGeofenceResponse:
+    """Update smart geofencing territories, neighborhoods, cities, and out-of-area settings."""
+    if not user_has_location_access(user, location_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have administrative access to this location.",
+        )
+    loc = db.scalar(
+        select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+    )
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+
+    if req.service_territory_zips is not None:
+        loc.service_territory_zips = [z.strip() for z in req.service_territory_zips if z.strip()]
+    if req.service_neighborhoods is not None:
+        loc.service_neighborhoods = [n.strip() for n in req.service_neighborhoods if n.strip()]
+    if req.service_cities is not None:
+        loc.service_cities = [c.strip() for c in req.service_cities if c.strip()]
+    if req.allows_out_of_area_dispatch is not None:
+        loc.allows_out_of_area_dispatch = req.allows_out_of_area_dispatch
+    if req.extended_dispatch_surcharge is not None:
+        loc.extended_dispatch_surcharge = req.extended_dispatch_surcharge.strip()
+
+    db.commit()
+    db.refresh(loc)
+    return LocationGeofenceResponse(
+        location_id=loc.id,
+        service_territory_zips=loc.service_territory_zips or [],
+        service_neighborhoods=loc.service_neighborhoods or [],
+        service_cities=loc.service_cities or [],
+        allows_out_of_area_dispatch=loc.allows_out_of_area_dispatch,
+        extended_dispatch_surcharge=loc.extended_dispatch_surcharge or "",
     )
 
 

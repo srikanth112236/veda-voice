@@ -247,17 +247,44 @@ Note: Platform safety rules and emergency protocols above strictly take preceden
         )
 
     location_profile = ""
+    branch_knowledge_block = ""
     if getattr(config, "location_name", None):
         city_sub = f" in {config.location_city}" if getattr(config, "location_city", None) else ""
         zips = getattr(config, "location_territory_zips", []) or []
         zips_str = f" (Serving Postal Codes: {', '.join(zips)})" if zips else ""
+        hoods = getattr(config, "location_service_neighborhoods", []) or []
+        hoods_str = f" (Covered Neighborhoods: {', '.join(hoods)})" if hoods else ""
+        cities = getattr(config, "location_service_cities", []) or []
+        cities_str = f" (Covered Cities: {', '.join(cities)})" if cities else ""
         addr = getattr(config, "location_address", None)
         addr_str = f" | Branch Address: {addr}" if addr else ""
         transfer = getattr(config, "location_transfer_number", None)
         transfer_str = f" | Branch Transfer: {transfer}" if transfer else ""
         emergency = getattr(config, "location_emergency_phone", None)
         emerg_str = f" | Branch Emergency: {emergency}" if emergency else ""
-        location_profile = f"\n- Assigned Branch Location: {config.location_name}{city_sub}{zips_str}{addr_str}{transfer_str}{emerg_str}"
+        fee = getattr(config, "location_diagnostic_fee", "")
+        fee_str = f" | Standard Diagnostic Fee: {fee}" if fee else ""
+        parking = getattr(config, "location_parking", "")
+        parking_str = f" | Parking: {parking}" if parking else ""
+        license_no = getattr(config, "location_license", "")
+        lic_str = f" | Trade License: {license_no}" if license_no else ""
+        surcharge = getattr(config, "location_extended_dispatch_surcharge", "")
+        surch_str = f" | Out-of-Area Surcharge: {surcharge}" if surcharge else ""
+
+        location_profile = (
+            f"\n- Assigned Branch Location: {config.location_name}{city_sub}{zips_str}{hoods_str}{cities_str}{addr_str}"
+            f"{transfer_str}{emerg_str}{fee_str}{parking_str}{lic_str}{surch_str}"
+        )
+
+        branch_faqs = getattr(config, "location_faq_overrides", []) or []
+        if branch_faqs:
+            branch_faq_text = "\n".join(
+                f"  Q: {f.get('question')}\n  A: {f.get('answer')}"
+                for f in branch_faqs
+                if f.get("question")
+            )
+            if branch_faq_text:
+                branch_knowledge_block = f"\n\nBRANCH LOCAL FAQS & POLICIES ({config.location_name}):\n{branch_faq_text}\n"
 
     office_address_str = (
         getattr(config, "office_address", "") or "10400 Metric Blvd, Suite 200, Austin, TX 78758"
@@ -285,7 +312,7 @@ PRICING POLICY:
 {pricing_instruction}
 
 KNOWLEDGE BASE & FAQS:
-{faq_formatted}{glossary_block}
+{faq_formatted}{glossary_block}{branch_knowledge_block}
 
 EMERGENCY KEYWORDS:
 {emergency_kw_str}

@@ -96,6 +96,14 @@ class TenantConfig(BaseModel):
     location_territory_zips: list[str] = Field(default_factory=list)
     location_transfer_number: str | None = None
     location_emergency_phone: str | None = None
+    location_parking: str = ""
+    location_diagnostic_fee: str = ""
+    location_license: str = ""
+    location_faq_overrides: list[dict[str, str]] = Field(default_factory=list)
+    location_service_neighborhoods: list[str] = Field(default_factory=list)
+    location_service_cities: list[str] = Field(default_factory=list)
+    location_allows_out_of_area: bool = True
+    location_extended_dispatch_surcharge: str = ""
 
     @property
     def emergency_keywords(self) -> list[str]:

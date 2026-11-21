@@ -32,7 +32,7 @@ from api.app.models.industry_pack import (
 )
 from api.app.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from api.app.models.lead_form import Lead, LeadForm
-from api.app.models.location import Location
+from api.app.models.location import Location, UnservedTerritoryLog
 from api.app.models.outbound import ConsentRecord, OutboundDispatch, SuppressionRecord
 from api.app.models.staff import StaffMember
 from api.app.models.subscription import Coupon, Subscription, UsageRecord
@@ -78,6 +78,7 @@ __all__ = [
     "KnowledgeChunk",
     "StaffMember",
     "Location",
+    "UnservedTerritoryLog",
     "IndustryPack",
     "IndustryPackVersion",
     "TenantPackApplication",

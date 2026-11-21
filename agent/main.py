@@ -38,6 +38,7 @@ from agent.tools.booking import create_booking_tools
 from agent.tools.knowledge import create_knowledge_tools
 from agent.tools.message import MessageCollector, create_take_message_tool
 from agent.tools.opt_out import create_opt_out_tool
+from agent.tools.territory import create_territory_tools
 from agent.tools.transfer import create_transfer_tool
 from agent.tools.voicemail import create_voicemail_tool
 
@@ -718,6 +719,14 @@ async def entrypoint(ctx: JobContext) -> None:
     if config.call_token:
         knowledge_tools = create_knowledge_tools(config.call_token)
         active_tools.extend(knowledge_tools)
+
+    # Attach smart geofence territory tool (Phase B)
+    if config.call_token:
+        territory_tools = create_territory_tools(
+            call_token=config.call_token,
+            caller_phone=sip_info.get("caller_number", ""),
+        )
+        active_tools.extend(territory_tools)
 
     # Attach opt-out tool for DNC compliance if call token is available
     if config.call_token:

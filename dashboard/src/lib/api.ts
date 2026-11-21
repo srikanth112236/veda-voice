@@ -1769,6 +1769,27 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  getLocationOverrides: (locationId: string) =>
+    request<LocationOverrides>(`/api/v1/portal/locations/${locationId}/overrides`),
+
+  updateLocationOverrides: (locationId: string, data: Partial<LocationOverrides>) =>
+    request<LocationOverrides>(`/api/v1/portal/locations/${locationId}/overrides`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  getLocationGeofence: (locationId: string) =>
+    request<LocationGeofence>(`/api/v1/portal/locations/${locationId}/geofence`),
+
+  updateLocationGeofence: (locationId: string, data: Partial<LocationGeofence>) =>
+    request<LocationGeofence>(`/api/v1/portal/locations/${locationId}/geofence`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  getUnservedDemand: (limit: number = 50) =>
+    request<UnservedDemandResponse>(`/api/v1/portal/locations/unserved-demand?limit=${limit}`),
+
   // Public Customer 1-Tap Reschedule
   getPublicBooking: (token: string) =>
     request<PublicBookingDetails>(`/api/v1/public/reschedule/${token}`),
@@ -2103,6 +2124,15 @@ export interface TenantLocation {
   timezone: string;
   hours: string;
   service_territory_zips: string[];
+  service_neighborhoods?: string[];
+  service_cities?: string[];
+  allows_out_of_area_dispatch?: boolean;
+  extended_dispatch_surcharge?: string;
+  parking_directions?: string;
+  diagnostic_fee?: string;
+  regional_license_number?: string;
+  faq_overrides?: Array<{ question: string; answer: string }>;
+  custom_policies?: Record<string, any>;
   transfer_number: string;
   emergency_phone: string;
   calendar_provider: string;
@@ -2137,6 +2167,38 @@ export interface LocationStaffMember {
   priority_weight: number;
   last_assigned_at: string | null;
   notes: string | null;
+}
+
+export interface LocationOverrides {
+  location_id: string;
+  parking_directions: string;
+  diagnostic_fee: string;
+  regional_license_number: string;
+  faq_overrides: Array<{ question: string; answer: string }>;
+  custom_policies: Record<string, any>;
+}
+
+export interface LocationGeofence {
+  location_id: string;
+  service_territory_zips: string[];
+  service_neighborhoods: string[];
+  service_cities: string[];
+  allows_out_of_area_dispatch: boolean;
+  extended_dispatch_surcharge: string;
+}
+
+export interface UnservedDemandItem {
+  id: string;
+  caller_phone: string;
+  requested_location_raw: string;
+  postal_code: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface UnservedDemandResponse {
+  total: number;
+  items: UnservedDemandItem[];
 }
 
 export interface VoiceCampaignSummary {

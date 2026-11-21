@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.app.models.knowledge import KnowledgeChunk, KnowledgeDocument
+from api.app.models.location import Location
 
 _WORD_PATTERN = re.compile(r"\b\w{2,}\b")
 _CLEAN_SPACES_PATTERN = re.compile(r"[ \t]+")
@@ -273,15 +274,96 @@ def search_knowledge_base(
     query: str,
     top_k: int = 3,
     confidence_threshold: float = 0.30,
+    location_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute hybrid BM25 + dense subword semantic search in under 15ms.
 
-    Enforces strict tenant boundaries and out-of-scope grounding guardrails.
+    Enforces strict tenant boundaries, branch-scoped hyper-local overrides, and grounding guardrails.
     """
     start_time = time.perf_counter()
     clean_query = query.strip()
     query_tokens = _tokenize(clean_query)
     query_vector = _compute_dense_vector(clean_query)
+
+    # 0. Check Branch Hyper-Local FAQ & Policy Overrides (Phase A)
+    hyper_local_matches: list[dict[str, Any]] = []
+    if location_id:
+        loc = db.scalar(
+            select(Location).where(Location.id == location_id, Location.tenant_id == tenant_id)
+        )
+        if loc:
+            q_lower = clean_query.lower()
+            # Parking check
+            if (
+                any(w in q_lower for w in ("park", "parking", "garage", "entrance", "directions"))
+                and loc.parking_directions
+            ):
+                hyper_local_matches.append(
+                    {
+                        "id": f"local-parking-{loc.id}",
+                        "document_id": "branch-policy",
+                        "filename": f"Branch_{loc.code}_Parking_Directions",
+                        "chunk_index": 0,
+                        "score": 0.98,
+                        "content": f"Location Parking & Arrival Instructions for {loc.name}: {loc.parking_directions}",
+                        "token_count": len(loc.parking_directions.split()),
+                    }
+                )
+            # Diagnostic fee check
+            if (
+                any(
+                    w in q_lower
+                    for w in ("fee", "diagnostic", "estimate", "cost", "price", "charge", "quote")
+                )
+                and loc.diagnostic_fee
+            ):
+                hyper_local_matches.append(
+                    {
+                        "id": f"local-fee-{loc.id}",
+                        "document_id": "branch-policy",
+                        "filename": f"Branch_{loc.code}_Diagnostic_Fee",
+                        "chunk_index": 0,
+                        "score": 0.98,
+                        "content": f"Location Diagnostic & Dispatch Fee for {loc.name}: {loc.diagnostic_fee}",
+                        "token_count": len(loc.diagnostic_fee.split()),
+                    }
+                )
+            # License check
+            if (
+                any(w in q_lower for w in ("license", "licensing", "certified", "permit"))
+                and loc.regional_license_number
+            ):
+                hyper_local_matches.append(
+                    {
+                        "id": f"local-license-{loc.id}",
+                        "document_id": "branch-policy",
+                        "filename": f"Branch_{loc.code}_Official_License",
+                        "chunk_index": 0,
+                        "score": 0.98,
+                        "content": f"Official Regional Trade License for {loc.name}: {loc.regional_license_number}",
+                        "token_count": len(loc.regional_license_number.split()),
+                    }
+                )
+            # Branch Q&A overrides
+            for idx, faq in enumerate(getattr(loc, "faq_overrides", []) or []):
+                q_text = faq.get("question", "")
+                ans_text = faq.get("answer", "")
+                if not q_text or not ans_text:
+                    continue
+                faq_tokens = set(_tokenize(q_text))
+                overlap = len(faq_tokens.intersection(set(query_tokens)))
+                if overlap >= 1 or q_text.lower() in q_lower or q_lower in q_text.lower():
+                    hyper_local_matches.append(
+                        {
+                            "id": f"local-faq-{loc.id}-{idx}",
+                            "document_id": "branch-faq",
+                            "filename": f"Branch_{loc.code}_FAQ",
+                            "chunk_index": idx,
+                            "score": round(min(0.99, 0.75 + 0.10 * overlap), 3),
+                            "content": f"Q: {q_text}\nA: {ans_text}",
+                            "token_count": len(ans_text.split()),
+                        }
+                    )
 
     # 1. Fetch chunks for tenant
     stmt = (
@@ -291,7 +373,7 @@ def search_knowledge_base(
     )
     rows = db.execute(stmt).all()
 
-    if not rows or not query_tokens:
+    if (not rows and not hyper_local_matches) or not query_tokens:
         elapsed_ms = round((time.perf_counter() - start_time) * 1000.0, 2)
         return {
             "out_of_scope": True,
@@ -339,8 +421,6 @@ def search_knowledge_base(
 
     scored_items.sort(key=lambda x: x[0], reverse=True)
     top_items = scored_items[:top_k]
-    best_score = top_items[0][0] if top_items else 0.0
-    out_of_scope = best_score < confidence_threshold
 
     matches_data = [
         {
@@ -354,6 +434,18 @@ def search_knowledge_base(
         }
         for score, fname, chunk in top_items
     ]
+
+    # Prepend hyper-local matches (highest priority)
+    if hyper_local_matches:
+        matches_data = hyper_local_matches + matches_data
+        matches_data = matches_data[:top_k]
+
+    best_score: float = 0.0
+    for m in matches_data:
+        val = float(str(m.get("score", 0.0)))
+        if val > best_score:
+            best_score = val
+    out_of_scope = best_score < confidence_threshold
 
     # Synthesize grounding prompt for LLM voice agent context
     if out_of_scope:
