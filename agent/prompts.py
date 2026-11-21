@@ -180,7 +180,8 @@ def build_system_prompt(
         - Immediately invoke `hold_slot(start_iso="...")` to lock the slot for 5 minutes.
         - Say: "I've held 10:00 AM for you. May I have your full name and best callback number to confirm?"
      4. Finalize booking: Once the caller provides their name and phone number:
-        - Immediately invoke `book_appointment(start_iso="...", customer_name="...", customer_phone="...")`.
+        - Collect any triage intake answers (e.g. trade type, urgency level, pain severity, or case area) and pass them in `intake_details`.
+        - Immediately invoke `book_appointment(start_iso="...", customer_name="...", customer_phone="...", intake_details=...)`.
         - Warmly confirm the booking: "Your appointment is confirmed for [Day], [Date] at [Time]. Our technician is scheduled!"
    - SELF-SERVE LINK VIA SMS (TOOL: send_booking_link_tool):
      If the caller asks for a link, prefers to book online, or wants to pick a time later on their smartphone (e.g. "Can you text me a link?", "Send me a link", "I want to book online myself", "Text me your Calendly"):

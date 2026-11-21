@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -129,6 +130,7 @@ def confirm_booking(
     custom_provider: CalendarProvider | None = None,
     postal_code: str | None = None,
     staff_id: str | None = None,
+    intake_details: dict[str, Any] | None = None,
 ) -> Booking:
     """Confirm appointment booking, prevent double booking, and insert external calendar event."""
     slot_end = slot_start + timedelta(minutes=duration_minutes)
@@ -198,6 +200,11 @@ def confirm_booking(
         biz_name = tenant.name if tenant else "Service Appointment"
         title_suffix = f" (Tech: {tech_name})" if tech_name else ""
         event_title = f"{service_type.replace('_', ' ').title()} - {customer_name}{title_suffix}"
+        intake_str = ""
+        if intake_details:
+            intake_str = "\nIntake Details:\n" + "\n".join(
+                f"  - {k}: {v}" for k, v in intake_details.items()
+            )
         event_desc = (
             f"Customer: {customer_name}\n"
             f"Phone: {customer_phone}\n"
@@ -206,6 +213,7 @@ def confirm_booking(
             f"Assigned Technician: {tech_name or 'Unassigned'}\n"
             f"Business: {biz_name}\n"
             f"Notes: {notes or 'Booked via VedaVoice AI Voice Agent'}"
+            f"{intake_str}"
         )
         attendees = [customer_email] if customer_email else []
 
@@ -255,6 +263,8 @@ def confirm_booking(
         held_booking.meet_link = meet_link
         held_booking.idempotency_key = idempotency_key
         held_booking.notes = notes
+        if intake_details:
+            held_booking.intake_details = intake_details
         held_booking.is_arrival_window = is_arr_win
         held_booking.arrival_window_start = arr_win_start
         held_booking.arrival_window_end = arr_win_end
@@ -296,6 +306,7 @@ def confirm_booking(
         meet_link=meet_link,
         idempotency_key=idempotency_key,
         notes=notes,
+        intake_details=intake_details or {},
         is_arrival_window=is_arr_win,
         arrival_window_start=arr_win_start,
         arrival_window_end=arr_win_end,

@@ -69,6 +69,7 @@ class PackDetailResponse(BaseModel):
     faq_seed: list[dict[str, Any]]
     appointment_types: list[dict[str, Any]]
     intake_questions: list[dict[str, Any]]
+    intake_schema: dict[str, Any] = Field(default_factory=dict)
     pipeline_stages: list[str]
     emergency_rules: dict[str, Any]
     outbound_scripts: dict[str, Any]
@@ -181,6 +182,7 @@ def get_industry_pack_details(
         faq_seed=latest_ver.faq_seed,
         appointment_types=latest_ver.appointment_types,
         intake_questions=latest_ver.intake_questions,
+        intake_schema=latest_ver.intake_schema or {},
         pipeline_stages=latest_ver.pipeline_stages,
         emergency_rules=latest_ver.emergency_rules,
         outbound_scripts=latest_ver.outbound_scripts,

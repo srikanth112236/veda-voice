@@ -83,6 +83,42 @@ LAUNCH_PACKS: list[dict[str, Any]] = [
                 "fee": "$99",
             },
         ],
+        "intake_schema": {
+            "title": "Home Services Trade Triage",
+            "fields": [
+                {
+                    "key": "trade_type",
+                    "label": "Trade Category",
+                    "type": "select",
+                    "options": ["Plumbing", "HVAC / Heating / Cooling", "Electrical", "Other"],
+                    "required": True,
+                    "prompt": "Ask which trade specialty is needed (Plumbing, HVAC, or Electrical).",
+                },
+                {
+                    "key": "urgency_level",
+                    "label": "Urgency Level",
+                    "type": "select",
+                    "options": ["emergency", "urgent_same_day", "standard_routine"],
+                    "required": True,
+                    "prompt": "Assess if this is an active leak, gas smell, heating loss, or routine service.",
+                },
+                {
+                    "key": "property_type",
+                    "label": "Property Type",
+                    "type": "select",
+                    "options": ["Residential Single Family", "Commercial", "Condo / Multi-Family"],
+                    "required": False,
+                    "prompt": "Ask if this is a residential home or commercial property.",
+                },
+                {
+                    "key": "issue_summary",
+                    "label": "Problem Summary",
+                    "type": "text",
+                    "required": True,
+                    "prompt": "Ask the caller to briefly describe what is malfunctioning or broken.",
+                },
+            ],
+        },
         "intake_questions": [
             {
                 "id": "service_address",
@@ -208,6 +244,41 @@ LAUNCH_PACKS: list[dict[str, Any]] = [
                 "fee": "$120",
             },
         ],
+        "intake_schema": {
+            "title": "Dental Clinical Pre-Intake",
+            "fields": [
+                {
+                    "key": "patient_status",
+                    "label": "Patient Status",
+                    "type": "select",
+                    "options": ["new_patient", "existing_patient"],
+                    "required": True,
+                    "prompt": "Ask if the caller is an existing patient or visiting for the first time.",
+                },
+                {
+                    "key": "pain_severity",
+                    "label": "Pain Severity",
+                    "type": "select",
+                    "options": ["none", "mild_sensitivity", "moderate", "severe_emergency"],
+                    "required": True,
+                    "prompt": "Inquire if the caller is currently experiencing tooth pain, swelling, or trauma.",
+                },
+                {
+                    "key": "insurance_carrier",
+                    "label": "Insurance Provider",
+                    "type": "text",
+                    "required": False,
+                    "prompt": "Ask which dental insurance plan they intend to use, if any.",
+                },
+                {
+                    "key": "chief_complaint",
+                    "label": "Primary Reason for Visit",
+                    "type": "text",
+                    "required": True,
+                    "prompt": "Ask what primary dental service or treatment they are looking for.",
+                },
+            ],
+        },
         "intake_questions": [
             {
                 "id": "is_new_patient",
@@ -329,6 +400,46 @@ LAUNCH_PACKS: list[dict[str, Any]] = [
                 "fee": "$250",
             },
         ],
+        "intake_schema": {
+            "title": "Legal Practice Intake & Conflict Screening",
+            "fields": [
+                {
+                    "key": "practice_area",
+                    "label": "Practice Area",
+                    "type": "select",
+                    "options": [
+                        "Personal Injury",
+                        "Employment Law",
+                        "Commercial Litigation",
+                        "Estate Planning",
+                        "Other",
+                    ],
+                    "required": True,
+                    "prompt": "Determine the general legal category or practice area involved.",
+                },
+                {
+                    "key": "incident_date",
+                    "label": "Date of Incident / Dispute",
+                    "type": "text",
+                    "required": True,
+                    "prompt": "Ask approximately when the incident, injury, or dispute occurred.",
+                },
+                {
+                    "key": "adverse_party",
+                    "label": "Opposing Party Name",
+                    "type": "text",
+                    "required": True,
+                    "prompt": "Ask who the adverse party or company involved is to check for conflicts.",
+                },
+                {
+                    "key": "upcoming_court_deadlines",
+                    "label": "Upcoming Deadlines or Hearings",
+                    "type": "text",
+                    "required": False,
+                    "prompt": "Check if there are any immediate court appearances, summons, or deadlines.",
+                },
+            ],
+        },
         "intake_questions": [
             {
                 "id": "incident_date",
@@ -442,6 +553,33 @@ LAUNCH_PACKS: list[dict[str, Any]] = [
                 "fee": "Standard",
             },
         ],
+        "intake_schema": {
+            "title": "General Intake & Caller Purpose",
+            "fields": [
+                {
+                    "key": "service_interest",
+                    "label": "Area of Interest",
+                    "type": "text",
+                    "required": True,
+                    "prompt": "Determine what primary service or assistance the caller is inquiring about.",
+                },
+                {
+                    "key": "preferred_time_of_day",
+                    "label": "Preferred Time of Day",
+                    "type": "select",
+                    "options": ["Morning", "Afternoon", "Anytime"],
+                    "required": False,
+                    "prompt": "Ask if morning or afternoon is preferred for their appointment.",
+                },
+                {
+                    "key": "notes",
+                    "label": "Additional Notes",
+                    "type": "text",
+                    "required": False,
+                    "prompt": "Capture any additional context or instructions the caller wishes to share.",
+                },
+            ],
+        },
         "intake_questions": [
             {"id": "caller_purpose", "question": "How can we assist you today?", "required": True},
             {
@@ -522,6 +660,7 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
                 faq_seed=blueprint["faq_seed"],
                 appointment_types=blueprint["appointment_types"],
                 intake_questions=blueprint["intake_questions"],
+                intake_schema=blueprint.get("intake_schema", {}),
                 pipeline_stages=blueprint["pipeline_stages"],
                 emergency_rules=blueprint["emergency_rules"],
                 outbound_scripts=blueprint["outbound_scripts"],
@@ -535,6 +674,7 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
         else:
             version.is_system_default = True
             version.validation_status = "valid"
+            version.intake_schema = blueprint.get("intake_schema", {})
             db.flush()
 
         seeded_packs.append(pack)
@@ -636,6 +776,7 @@ def get_tenant_effective_pack(tenant_id: str, db: Session) -> dict[str, Any]:
                 "faq_seed": ver.faq_seed,
                 "appointment_types": ver.appointment_types,
                 "intake_questions": ver.intake_questions,
+                "intake_schema": getattr(ver, "intake_schema", {}) or {},
                 "pipeline_stages": ver.pipeline_stages,
                 "emergency_rules": ver.emergency_rules,
                 "outbound_scripts": ver.outbound_scripts,
@@ -658,6 +799,7 @@ def get_tenant_effective_pack(tenant_id: str, db: Session) -> dict[str, Any]:
         "faq_seed": ver.faq_seed,
         "appointment_types": ver.appointment_types,
         "intake_questions": ver.intake_questions,
+        "intake_schema": getattr(ver, "intake_schema", {}) or {},
         "pipeline_stages": ver.pipeline_stages,
         "emergency_rules": ver.emergency_rules,
         "outbound_scripts": ver.outbound_scripts,
@@ -732,6 +874,25 @@ def compile_tenant_prompt(tenant_id: str, db: Session) -> str:
         compiled_prompt += (
             f"\nEmergency Triggers: {', '.join(merged_keywords)}. Safety guidance: {safety_advice}"
         )
+
+    intake_schema = pack_data.get("intake_schema") or {}
+    fields = intake_schema.get("fields") or []
+    if fields:
+        title = intake_schema.get("title", "Caller Intake & Triage")
+        intake_lines = [f"\n\n# {title.upper()} PROTOCOL:"]
+        intake_lines.append(
+            "Before confirming an appointment booking, you must conversationally ask the caller the following triage intake questions and extract the answers into structured intake details:"
+        )
+        for fld in fields:
+            req_str = "Required" if fld.get("required") else "Optional"
+            opts = f" (Options: {', '.join(fld['options'])})" if fld.get("options") else ""
+            intake_lines.append(
+                f"- [{fld.get('key')}] ({req_str}){opts}: {fld.get('prompt') or fld.get('label')}"
+            )
+        intake_lines.append(
+            "When calling the booking tool, provide these triage answers in the 'intake_details' parameter."
+        )
+        compiled_prompt += "\n".join(intake_lines)
 
     return str(compiled_prompt)
 

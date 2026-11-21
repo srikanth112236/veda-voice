@@ -101,6 +101,7 @@ def parse_tenant_config_from_dict(data: dict[str, Any], dialed_number: str = "")
         location_extended_dispatch_surcharge=data.get("location_extended_dispatch_surcharge") or "",
         industry_pack_slug=data.get("industry_pack_slug"),
         industry_pack_prompt=data.get("industry_pack_prompt"),
+        industry_pack_intake_schema=data.get("industry_pack_intake_schema") or {},
     )
 
 

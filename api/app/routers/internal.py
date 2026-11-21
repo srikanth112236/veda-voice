@@ -80,6 +80,7 @@ class InternalTenantConfigResponse(BaseModel):
     location_extended_dispatch_surcharge: str = ""
     industry_pack_slug: str | None = None
     industry_pack_prompt: str | None = None
+    industry_pack_intake_schema: dict[str, Any] = Field(default_factory=dict)
 
 
 class CallStartRequest(BaseModel):
@@ -180,6 +181,7 @@ def _build_tenant_config(
 
     pack_slug: str | None = None
     pack_prompt: str | None = None
+    pack_intake_schema: dict[str, Any] = {}
     if db:
         try:
             from api.app.services.industry_packs import (
@@ -191,6 +193,7 @@ def _build_tenant_config(
             if pack_data and pack_data.get("pack_slug"):
                 pack_slug = pack_data["pack_slug"]
                 pack_prompt = compile_tenant_prompt(tenant.id, db)
+                pack_intake_schema = pack_data.get("intake_schema", {}) or {}
         except Exception as e:
             logger.debug("Could not resolve industry pack for %s: %s", tenant.id, e)
 
@@ -249,6 +252,7 @@ def _build_tenant_config(
         else "",
         industry_pack_slug=pack_slug,
         industry_pack_prompt=pack_prompt,
+        industry_pack_intake_schema=pack_intake_schema,
     )
 
 
@@ -1074,6 +1078,7 @@ class BookSlotRequest(BaseModel):
     staff_id: str | None = None
     idempotency_key: str | None = None
     notes: str | None = None
+    intake_details: dict[str, Any] = Field(default_factory=dict)
 
 
 class CancelBookingRequest(BaseModel):
@@ -1211,6 +1216,7 @@ def confirm_appointment_booking(
             notes=payload.notes,
             postal_code=payload.postal_code,
             staff_id=payload.staff_id,
+            intake_details=payload.intake_details,
             db=db,
         )
 
@@ -1226,6 +1232,7 @@ def confirm_appointment_booking(
                 service_type=payload.service_type,
                 call_id=call_id,
                 postal_code=payload.postal_code,
+                intake_details=payload.intake_details,
             )
             db.commit()
         except Exception as err:

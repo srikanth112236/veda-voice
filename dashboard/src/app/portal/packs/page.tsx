@@ -12,6 +12,7 @@ import {
   FileCode,
   ShieldCheck,
   Clock,
+  ClipboardList,
 } from "lucide-react";
 import { api, IndustryPackSummary, IndustryPackDetail } from "@/lib/api";
 
@@ -392,6 +393,85 @@ export default function IndustryPacksPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* Dynamic Intake Questionnaire Tree */}
+                {((packDetail.intake_schema?.fields && packDetail.intake_schema.fields.length > 0) ||
+                  (packDetail.intake_questions && packDetail.intake_questions.length > 0)) && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2 flex items-center gap-1.5">
+                      <ClipboardList className="h-3.5 w-3.5 text-indigo-600" />
+                      {packDetail.intake_schema?.title || "Dynamic Trade Intake Questionnaire Tree"}
+                    </h4>
+                    <p className="text-[11px] text-zinc-500 mb-2.5">
+                      The voice receptionist automatically conducts this conversational triage during calls and extracts structured answers directly into CRM contact timelines.
+                    </p>
+                    <div className="space-y-2">
+                      {packDetail.intake_schema?.fields?.map((fld: any) => (
+                        <div
+                          key={fld.key}
+                          className="rounded-lg border border-zinc-200 bg-white p-3 text-xs shadow-2xs hover:border-indigo-200 transition"
+                        >
+                          <div className="flex items-center justify-between font-medium text-zinc-800 mb-1">
+                            <span className="flex items-center gap-2">
+                              <span className="font-semibold text-zinc-900">{fld.label}</span>
+                              <code className="text-[10px] bg-zinc-100 text-zinc-600 px-1.5 py-0.5 rounded font-mono">
+                                {fld.key}
+                              </code>
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-mono text-indigo-700 uppercase font-medium">
+                                {fld.type || "text"}
+                              </span>
+                              {fld.required ? (
+                                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
+                                  Required
+                                </span>
+                              ) : (
+                                <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[9px] font-medium text-zinc-500">
+                                  Optional
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-zinc-600 italic mb-1.5">
+                            &ldquo;{fld.prompt || fld.label}&rdquo;
+                          </p>
+                          {fld.options && fld.options.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1 pt-1.5 border-t border-zinc-100">
+                              <span className="text-[10px] text-zinc-400 mr-1 self-center">Options:</span>
+                              {fld.options.map((opt: string, oIdx: number) => (
+                                <span
+                                  key={oIdx}
+                                  className="rounded bg-zinc-50 border border-zinc-200 px-1.5 py-0.2 text-[10px] text-zinc-600 font-mono"
+                                >
+                                  {opt}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {(!packDetail.intake_schema?.fields || packDetail.intake_schema.fields.length === 0) &&
+                        packDetail.intake_questions?.map((iq: any) => (
+                          <div
+                            key={iq.id}
+                            className="rounded-lg border border-zinc-100 bg-zinc-50 p-2.5 text-xs flex items-center justify-between"
+                          >
+                            <span className="text-zinc-700 font-medium">{iq.question}</span>
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+                                iq.required
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-zinc-200 text-zinc-600"
+                              }`}
+                            >
+                              {iq.required ? "Required" : "Optional"}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Emergency Protocol */}
                 <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3.5 text-xs">

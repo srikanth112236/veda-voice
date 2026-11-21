@@ -80,6 +80,7 @@ class IndustryPackVersion(Base):
     intake_questions: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, default=list, nullable=False
     )
+    intake_schema: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     pipeline_stages: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     emergency_rules: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     outbound_scripts: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)

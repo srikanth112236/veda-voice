@@ -318,6 +318,7 @@ def link_booking_to_crm(
     service_type: str = "general_appointment",
     call_id: str | None = None,
     postal_code: str | None = None,
+    intake_details: dict[str, Any] | None = None,
 ) -> Contact:
     """Link confirmed appointment booking to CRM Contact and advance pipeline stage to 'booked'."""
     raw_phone = customer_phone or ""
@@ -359,6 +360,12 @@ def link_booking_to_crm(
     )
     if postal_code:
         custom_fields["service_address"] = postal_code
+
+    effective_intake = (
+        intake_details if intake_details is not None else getattr(booking, "intake_details", {})
+    ) or {}
+    if effective_intake:
+        custom_fields["intake_details"] = effective_intake
 
     start_str = (
         booking_start.strftime("%A, %B %d at %I:%M %p")
@@ -446,6 +453,19 @@ def link_booking_to_crm(
         created_at=now_dt,
     )
     db.add(timeline_event)
+
+    if effective_intake:
+        intake_summary = ", ".join(f"{k}: {v}" for k, v in list(effective_intake.items())[:4])
+        intake_event = ContactTimelineEvent(
+            tenant_id=tenant_id,
+            contact_id=contact.id,
+            event_type="appointment_intake",
+            title="Intake Triage Questionnaire Completed",
+            description=f"Structured responses captured: {intake_summary}",
+            payload=effective_intake,
+            created_at=now_dt,
+        )
+        db.add(intake_event)
 
     # Ensure TCPA consent record exists
     existing_consent = db.scalar(

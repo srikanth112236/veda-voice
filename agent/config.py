@@ -87,6 +87,7 @@ class TenantConfig(BaseModel):
     call_token: str = ""
     industry_pack_slug: str | None = None
     industry_pack_prompt: str | None = None
+    industry_pack_intake_schema: dict[str, Any] = Field(default_factory=dict)
     location_id: str | None = None
     location_name: str | None = None
     location_city: str | None = None

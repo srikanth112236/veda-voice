@@ -186,6 +186,7 @@ def book_appointment(
     notes: str | None = None,
     postal_code: str | None = None,
     staff_id: str | None = None,
+    intake_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Confirm appointment booking, generate Google Meet link, and record in calendar."""
     return _call_internal_calendar_api(
@@ -201,6 +202,7 @@ def book_appointment(
             "notes": notes,
             "postal_code": postal_code,
             "staff_id": staff_id,
+            "intake_details": intake_details or {},
         },
         call_token=call_token,
     )
@@ -382,6 +384,10 @@ def create_booking_tools(call_token: str, caller_phone: str = "") -> list[Functi
             str | None, "Customer's postal or zip code for territory dispatch"
         ] = None,
         notes: Annotated[str | None, "Special notes or request details"] = None,
+        intake_details: Annotated[
+            dict[str, Any] | str | None,
+            "Structured caller intake responses collected from trade triage questions",
+        ] = None,
     ) -> str:
         """Confirm booking, generate calendar event and optional Google Meet link."""
         phone_to_use = customer_phone.strip() or caller_phone.strip()
@@ -389,6 +395,20 @@ def create_booking_tools(call_token: str, caller_phone: str = "") -> list[Functi
             return (
                 "Please ask the caller for their callback phone number to confirm the appointment."
             )
+
+        parsed_intake: dict[str, Any] = {}
+        if isinstance(intake_details, dict):
+            parsed_intake = intake_details
+        elif isinstance(intake_details, str) and intake_details.strip():
+            try:
+                parsed = json.loads(intake_details)
+                if isinstance(parsed, dict):
+                    parsed_intake = parsed
+                else:
+                    parsed_intake = {"raw_intake": intake_details}
+            except Exception:
+                parsed_intake = {"raw_intake": intake_details}
+
         try:
             res = await asyncio.to_thread(
                 book_appointment,
@@ -400,6 +420,7 @@ def create_booking_tools(call_token: str, caller_phone: str = "") -> list[Functi
                 service_type=service_type,
                 postal_code=postal_code.strip() if postal_code else None,
                 notes=notes.strip() if notes else None,
+                intake_details=parsed_intake,
             )
             if res.get("status") == "confirmed":
                 meet = f" Google Meet: {res['meet_link']}" if res.get("meet_link") else ""
