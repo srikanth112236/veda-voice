@@ -23,11 +23,9 @@ import { AnimatePresence, motion } from "framer-motion";
 
 function AdminSidebarNav({ onLinkClick }: { onLinkClick?: () => void }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const currentTab = searchParams.get("tab") || "telemetry";
 
-  const getLinkClass = (tabName: string) => {
-    const isActive = pathname === "/admin/dashboard" && currentTab === tabName;
+  const getLinkClass = (targetPath: string) => {
+    const isActive = pathname === targetPath || (targetPath === "/admin/dashboard" && pathname === "/admin");
     return `flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
       isActive
         ? "bg-purple-50 text-purple-700 border border-purple-200/80 shadow-2xs font-bold"
@@ -38,9 +36,9 @@ function AdminSidebarNav({ onLinkClick }: { onLinkClick?: () => void }) {
   return (
     <nav className="space-y-1">
       <Link
-        href="/admin/dashboard?tab=telemetry"
+        href="/admin/dashboard"
         onClick={onLinkClick}
-        className={getLinkClass("telemetry")}
+        className={getLinkClass("/admin/dashboard")}
       >
         <LayoutDashboard className="w-4 h-4 text-purple-600" />
         Platform Command Center
@@ -53,54 +51,54 @@ function AdminSidebarNav({ onLinkClick }: { onLinkClick?: () => void }) {
       </div>
 
       <Link
-        href="/admin/dashboard?tab=tenants"
+        href="/admin/tenants"
         onClick={onLinkClick}
-        className={getLinkClass("tenants")}
+        className={getLinkClass("/admin/tenants")}
       >
         <Building2 className="w-4 h-4 text-blue-600" />
         Client Tenants &amp; RLS
       </Link>
 
       <Link
-        href="/admin/dashboard?tab=subaccounts"
+        href="/admin/subaccounts"
         onClick={onLinkClick}
-        className={getLinkClass("subaccounts")}
+        className={getLinkClass("/admin/subaccounts")}
       >
         <UserCheck className="w-4 h-4 text-indigo-600" />
         Sub-Accounts &amp; Proxy
       </Link>
 
       <Link
-        href="/admin/dashboard?tab=audit"
+        href="/admin/audit"
         onClick={onLinkClick}
-        className={getLinkClass("audit")}
+        className={getLinkClass("/admin/audit")}
       >
         <History className="w-4 h-4 text-purple-600" />
         Immutable Audit Trail
       </Link>
 
       <Link
-        href="/admin/dashboard?tab=billing"
+        href="/admin/billing"
         onClick={onLinkClick}
-        className={getLinkClass("billing")}
+        className={getLinkClass("/admin/billing")}
       >
         <CreditCard className="w-4 h-4 text-emerald-600" />
         Minute Billing &amp; Rollovers
       </Link>
 
       <Link
-        href="/admin/dashboard?tab=inventory"
+        href="/admin/inventory"
         onClick={onLinkClick}
-        className={getLinkClass("inventory")}
+        className={getLinkClass("/admin/inventory")}
       >
         <PhoneCall className="w-4 h-4 text-indigo-600" />
         Inbound Phone Inventory
       </Link>
 
       <Link
-        href="/admin/dashboard?tab=coupons"
+        href="/admin/coupons"
         onClick={onLinkClick}
-        className={getLinkClass("coupons")}
+        className={getLinkClass("/admin/coupons")}
       >
         <Tag className="w-4 h-4 text-amber-600" />
         Coupons &amp; Bonus Credits

@@ -9,11 +9,6 @@ import {
   TenantSummary,
   PhoneNumberRecord,
   SipTrunkTelemetry,
-  AgencySubAccount,
-  AgencyAuditLog,
-  TelnyxNumberItem,
-  AdminRefundRequestRecord,
-  AdminTopupOrderRecord,
   AdminSubscriptionRecord,
 } from "@/lib/api";
 import { InfoTrigger } from "@/context/info-modal-context";
@@ -22,15 +17,12 @@ import {
   PhoneCall,
   AlertTriangle,
   Zap,
-  Plus,
   ArrowUpRight,
   ShieldCheck,
   Building2,
   Server,
   Activity,
   DollarSign,
-  Eye,
-  EyeOff,
   Gauge,
   Radio,
   CheckCircle2,
@@ -40,12 +32,6 @@ import {
   Lock,
   RefreshCw,
   TrendingUp,
-  Phone,
-  Link2,
-  Unlink,
-  Network,
-  X,
-  Check,
   CreditCard,
   Tag,
   Gift,
@@ -53,926 +39,150 @@ import {
   History,
   ExternalLink,
   ShieldAlert,
-  Search,
-  Loader2,
-  MessageSquare,
   Sliders,
   Sparkles,
   ChevronRight,
-  Info,
-  RotateCcw,
-  Receipt,
   Coins,
-  AlertCircle,
-  XCircle,
-  Download,
 } from "lucide-react";
-import { PaginationBar } from "@/components/ui/pagination";
 
 function AdminDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Redirect legacy query tab parameter to individual sub-pages
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam && ["tenants", "subaccounts", "audit", "billing", "inventory", "coupons"].includes(tabParam)) {
+      router.replace(`/admin/${tabParam}`);
+    }
+  }, [searchParams, router]);
+
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [numbers, setNumbers] = useState<PhoneNumberRecord[]>([]);
   const [trunkTelemetry, setTrunkTelemetry] = useState<SipTrunkTelemetry | null>(null);
   const [subscriptions, setSubscriptions] = useState<AdminSubscriptionRecord[]>([]);
-  const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [maskPii, setMaskPii] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"telemetry" | "tenants" | "subaccounts" | "audit" | "billing" | "inventory" | "coupons">("telemetry");
-
-  // Agency Sub-Accounts & Impersonation state (Milestone M8b)
-  const [subAccounts, setSubAccounts] = useState<AgencySubAccount[]>([]);
-  const [subPage, setSubPage] = useState(1);
-  const [subPageSize, setSubPageSize] = useState(10);
-  const [auditLogs, setAuditLogs] = useState<AgencyAuditLog[]>([]);
-  const [auditTotal, setAuditTotal] = useState(0);
-  const [auditActionFilter, setAuditActionFilter] = useState<string>("");
-  const [auditImpersonatedOnly, setAuditImpersonatedOnly] = useState<boolean>(false);
-  const [impersonateTarget, setImpersonateTarget] = useState<AgencySubAccount | null>(null);
-  const [impersonateReason, setImpersonateReason] = useState("Technical investigation and QA configuration audit");
-  const [impersonating, setImpersonating] = useState(false);
-  const [selectedAuditLog, setSelectedAuditLog] = useState<AgencyAuditLog | null>(null);
-
-  useEffect(() => {
-    const tabParam = searchParams.get("tab");
-    if (tabParam && ["telemetry", "tenants", "subaccounts", "audit", "billing", "inventory", "coupons"].includes(tabParam)) {
-      setActiveTab(tabParam as any);
-    }
-  }, [searchParams]);
-
-  const handleTabChange = (newTab: "telemetry" | "tenants" | "subaccounts" | "audit" | "billing" | "inventory" | "coupons") => {
-    setActiveTab(newTab);
-    router.replace(`/admin/dashboard?tab=${newTab}`, { scroll: false });
-  };
-  const [provisioningMode, setProvisioningMode] = useState<"carrier_search" | "agency_pool">("carrier_search");
-
-  // Phone number inventory filter & actions state
-  const [numberFilter, setNumberFilter] = useState<"all" | "active" | "pool">("all");
-  const [syncingTrunk, setSyncingTrunk] = useState(false);
-  const [syncSuccessMsg, setSyncSuccessMsg] = useState<string | null>(null);
-  const [showProvisionModal, setShowProvisionModal] = useState(false);
-  const [showAttachModal, setShowAttachModal] = useState<PhoneNumberRecord | null>(null);
-  const [targetTenantId, setTargetTenantId] = useState<string>("");
-  const [provisioningNumber, setProvisioningNumber] = useState(false);
-  const [newProvisionData, setNewProvisionData] = useState({
-    e164: "+15125550199",
-    provider: "Twilio Elastic SIP",
-    locality: "Austin Metro",
-    region: "TX",
-    target_tenant_id: "",
-  });
-
-  // Coupons & Bonus Minutes state
-  const [showCouponModal, setShowCouponModal] = useState(false);
-  const [creatingCoupon, setCreatingCoupon] = useState(false);
-  const [couponError, setCouponError] = useState<string | null>(null);
-  const [newCouponData, setNewCouponData] = useState({
-    code: "",
-    discount_percent: 20,
-    bonus_minutes: 100,
-    max_redemptions: 50,
-  });
-
-  const [showGrantModal, setShowGrantModal] = useState<string | null>(null); // tenant_id
-  const [grantingMinutes, setGrantingMinutes] = useState(false);
-  const [grantMinutesVal, setGrantMinutesVal] = useState(100);
-  const [grantReason, setGrantReason] = useState("Agency VIP Bonus");
-
-  // Admin Master Subscription Control Modal
-  const [showManageSubModal, setShowManageSubModal] = useState<any | null>(null);
-  const [subTierSelect, setSubTierSelect] = useState<string>("starter");
-  const [subStatusSelect, setSubStatusSelect] = useState<string>("active");
-  const [subCustomMinutes, setSubCustomMinutes] = useState<number | "">("");
-  const [subResetUsage, setSubResetUsage] = useState<boolean>(false);
-  const [updatingSub, setUpdatingSub] = useState(false);
-
-  // Telnyx 1-Click DID Order & SMS state (Phase 4)
-  const [showTelnyxModal, setShowTelnyxModal] = useState(false);
-  const [telnyxAreaCode, setTelnyxAreaCode] = useState("415");
-  const [telnyxLocality, setTelnyxLocality] = useState("");
-  const [telnyxTargetTenantId, setTelnyxTargetTenantId] = useState("");
-  const [searchingTelnyx, setSearchingTelnyx] = useState(false);
-  const [telnyxSearchResults, setTelnyxSearchResults] = useState<TelnyxNumberItem[]>([]);
-  const [orderingTelnyxNumber, setOrderingTelnyxNumber] = useState<string | null>(null);
-  const [telnyxSuccessMsg, setTelnyxSuccessMsg] = useState<string | null>(null);
-
-  // LiveKit Scale Plan & Concurrency Deck State (Option 3)
-  const [showScaleIncreaseModal, setShowScaleIncreaseModal] = useState(false);
-  const [scaleIncreaseRequested, setScaleIncreaseRequested] = useState(false);
-  const [selectedScaleTier, setSelectedScaleTier] = useState<"scale_100" | "scale_250" | "enterprise">("scale_100");
   const [simulatedConcurrencyLoad, setSimulatedConcurrencyLoad] = useState<number | null>(null);
 
-  // Tenant CoGS Intelligence & Search Filters (Option 3)
-  const [showCogsModal, setShowCogsModal] = useState<TenantSummary | null>(null);
-  const [tenantSearchQuery, setTenantSearchQuery] = useState("");
-  const [tenantPlanFilter, setTenantPlanFilter] = useState<string>("all");
-
-  // Platform Admin Refunds, Top-Ups & Onboarding Fees (Billing Polish)
-  const [refundRequests, setRefundRequests] = useState<AdminRefundRequestRecord[]>([]);
-  const [refundPage, setRefundPage] = useState(1);
-  const [refundPageSize, setRefundPageSize] = useState(10);
-  const [topupOrders, setTopupOrders] = useState<AdminTopupOrderRecord[]>([]);
-  const [refundActionModal, setRefundActionModal] = useState<{ request: AdminRefundRequestRecord; action: "approve" | "reject" } | null>(null);
-  const [refundNotes, setRefundNotes] = useState("");
-  const [resolvingRefund, setResolvingRefund] = useState(false);
-  const [onboardingFeeModal, setOnboardingFeeModal] = useState<{
-    tenant_id: string;
-    org_name: string;
-    current_fee: number;
-    paid: boolean;
-    waived: boolean;
-  } | null>(null);
-  const [updatingFee, setUpdatingFee] = useState(false);
-  const [feeActionSelect, setFeeActionSelect] = useState<"waive" | "set_paid" | "charge">("waive");
-  const [customFeeUsd, setCustomFeeUsd] = useState<number>(299);
-  const [grantCreditTo, setGrantCreditTo] = useState<"rollover" | "topup">("rollover");
-  const [billingSubTab, setBillingSubTab] = useState<"all" | "subscriptions" | "refunds" | "topups" | "fees">("all");
-  const [billingSearchQuery, setBillingSearchQuery] = useState("");
-
-  const handleSearchTelnyxNumbers = async () => {
-    setSearchingTelnyx(true);
-    setTelnyxSuccessMsg(null);
-    try {
-      const results = await api.searchTelnyxNumbers(telnyxAreaCode, telnyxLocality);
-      setTelnyxSearchResults(results);
-    } catch (err: any) {
-      console.error("Failed to search Telnyx numbers", err);
-    } finally {
-      setSearchingTelnyx(false);
-    }
-  };
-
-  const handleOrderTelnyxNumber = async (numItem: TelnyxNumberItem) => {
-    setOrderingTelnyxNumber(numItem.phone_number);
-    setTelnyxSuccessMsg(null);
-    try {
-      const ordered = await api.orderTelnyxNumber({
-        phone_number: numItem.phone_number,
-        tenant_id: telnyxTargetTenantId || undefined,
-        locality: numItem.locality,
-        region: numItem.region_information,
-        label: "Telnyx Carrier Line",
-      });
-      setNumbers((prev) => [ordered, ...prev]);
-      setTelnyxSuccessMsg(`Ordered ${numItem.phone_number} on Telnyx ($1/mo) and auto-bound to LiveKit SIP!`);
-      setTelnyxSearchResults((prev) => prev.filter((n) => n.phone_number !== numItem.phone_number));
-    } catch (err: any) {
-      console.error("Failed to order Telnyx number", err);
-      alert(`Error ordering Telnyx number: ${err?.message || err}`);
-    } finally {
-      setOrderingTelnyxNumber(null);
-    }
-  };
-
-  const loadData = () => {
+  const loadData = async () => {
     setRefreshing(true);
-    Promise.all([
-      api.getAdminStats(),
-      api.getAdminTenants(),
-      api.getNumbers(),
-      api.getSipTrunkTelemetry(),
-      api.getAdminSubscriptions().catch(() => []),
-      api.getAdminCoupons().catch(() => []),
-      api.getAgencySubAccounts().catch(() => []),
-      api.getAgencyAuditLogs({ limit: 100 }).catch(() => ({ total: 0, items: [] })),
-      api.getAdminRefunds().catch(() => []),
-      api.getAdminTopupOrders().catch(() => []),
-    ])
-      .then(([statsRes, tenantsRes, numbersRes, trunkRes, subsRes, couponsRes, subAccountsRes, auditRes, refundsRes, topupsRes]) => {
-        setStats(statsRes);
-        setTenants(tenantsRes);
-        setNumbers(numbersRes);
-        setTrunkTelemetry(trunkRes);
-        setSubscriptions(subsRes);
-        setCoupons(couponsRes);
-        setSubAccounts(subAccountsRes as any);
-        setAuditLogs(auditRes.items as any);
-        setAuditTotal(auditRes.total);
-        setRefundRequests(refundsRes);
-        setTopupOrders(topupsRes);
-      })
-      .catch((err) => console.error("Failed to load admin data:", err))
-      .finally(() => {
-        setLoading(false);
-        setRefreshing(false);
-      });
-  };
-
-  const loadAuditLogs = () => {
-    api
-      .getAgencyAuditLogs({
-        action: auditActionFilter || undefined,
-        is_impersonated: auditImpersonatedOnly ? true : undefined,
-        limit: 100,
-      })
-      .then((res) => {
-        setAuditLogs(res.items);
-        setAuditTotal(res.total);
-      })
-      .catch((err) => console.error("Failed to filter audit logs:", err));
-  };
-
-  const handleStartImpersonation = async () => {
-    if (!impersonateTarget) return;
-    setImpersonating(true);
     try {
-      await api.impersonateSubAccount(impersonateTarget.id, impersonateReason);
-      window.location.href = "/portal/dashboard";
-    } catch (err: any) {
-      alert(`Failed to start impersonation: ${err.message || err}`);
-      setImpersonating(false);
-    }
-  };
-
-  const handleSyncTrunkDispatch = async () => {
-    setSyncingTrunk(true);
-    setSyncSuccessMsg(null);
-    try {
-      const res = await api.syncSipTrunkDispatchRules();
-      setSyncSuccessMsg(res.message);
-      const [nums, trunk] = await Promise.all([api.getNumbers(), api.getSipTrunkTelemetry()]);
-      setNumbers(nums);
-      setTrunkTelemetry(trunk);
-      setTimeout(() => setSyncSuccessMsg(null), 5000);
-    } catch (err: unknown) {
-      console.error("Failed to sync trunks:", err);
-    } finally {
-      setSyncingTrunk(false);
-    }
-  };
-
-  const handleAttachNumber = async (numberId: string) => {
-    if (!targetTenantId) return;
-    try {
-      await api.attachNumber(numberId, { tenant_id: targetTenantId });
-      setShowAttachModal(null);
-      setTargetTenantId("");
-      loadData();
-    } catch (err: unknown) {
-      console.error("Failed to attach number:", err);
-    }
-  };
-
-  const handleDetachNumber = async (numberId: string) => {
-    try {
-      await api.detachNumber(numberId, true);
-      loadData();
-    } catch (err: unknown) {
-      console.error("Failed to detach number:", err);
-    }
-  };
-
-  const handleCreateProvisionedNumber = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setProvisioningNumber(true);
-    try {
-      await api.provisionNumber({
-        e164: newProvisionData.e164,
-        provider: newProvisionData.provider.toLowerCase().includes("telnyx") ? "telnyx" : "twilio",
-        locality: newProvisionData.locality,
-        region: newProvisionData.region,
-        tenant_id: newProvisionData.target_tenant_id || undefined,
-      });
-      setShowProvisionModal(false);
-      loadData();
-    } catch (err: unknown) {
-      console.error("Failed to provision number:", err);
-    } finally {
-      setProvisioningNumber(false);
-    }
-  };
-
-  const handleCreateCoupon = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreatingCoupon(true);
-    setCouponError(null);
-    try {
-      await api.createAdminCoupon(newCouponData);
-      setShowCouponModal(false);
-      setNewCouponData({ code: "", discount_percent: 20, bonus_minutes: 100, max_redemptions: 50 });
-      const refreshedCoupons = await api.getAdminCoupons();
-      setCoupons(refreshedCoupons);
-    } catch (err: unknown) {
-      setCouponError(err instanceof Error ? err.message : "Failed to create coupon code");
-    } finally {
-      setCreatingCoupon(false);
-    }
-  };
-
-  const handleGrantBonusMinutes = async (tenantId: string) => {
-    setGrantingMinutes(true);
-    try {
-      await api.grantAdminMinutes(tenantId, grantMinutesVal, grantReason, grantCreditTo);
-      setShowGrantModal(null);
-      const [refreshedSubs, refreshedTenants] = await Promise.all([
-        api.getAdminSubscriptions(),
+      const [statsRes, tenantsRes, numbersRes, trunkRes, subsRes] = await Promise.all([
+        api.getAdminStats(),
         api.getAdminTenants(),
-      ]);
-      setSubscriptions(refreshedSubs);
-      setTenants(refreshedTenants);
-    } catch (err: unknown) {
-      console.error("Failed to grant bonus minutes:", err);
-    } finally {
-      setGrantingMinutes(false);
-    }
-  };
-
-  const openManageSubModal = (sub: any) => {
-    setShowManageSubModal(sub);
-    setSubTierSelect(sub.tier);
-    setSubStatusSelect(sub.status);
-    setSubCustomMinutes(sub.monthly_included_minutes);
-    setSubResetUsage(false);
-  };
-
-  const handleUpdateTenantSubscription = async () => {
-    if (!showManageSubModal) return;
-    setUpdatingSub(true);
-    try {
-      await api.updateAdminSubscriptionTier(
-        showManageSubModal.tenant_id,
-        subTierSelect,
-        subCustomMinutes !== "" ? Number(subCustomMinutes) : undefined,
-        subResetUsage
-      );
-      if (subStatusSelect !== showManageSubModal.status) {
-        await api.updateAdminSubscriptionStatus(showManageSubModal.tenant_id, subStatusSelect);
-      }
-      setShowManageSubModal(null);
-      const [refreshedSubs, refreshedTenants] = await Promise.all([
-        api.getAdminSubscriptions(),
-        api.getAdminTenants(),
-      ]);
-      setSubscriptions(refreshedSubs);
-      setTenants(refreshedTenants);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to update tenant subscription");
-    } finally {
-      setUpdatingSub(false);
-    }
-  };
-
-  const handleResolveRefund = async () => {
-    if (!refundActionModal) return;
-    setResolvingRefund(true);
-    try {
-      await api.resolveAdminRefund(refundActionModal.request.id, refundActionModal.action, refundNotes);
-      setRefundActionModal(null);
-      setRefundNotes("");
-      const [refreshedRefunds, refreshedSubs] = await Promise.all([
-        api.getAdminRefunds().catch(() => []),
+        api.getNumbers(),
+        api.getSipTrunkTelemetry(),
         api.getAdminSubscriptions().catch(() => []),
       ]);
-      setRefundRequests(refreshedRefunds);
-      setSubscriptions(refreshedSubs);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to resolve refund request");
+      setStats(statsRes);
+      setTenants(tenantsRes);
+      setNumbers(numbersRes);
+      setTrunkTelemetry(trunkRes);
+      setSubscriptions(subsRes);
+    } catch (err) {
+      console.error("Failed to load admin stats:", err);
     } finally {
-      setResolvingRefund(false);
+      setLoading(false);
+      setRefreshing(false);
     }
-  };
-
-  const handleUpdateOnboardingFee = async () => {
-    if (!onboardingFeeModal) return;
-    setUpdatingFee(true);
-    try {
-      await api.updateAdminOnboardingFee(onboardingFeeModal.tenant_id, {
-        action: feeActionSelect,
-        waived: feeActionSelect === "waive",
-        paid: feeActionSelect === "set_paid",
-        custom_fee_usd: feeActionSelect === "charge" ? customFeeUsd : undefined,
-      });
-      setOnboardingFeeModal(null);
-      const refreshedSubs = await api.getAdminSubscriptions().catch(() => []);
-      setSubscriptions(refreshedSubs);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to update onboarding fee");
-    } finally {
-      setUpdatingFee(false);
-    }
-  };
-
-  const exportSubscriptionsCsv = () => {
-    const headers = [
-      "Organization",
-      "Tenant ID",
-      "Tier",
-      "Status",
-      "Base Minutes",
-      "Rollover Minutes",
-      "TopUp Minutes",
-      "Total Minutes",
-      "Used Minutes",
-      "Setup Fee USD",
-      "Setup Fee Status",
-      "Refund Status",
-    ];
-    const rows = subscriptions.map((s: any) => [
-      `"${s.tenant_name}"`,
-      s.tenant_id,
-      s.tier,
-      s.status,
-      s.monthly_included_minutes,
-      s.bonus_rollover_minutes,
-      s.topup_minutes_balance || 0,
-      s.total_available_minutes,
-      s.used_minutes_this_cycle,
-      s.onboarding_fee_usd || 0,
-      s.onboarding_fee_waived ? "waived" : s.onboarding_fee_paid ? "paid" : "due",
-      s.refund_status || "none",
-    ]);
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((r: any) => r.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `vedavoice_subscriptions_${new Date().toISOString().slice(0, 10)}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const exportTopupOrdersCsv = () => {
-    const headers = [
-      "Order ID",
-      "Date",
-      "Organization",
-      "Tenant ID",
-      "Pack Name",
-      "Minutes",
-      "Price USD",
-      "Rate Per Min",
-      "Status",
-      "Payment Reference",
-    ];
-    const rows = topupOrders.map((o: any) => [
-      o.id,
-      o.created_at || "",
-      `"${o.tenant_name}"`,
-      o.tenant_id,
-      `"${o.pack_name}"`,
-      o.minutes,
-      o.price_usd,
-      o.rate_per_min,
-      o.status,
-      o.payment_intent_id || "",
-    ]);
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((r: any) => r.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute(
-      "download",
-      `vedavoice_topup_orders_${new Date().toISOString().slice(0, 10)}.csv`
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   useEffect(() => {
     loadData();
+    const interval = setInterval(loadData, 20000);
+    return () => clearInterval(interval);
   }, []);
 
-  const maskPhoneNumber = (num: string): string => {
-    if (!maskPii) return num;
-    const digits = num.replace(/\D/g, "");
-    if (digits.length >= 10) {
-      const area = digits.slice(-10, -7);
-      const last4 = digits.slice(-4);
-      return `+1 (${area}) ***-${last4}`;
-    }
-    return num.length > 5 ? `${num.slice(0, 4)}***${num.slice(-2)}` : "***";
-  };
+  // Concurrency saturation metrics
+  const scaleLimit = 50;
+  const activeConcurrency = trunkTelemetry?.active_tenant_numbers ?? (numbers.filter((n) => n.status === "active").length || 2);
+  const totalConcurrency = simulatedConcurrencyLoad !== null ? simulatedConcurrencyLoad : activeConcurrency;
+  const saturationPct = Math.round((totalConcurrency / scaleLimit) * 100);
+  const isWarning = saturationPct >= 60 && saturationPct < 80;
+  const isCritical = saturationPct >= 80;
+  const criticalThreshold = Math.round(scaleLimit * 0.8);
 
-  if (loading) {
-    return (
-      <div className="p-8 text-xs font-mono text-zinc-500 flex items-center gap-2">
-        <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
-        Loading platform command center &amp; carrier telemetry...
-      </div>
-    );
-  }
-
-  const activeInbound = stats?.active_inbound_calls ?? 3;
-  const maxInbound = stats?.global_max_concurrent ?? 40;
-  const activeOutbound = stats?.active_outbound_calls ?? 1;
-  const maxOutbound = stats?.global_max_outbound ?? 10;
-  const scaleLimit = stats?.scale_plan_limit ?? 50;
-  const warnThreshold = stats?.warn_threshold_concurrency ?? 30;
-  const criticalThreshold = stats?.critical_threshold_concurrency ?? 40;
-
-  // Real or Simulated Concurrency Load (for demonstration & testing)
-  const effectiveInbound = simulatedConcurrencyLoad !== null
-    ? Math.round(simulatedConcurrencyLoad * 0.8)
-    : activeInbound;
-  const inboundPct = Math.min(Math.round((effectiveInbound / maxInbound) * 100), 100);
-
-  const effectiveOutbound = simulatedConcurrencyLoad !== null
-    ? Math.round(simulatedConcurrencyLoad * 0.2)
-    : activeOutbound;
-  const outboundPct = Math.min(Math.round((effectiveOutbound / maxOutbound) * 100), 100);
-
-  const totalConcurrency = effectiveInbound + effectiveOutbound;
-  const totalSaturationPct = Math.min(Math.round((totalConcurrency / scaleLimit) * 100), 100);
-
-  const isCritical = totalConcurrency >= criticalThreshold;
-  const isWarning = totalConcurrency >= warnThreshold && !isCritical;
-  const effectiveAlertLevel = isCritical ? "critical_80" : isWarning ? "warning_60" : "normal";
-
-  // Arc calculation for SVG Half-Dial (Radius 75, Center 100, 90)
-  // Arc angle 180 deg to 0 deg. Arc circumference = PI * 75 ~= 235.62
-  const dialCircumference = 235.62;
-  const dialOffset = dialCircumference - (dialCircumference * (totalConcurrency / scaleLimit));
-
-  const carrier = stats?.carrier_health || {
-    provider: "Twilio Elastic SIP Trunk (Primary) / Telnyx (Hot Standby)",
-    status: "connected",
-    latency_ms: 38.0,
-    jitter_ms: 2.1,
-    mos_score: 4.41,
-    cps_current: 1.2,
-    cps_limit: 10.0,
-    packet_loss_pct: 0.01,
-    codecs: ["Opus 48kHz (WebRTC)", "G.711u (PSTN)"],
-  };
-
-  const cost = stats?.cost_metrics || {
-    cost_livekit_per_min: 0.0040,
-    cost_deepgram_per_min: 0.0043,
-    cost_gemini_per_min: 0.0062,
-    cost_tts_per_min: 0.0080,
-    total_cogs_per_min: 0.0225,
-    total_billable_minutes: 18.5,
-    est_telephony_cost_usd: 0.42,
-    tenant_subscription_fee_usd: 499.00,
-    est_monthly_revenue_usd: (stats?.total_tenants || 2) * 499.00,
-    gross_margin_pct: 99.1,
-  };
+  // SVG Gauge calculations
+  const dialRadius = 75;
+  const dialCircumference = Math.PI * dialRadius;
+  const dialProgress = Math.min(Math.max(totalConcurrency / scaleLimit, 0), 1);
+  const dialOffset = dialCircumference * (1 - dialProgress);
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-indigo-600" />
-              VedaVoice Platform Command Center
-            </h1>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              All Systems Operational
-            </span>
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-purple-50 border border-purple-200 text-purple-700 text-[11px] font-mono font-bold mb-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+            Global Infrastructure Command Center
           </div>
-          <p className="text-xs text-zinc-500 mt-1">
-            Global multi-tenant telephony oversight, concurrency saturation, carrier trunk health, minute billing &amp; CoGS intelligence.
+          <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
+            Platform Command Center &amp; Live Telemetry
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real-time LiveKit audio rooms, carrier trunk health, unit margins, and infrastructure governance.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          {/* Phone Number Provisioning Mode Toggle */}
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-200 bg-white text-xs font-mono shadow-sm">
-            <span className="text-[10px] text-zinc-500 uppercase font-bold">Number Model:</span>
-            <button
-              type="button"
-              onClick={() =>
-                setProvisioningMode(
-                  provisioningMode === "carrier_search" ? "agency_pool" : "carrier_search"
-                )
-              }
-              className="text-zinc-900 hover:text-emerald-600 font-bold flex items-center gap-1.5 transition-colors"
-              title="Click to switch between Option B: Live Carrier Search and Option A: Agency Managed Pool"
-            >
-              <Radio className="w-3.5 h-3.5 text-emerald-600" />
-              <span>
-                {provisioningMode === "carrier_search" ? "Option B (Live Carrier API)" : "Option A (Agency Pool)"}
-              </span>
-            </button>
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 font-mono text-[11px] text-slate-600">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Platform Healthy</span>
           </div>
 
           <button
             type="button"
             onClick={loadData}
             disabled={refreshing}
-            className="px-3 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-mono flex items-center gap-1.5 transition-colors shadow-sm"
-            title="Refresh real-time platform telemetry"
+            className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs transition-colors"
+            title="Refresh All Telemetry"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-indigo-600" : ""}`} />
-            Refresh
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
           </button>
-
-          <Link
-            href="/onboarding"
-            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Onboard New Client
-          </Link>
         </div>
       </div>
 
-      {/* LiveKit Scale Plan Concurrency Warning / Alarm Banner (SRS 4.3, 17.1) */}
-      {(effectiveAlertLevel === "critical_80" || effectiveAlertLevel === "warning_60") && (
-        <div
-          className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs ${
-            effectiveAlertLevel === "critical_80"
-              ? "bg-rose-50 border-rose-200 text-rose-900"
-              : "bg-amber-50 border-amber-200 text-amber-900"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                effectiveAlertLevel === "critical_80"
-                  ? "bg-rose-100 text-rose-600"
-                  : "bg-amber-100 text-amber-700"
-              }`}
-            >
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-bold font-mono uppercase tracking-wide flex items-center gap-2">
-                <span>
-                  {effectiveAlertLevel === "critical_80"
-                    ? "Critical Concurrency Alert (80% Scale Limit)"
-                    : "Concurrency Advisory (60% Scale Limit)"}
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-white/80 border border-current">
-                  {totalConcurrency} / {scaleLimit} Channels Active ({totalSaturationPct}%)
-                </span>
-                {simulatedConcurrencyLoad !== null && (
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-indigo-100 text-indigo-700 font-bold uppercase">
-                    Simulation Mode
-                  </span>
-                )}
-              </div>
-              <p className="text-xs mt-0.5 opacity-90">
-                {effectiveAlertLevel === "critical_80"
-                  ? `CRITICAL: Platform concurrency is at ${totalConcurrency}/${scaleLimit} channels (80% ceiling reached). Request immediate Scale increase to avoid 503 rejection spikes.`
-                  : `WARNING: Platform concurrency is at ${totalConcurrency}/${scaleLimit} channels (60% threshold). Consider requesting a LiveKit Scale increase before peak hours.`}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowScaleIncreaseModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>Request Scale Increase</span>
-            </button>
-            <a
-              href="https://cloud.livekit.io/projects/settings"
-              target="_blank"
-              rel="noreferrer"
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors ${
-                effectiveAlertLevel === "critical_80"
-                  ? "bg-rose-600 hover:bg-rose-700 text-white"
-                  : "bg-amber-700 hover:bg-amber-800 text-white"
-              }`}
-            >
-              <span>LiveKit Console</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-        </div>
-      )}
-
-      {/* Primary KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
-            <span>Active Tenants</span>
-            <Building2 className="w-4 h-4 text-zinc-400" />
-          </div>
-          <div className="text-3xl font-extrabold font-mono text-zinc-900">
-            {stats?.total_tenants || 0}
-          </div>
-          <div className="text-[11px] text-emerald-700 font-mono font-medium flex items-center gap-1">
-            <Lock className="w-3 h-3 text-emerald-600" />
-            100% RLS Isolation Active
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
-            <span>Total Calls Handled</span>
-            <PhoneCall className="w-4 h-4 text-zinc-400" />
-          </div>
-          <div className="text-3xl font-extrabold font-mono text-zinc-900">
-            {stats?.total_calls || 0}
-          </div>
-          <div className="text-[11px] text-zinc-500 font-mono">Platform lifetime volume</div>
-        </div>
-
-        <div className="p-5 rounded-2xl border border-red-200 bg-red-50/50 shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-red-700 text-xs font-semibold">
-            <span>Emergency Escalations</span>
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-          </div>
-          <div className="text-3xl font-extrabold font-mono text-red-600">
-            {stats?.emergency_calls || 0}
-          </div>
-          <div className="text-[11px] text-red-600/80 font-mono">0 false dispatch claims</div>
-        </div>
-
-        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
-            <span>SIP Trunk Numbers</span>
-            <Radio className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-3xl font-extrabold font-mono text-zinc-900">
-            {stats?.active_phone_numbers || 0}
-          </div>
-          <div className="text-[11px] text-emerald-600 font-mono font-medium">STIR/SHAKEN A-Attested</div>
-        </div>
-
-        <div className="p-5 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
-            <span>Pipeline P50 Latency</span>
-            <Zap className="w-4 h-4 text-amber-500" />
-          </div>
-          <div className="text-3xl font-extrabold font-mono text-zinc-900">
-            {stats?.avg_latency_p50_ms ? `${stats.avg_latency_p50_ms}ms` : "1,142ms"}
-          </div>
-          <div className="text-[11px] text-amber-600 font-mono font-medium">EOU + TTFT + TTFB</div>
-        </div>
-      </div>
-
-      {/* 5-Tab Admin Command Suite */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => handleTabChange("telemetry")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "telemetry"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
-          }`}
-        >
-          <Gauge className="w-3.5 h-3.5 text-indigo-600" />
-          <span>System Telemetry</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("tenants")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "tenants"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
-          }`}
-        >
-          <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Organizations</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
-            {tenants.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("subaccounts")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "subaccounts"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
-          }`}
-        >
-          <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Sub-Accounts &amp; Proxy</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
-            {subAccounts.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            handleTabChange("audit");
-            loadAuditLogs();
-          }}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "audit"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
-          }`}
-        >
-          <History className="w-3.5 h-3.5 text-purple-600" />
-          <span>Audit Trail</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
-            {auditTotal}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("billing")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "billing"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
-          }`}
-        >
-          <CreditCard className="w-3.5 h-3.5 text-amber-600" />
-          <span>Subscriptions &amp; Billing</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
-            {subscriptions.length}
-          </span>
-          {refundRequests.filter((r: any) => r.status === "pending").length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-red-100 text-red-700 font-bold border border-red-300">
-              {refundRequests.filter((r: any) => r.status === "pending").length} refund
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("inventory")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "inventory"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
-          }`}
-        >
-          <Phone className="w-3.5 h-3.5 text-sky-600" />
-          <span>Carrier &amp; SIP Trunks</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
-            {numbers.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleTabChange("coupons")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all shrink-0 ${
-            activeTab === "coupons"
-              ? "bg-white text-zinc-900 shadow-sm border border-zinc-200"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
-          }`}
-        >
-          <Tag className="w-3.5 h-3.5 text-violet-600" />
-          <span>Platform Coupons</span>
-          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
-            {coupons.length}
-          </span>
-        </button>
-      </div>
-
-      {/* SECTION 1: Global Concurrency & Capacity Saturation Gauges */}
-      {activeTab === "telemetry" && (
-      <div className="space-y-6">
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-5 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+      {/* SECTION 1: Concurrency Saturation & LiveKit Scale Dial Gauge */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
           <div className="flex items-center gap-2">
-            <Gauge className="w-4 h-4 text-indigo-600" />
-            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+            <Gauge className="w-4 h-4 text-purple-600" />
+            <h2 className="text-sm font-bold text-slate-900 font-mono uppercase tracking-wide">
               Global Concurrency &amp; LiveKit Scale Saturation
             </h2>
             <InfoTrigger topic="admin_concurrency_saturation" />
           </div>
-          <div className="flex items-center gap-3 text-xs font-mono text-zinc-500">
+          <div className="flex items-center gap-3 text-xs font-mono text-slate-500">
             <span>Critical Ceiling: <strong className="text-rose-600 font-bold">80% ({criticalThreshold} ch)</strong></span>
-            <span className="text-zinc-300">|</span>
-            <span>Scale Headroom: <strong className="text-emerald-600 font-bold">{Math.max(0, scaleLimit - totalConcurrency)} channels</strong></span>
+            <span className="text-slate-300">|</span>
+            <span>Headroom: <strong className="text-emerald-600 font-bold">{Math.max(0, scaleLimit - totalConcurrency)} channels</strong></span>
           </div>
         </div>
 
-        {/* 2-Column Command Deck: Dial Gauge + Granular Channel Breakdowns */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
           {/* Left: SVG Concurrency Dial Gauge */}
-          <div className="lg:col-span-5 p-5 rounded-2xl border border-zinc-200 bg-zinc-50/70 flex flex-col justify-between space-y-4">
+          <div className="lg:col-span-5 p-5 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-col justify-between space-y-4">
             <div className="flex items-center justify-between text-xs font-mono">
-              <span className="font-bold text-zinc-700 uppercase tracking-wide flex items-center gap-1.5">
-                <Radio className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="font-bold text-slate-700 uppercase tracking-wide flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5 text-purple-600" />
                 LiveKit Room Concurrency
               </span>
-              <span className="text-[11px] text-zinc-500 font-medium">Standard Scale Tier</span>
+              <span className="text-[11px] text-slate-500 font-medium">Standard Scale Tier</span>
             </div>
 
             {/* SVG Arc Gauge */}
             <div className="relative py-2">
               <svg viewBox="0 0 200 115" className="w-full max-w-[260px] mx-auto overflow-visible">
-                {/* Background Track */}
                 <path
                   d="M 25 90 A 75 75 0 0 1 175 90"
                   fill="none"
-                  stroke="#e4e4e7"
+                  stroke="#e2e8f0"
                   strokeWidth="14"
                   strokeLinecap="round"
                 />
-                {/* Active Capacity Arc */}
                 <path
                   d="M 25 90 A 75 75 0 0 1 175 90"
                   fill="none"
@@ -983,18 +193,17 @@ function AdminDashboardContent() {
                   strokeDashoffset={Math.max(0, dialOffset)}
                   className="transition-all duration-700 ease-out"
                 />
-                {/* Scale Limit & Threshold Markers */}
-                <text x="25" y="106" fill="#71717a" fontSize="9" fontFamily="monospace" textAnchor="middle">0</text>
-                <text x="100" y="22" fill="#71717a" fontSize="9" fontFamily="monospace" textAnchor="middle">25</text>
+                <text x="25" y="106" fill="#64748b" fontSize="9" fontFamily="monospace" textAnchor="middle">0</text>
+                <text x="100" y="22" fill="#64748b" fontSize="9" fontFamily="monospace" textAnchor="middle">25</text>
                 <text x="146" y="38" fill="#d97706" fontSize="8" fontFamily="monospace" textAnchor="middle">60% (30)</text>
                 <text x="178" y="70" fill="#e11d48" fontSize="8" fontFamily="monospace" textAnchor="middle">80% (40)</text>
-                <text x="175" y="106" fill="#71717a" fontSize="9" fontFamily="monospace" textAnchor="middle">{scaleLimit}</text>
+                <text x="175" y="106" fill="#64748b" fontSize="9" fontFamily="monospace" textAnchor="middle">{scaleLimit}</text>
               </svg>
 
               <div className="text-center -mt-6 space-y-1">
-                <div className="text-3xl font-extrabold font-mono text-zinc-900 tracking-tight">
+                <div className="text-3xl font-extrabold font-mono text-slate-900 tracking-tight">
                   {totalConcurrency}
-                  <span className="text-sm font-semibold text-zinc-400 ml-1">/ {scaleLimit}</span>
+                  <span className="text-sm font-semibold text-slate-400 ml-1">/ {scaleLimit}</span>
                 </div>
                 <div className="flex items-center justify-center gap-1.5 text-xs font-mono">
                   {isCritical ? (
@@ -1017,11 +226,11 @@ function AdminDashboardContent() {
               </div>
             </div>
 
-            {/* Simulation Controls & Scale Upgrade Button */}
-            <div className="pt-3 border-t border-zinc-200/80 space-y-2.5">
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500">
+            {/* Simulation Controls */}
+            <div className="pt-3 border-t border-slate-200/80 space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-mono text-slate-500">
                 <span className="flex items-center gap-1">
-                  <Sliders className="w-3 h-3 text-zinc-400" />
+                  <Sliders className="w-3 h-3 text-slate-400" />
                   Load Simulation:
                 </span>
                 <div className="flex items-center gap-1">
@@ -1030,8 +239,8 @@ function AdminDashboardContent() {
                     onClick={() => setSimulatedConcurrencyLoad(null)}
                     className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
                       simulatedConcurrencyLoad === null
-                        ? "bg-indigo-600 text-white font-bold"
-                        : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"
+                        ? "bg-purple-600 text-white font-bold"
+                        : "bg-slate-200 text-slate-700 hover:bg-slate-300"
                     }`}
                   >
                     Live
@@ -1061,3061 +270,222 @@ function AdminDashboardContent() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowScaleIncreaseModal(true)}
-                className="w-full py-2 px-3 rounded-xl bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
-              >
-                <Zap className="w-3.5 h-3.5 text-amber-500" />
-                <span>Request LiveKit Limit Increase (50 &rarr; 100/250)</span>
-              </button>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[11px] text-slate-500 font-mono">Current Live Load:</span>
+                <span className="font-mono font-bold text-xs text-slate-800">
+                  {saturationPct}% saturation
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Right: Granular Capacity Breakdown Cards */}
-          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Inbound Concurrency Meter */}
-            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                  <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
-                  Inbound Channels
-                </span>
-                <span className="text-xs font-mono font-bold text-emerald-700">
-                  {effectiveInbound} / {maxInbound}
-                </span>
-              </div>
-
-              <div className="w-full h-2 rounded-full bg-zinc-100 overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 rounded-full ${
-                    inboundPct > 80 ? "bg-red-500" : inboundPct > 50 ? "bg-amber-500" : "bg-emerald-500"
-                  }`}
-                  style={{ width: `${Math.min(inboundPct, 100)}%` }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
-                <span>{inboundPct}% Saturation</span>
-                <span className="text-zinc-500">{Math.max(0, maxInbound - effectiveInbound)} available</span>
-              </div>
-              <p className="text-[11px] text-zinc-500 leading-snug">
-                Ceiling for concurrent incoming customer phone calls across all active tenant numbers.
-              </p>
-            </div>
-
-            {/* Outbound Concurrency Meter */}
-            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                  <Radio className="w-3.5 h-3.5 text-indigo-600" />
-                  Outbound Campaigns
-                </span>
-                <span className="text-xs font-mono font-bold text-indigo-600">
-                  {effectiveOutbound} / {maxOutbound}
-                </span>
-              </div>
-
-              <div className="w-full h-2 rounded-full bg-zinc-100 overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 rounded-full ${
-                    outboundPct > 80 ? "bg-red-500" : outboundPct > 50 ? "bg-amber-500" : "bg-indigo-600"
-                  }`}
-                  style={{ width: `${Math.min(outboundPct, 100)}%` }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
-                <span>{outboundPct}% Saturation</span>
-                <span className="text-zinc-500">{Math.max(0, maxOutbound - effectiveOutbound)} available</span>
-              </div>
-              <p className="text-[11px] text-zinc-500 leading-snug">
-                Regulated dialer capacity for TCPA-consented reminders, dispatch alerts, and speed-to-lead.
-              </p>
-            </div>
-
-            {/* Carrier CPS Throttle */}
-            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-amber-600" />
-                  Carrier CPS Throttle
-                </span>
-                <span className="text-xs font-mono font-bold text-amber-600">
-                  {carrier.cps_current} / {carrier.cps_limit} CPS
-                </span>
-              </div>
-
-              <div className="w-full h-2 rounded-full bg-zinc-100 overflow-hidden">
-                <div
-                  className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                  style={{ width: `${(carrier.cps_current / carrier.cps_limit) * 100}%` }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
-                <span>Initiation Rate</span>
-                <span className="text-emerald-600 font-semibold">Zero 503 drops</span>
-              </div>
-              <p className="text-[11px] text-zinc-500 leading-snug">
-                PSTN call dispatch rate kept strictly below carrier 10.0 CPS blast rate limit.
-              </p>
-            </div>
-
-            {/* Multi-Carrier Redundancy Deck */}
-            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs font-mono text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-zinc-800 flex items-center gap-1.5 font-sans">
-                  <Network className="w-3.5 h-3.5 text-sky-600" />
-                  Carrier Failover Route
-                </span>
-                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-bold">
-                  Hot Standby Ready
-                </span>
-              </div>
-
-              <div className="space-y-1 text-[11px]">
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">Primary:</span>
-                  <span className="font-semibold text-zinc-900">Twilio Elastic SIP (38ms)</span>
+          {/* Right: Live Voice AI Pipeline Latencies */}
+          <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-1">
+                <div className="flex items-center justify-between text-slate-500 text-xs font-mono">
+                  <span>Deepgram Nova-2 ASR</span>
+                  <Activity className="w-3.5 h-3.5 text-purple-600" />
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-zinc-600">Standby:</span>
-                  <span className="font-semibold text-zinc-900">Telnyx Hot SIP (41ms)</span>
-                </div>
+                <div className="text-xl font-bold font-mono text-slate-900">118 ms</div>
+                <div className="text-[10px] text-emerald-600 font-mono">P95 Telephony Word Latency</div>
               </div>
 
-              <p className="text-[10px] text-zinc-400 font-sans leading-snug pt-0.5">
-                Sub-second automatic failover reroutes calls if carrier trunk drops 2 consecutive INVITEs.
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-1">
+                <div className="flex items-center justify-between text-slate-500 text-xs font-mono">
+                  <span>Cartesia Sonic TTS</span>
+                  <Radio className="w-3.5 h-3.5 text-emerald-600" />
+                </div>
+                <div className="text-xl font-bold font-mono text-slate-900">89 ms</div>
+                <div className="text-[10px] text-emerald-600 font-mono">First-Byte Synthesis TTFB</div>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-1">
+                <div className="flex items-center justify-between text-slate-500 text-xs font-mono">
+                  <span>Gemini 2.5 Flash</span>
+                  <Cpu className="w-3.5 h-3.5 text-amber-500" />
+                </div>
+                <div className="text-xl font-bold font-mono text-slate-900">145 ms</div>
+                <div className="text-[10px] text-emerald-600 font-mono">Function Call Resolution</div>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-1">
+                <div className="flex items-center justify-between text-slate-500 text-xs font-mono">
+                  <span>LiveKit Edge SFU</span>
+                  <Server className="w-3.5 h-3.5 text-blue-600" />
+                </div>
+                <div className="text-xl font-bold font-mono text-slate-900">24 ms</div>
+                <div className="text-[10px] text-emerald-600 font-mono">WebRTC Media Edge RTT</div>
+              </div>
+            </div>
+
+            {/* Overall Turn-Taking SLA Card */}
+            <div className="p-4 rounded-2xl bg-purple-50/60 border border-purple-200/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5 font-mono">
+                  <Sparkles className="w-4 h-4 text-purple-600" />
+                  E2E Turn-Taking Acoustic SLA: &lt; 500 ms Target
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold">
+                  PASSING (376 ms)
+                </span>
+              </div>
+              <p className="text-[11px] text-purple-800 font-sans leading-relaxed">
+                Total conversational latency from caller speech end-of-turn to synthesized audio delivery across the carrier SIP trunk.
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* SECTION 2: Carrier SIP Trunk Telemetry & Audio Quality (MOS) */}
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-          <div className="flex items-center gap-2">
-            <Server className="w-4 h-4 text-emerald-600" />
-            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Carrier SIP Trunk Health &amp; Audio Telemetry (ITU-T P.800)
-            </h2>
-            <InfoTrigger topic="admin_carrier_sip_trunk" />
-          </div>
-          <span className="text-xs font-mono text-emerald-700 flex items-center gap-1 font-semibold">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Active Trunk: Twilio Elastic SIP &bull; Standby: Telnyx
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Trunk Status</span>
-            <div className="text-sm font-bold text-emerald-600 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              Connected
-            </div>
-            <span className="text-[10px] text-zinc-500">SIP INVITE 200 OK</span>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Carrier Latency</span>
-            <div className="text-sm font-bold text-zinc-900">
-              {carrier.latency_ms}ms
-            </div>
-            <span className="text-[10px] text-zinc-500">Jitter: {carrier.jitter_ms}ms</span>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-emerald-100 bg-emerald-50/50 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-emerald-800 font-bold">Audio Score (MOS)</span>
-            <div className="text-sm font-bold text-emerald-700 flex items-center gap-1">
-              {carrier.mos_score} / 5.0
-            </div>
-            <span className="text-[10px] text-emerald-600/90 font-medium">ITU-T Toll-Grade</span>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Packet Loss</span>
-            <div className="text-sm font-bold text-zinc-900">
-              {carrier.packet_loss_pct}%
-            </div>
-            <span className="text-[10px] text-emerald-600 font-medium">Zero audible gaps</span>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Audio Codec</span>
-            <div className="text-xs font-bold text-zinc-900 truncate" title="Opus 48kHz WebRTC to G.711u PSTN">
-              Opus &harr; G.711u
-            </div>
-            <span className="text-[10px] text-zinc-500">48kHz Wideband</span>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">STIR/SHAKEN</span>
-            <div className="text-sm font-bold text-emerald-600">
-              Level A
-            </div>
-            <span className="text-[10px] text-zinc-500">Full Attestation</span>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 3: Model Inference Cost & Profit Margin Intelligence */}
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-          <div className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-emerald-600" />
-            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Model Inference CoGS &amp; SaaS Margin Intelligence
-            </h2>
-            <InfoTrigger topic="admin_inference_cogs" />
-          </div>
-          <span className="text-xs font-mono text-zinc-600">
-            Per-Minute Unit Cost: <strong className="text-emerald-700 font-bold">${cost.total_cogs_per_min.toFixed(4)}/min</strong>
-          </span>
-        </div>
-
-        {/* CoGS Waterfall Breakdown */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>WebRTC SFU Media</span>
-              <Cpu className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_livekit_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">LiveKit Cloud routing</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>Nova-2 STT</span>
-              <Activity className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_deepgram_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">Deepgram streaming</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>Gemini 2.5 Flash</span>
-              <Zap className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_gemini_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">~520 tokens / turn</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/70 space-y-1">
-            <div className="flex items-center justify-between text-zinc-500 text-[11px]">
-              <span>Neural TTS</span>
-              <Radio className="w-3.5 h-3.5 text-zinc-400" />
-            </div>
-            <div className="text-sm font-bold text-zinc-900">${cost.cost_tts_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-zinc-500 font-sans">Inworld / Rime audio</div>
-          </div>
-
-          <div className="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/70 space-y-1">
-            <div className="flex items-center justify-between text-emerald-800 text-[11px]">
-              <span className="font-semibold">Total CoGS / Min</span>
-              <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-            </div>
-            <div className="text-base font-extrabold text-emerald-700">${cost.total_cogs_per_min.toFixed(4)}</div>
-            <div className="text-[10px] text-emerald-700/80 font-sans">All-in platform cost</div>
-          </div>
-        </div>
-
-        {/* Agency Financial Intelligence Summary */}
-        <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/50 grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
-          <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Billed Call Minutes</div>
-            <div className="text-xl font-extrabold font-mono text-zinc-900">{cost.total_billable_minutes.toFixed(1)} mins</div>
-            <div className="text-[10px] text-zinc-500">Across {stats?.total_calls || 0} customer calls</div>
-          </div>
-
-          <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Inference &amp; Carrier CoGS</div>
-            <div className="text-xl font-extrabold font-mono text-zinc-900">${cost.est_telephony_cost_usd.toFixed(2)}</div>
-            <div className="text-[10px] text-zinc-500">Real-time compute cost</div>
-          </div>
-
-          <div>
-            <div className="text-[11px] text-zinc-500 uppercase font-mono font-semibold">Tenant SaaS MRR</div>
-            <div className="text-xl font-extrabold font-mono text-emerald-600">${cost.est_monthly_revenue_usd.toFixed(2)}</div>
-            <div className="text-[10px] text-zinc-500">${cost.tenant_subscription_fee_usd}/mo &times; {stats?.total_tenants || 0} clients</div>
-          </div>
-
-          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50">
-            <div className="text-[11px] text-emerald-800 uppercase font-mono flex items-center gap-1 font-bold">
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-              Platform Gross Margin
-            </div>
-            <div className="text-2xl font-extrabold font-mono text-emerald-700">{cost.gross_margin_pct.toFixed(1)}%</div>
-            <div className="text-[10px] text-emerald-700/90 font-medium">Target margin: &gt;85%</div>
-          </div>
-        </div>
-      </div>
-      </div>
-      )}
-
-      {/* SECTION 2B: Automated Phone Number Inventory & LiveKit SIP Trunk Binding */}
-      {activeTab === "inventory" && (
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-3">
-          <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-indigo-600" />
-            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Phone Number Inventory &amp; LiveKit SIP Trunk Binding
-            </h2>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono font-semibold">
-              {numbers.length} Total Lines
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleSyncTrunkDispatch}
-              disabled={syncingTrunk}
-              className="px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-mono flex items-center gap-1.5 transition-colors"
-              title="Synchronize all active tenant E.164 phone numbers to LiveKit Inbound SIP dispatch rules"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncingTrunk ? "animate-spin" : ""}`} />
-              <span>{syncingTrunk ? "Syncing Dispatch..." : "Sync Trunk Dispatch"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowTelnyxModal(true);
-                if (telnyxSearchResults.length === 0) {
-                  handleSearchTelnyxNumbers();
-                }
-              }}
-              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
-              title="Search live available numbers on Telnyx ($1/mo) and auto-bind to LiveKit SIP trunk"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>1-Click Order Telnyx DID ($1/mo)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowProvisionModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Provision Carrier Line</span>
-            </button>
-          </div>
-        </div>
-
-        {/* SIP Trunk & Dispatch Rule Health Metadata Card */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 font-mono text-xs">
-          <div>
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Inbound SIP Trunk ID</span>
-            <div className="text-xs font-bold text-zinc-800 mt-0.5 truncate" title={trunkTelemetry?.inbound_trunk_id || "ST_inbound_livekit_scale"}>
-              {trunkTelemetry?.inbound_trunk_id || "ST_inbound_livekit_scale"}
-            </div>
-          </div>
-          <div>
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Outbound SIP Trunk ID</span>
-            <div className="text-xs font-bold text-zinc-800 mt-0.5 truncate" title={trunkTelemetry?.outbound_trunk_id || "ST_outbound_twilio_elastic"}>
-              {trunkTelemetry?.outbound_trunk_id || "ST_outbound_twilio_elastic"}
-            </div>
-          </div>
-          <div>
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Dispatch Rule &amp; Agent</span>
-            <div className="text-xs font-bold text-emerald-600 mt-0.5">
-              all-tenants-inbound &rarr; receptionist
-            </div>
-          </div>
-          <div>
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Inventory Allocation</span>
-            <div className="text-xs font-bold text-zinc-800 mt-0.5">
-              <span className="text-emerald-600">{numbers.filter((n) => n.status === "active").length} Assigned</span> &bull;{" "}
-              <span className="text-indigo-600">{numbers.filter((n) => n.status === "pool").length} In Pool</span>
-            </div>
-          </div>
-        </div>
-
-        {syncSuccessMsg && (
-          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs flex items-center gap-2 font-mono">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-            <span>{syncSuccessMsg}</span>
-          </div>
-        )}
-
-        {/* Filter Tabs */}
-        <div className="flex items-center gap-1.5 border-b border-zinc-100 pb-2">
-          {[
-            { id: "all", label: `All Numbers (${numbers.length})` },
-            { id: "active", label: `Active Tenant Lines (${numbers.filter((n) => n.status === "active").length})` },
-            { id: "pool", label: `Agency Pool Inventory (${numbers.filter((n) => n.status === "pool").length})` },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setNumberFilter(tab.id as "all" | "active" | "pool")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors ${
-                numberFilter === tab.id
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-100"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Phone Numbers Table */}
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-              <tr>
-                <th className="p-3">Phone Number (E.164)</th>
-                <th className="p-3">Assigned Tenant / Pool</th>
-                <th className="p-3">Carrier Provider</th>
-                <th className="p-3">Locality / Region</th>
-                <th className="p-3">Trunk Binding</th>
-                <th className="p-3">Status</th>
-                <th className="p-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {numbers
-                .filter((n) => numberFilter === "all" || n.status === numberFilter)
-                .map((num) => {
-                  const isPool = num.status === "pool";
-                  return (
-                    <tr key={num.id} className="hover:bg-zinc-50/80 transition-colors">
-                      <td className="p-3">
-                        <div className="font-mono font-bold text-zinc-900">
-                          {maskPhoneNumber(num.formatted || num.e164)}
-                        </div>
-                        <div className="text-[10px] text-zinc-500 font-sans">{num.label}</div>
-                      </td>
-
-                      <td className="p-3">
-                        {num.tenant_id ? (
-                          <div className="font-semibold text-zinc-800">
-                            {num.tenant_name || "Apex Plumbing & Heating"}
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            Agency Pre-Bought Pool
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="p-3 font-mono text-zinc-600">
-                        <span className="text-[11px] font-semibold text-zinc-800 capitalize">
-                          {num.provider}
-                        </span>
-                        <div className="text-[9px] text-zinc-400">STIR/SHAKEN A</div>
-                      </td>
-
-                      <td className="p-3 text-zinc-600">
-                        {num.locality ? `${num.locality}, ${num.region}` : num.region}
-                      </td>
-
-                      <td className="p-3 font-mono text-[11px] text-zinc-500">
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-200">
-                          {num.trunk_id || "ST_inbound_livekit_scale"}
-                        </span>
-                      </td>
-
-                      <td className="p-3">
-                        {isPool ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            Available in Pool
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Active Tenant Line
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="p-3 text-right">
-                        {isPool ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowAttachModal(num);
-                              setTargetTenantId(tenants[0]?.id || "");
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-sans transition-colors shadow-sm"
-                          >
-                            <Link2 className="w-3 h-3" />
-                            Attach to Tenant
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleDetachNumber(num.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 text-zinc-600 text-xs font-sans transition-colors"
-                          >
-                            <Unlink className="w-3 h-3" />
-                            Detach to Pool
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              {numbers.filter((n) => numberFilter === "all" || n.status === numberFilter).length === 0 && (
-                <tr>
-                  <td colSpan={7} className="p-6 text-center text-zinc-500 font-mono text-xs">
-                    No phone numbers found in this view.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Provision Carrier Number Modal */}
-        {showProvisionModal && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-                <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-emerald-600" />
-                  Provision Carrier Phone Number
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowProvisionModal(false)}
-                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleCreateProvisionedNumber} className="space-y-3 text-xs">
-                <div className="space-y-1">
-                  <label className="font-medium text-zinc-700">E.164 Phone Number *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newProvisionData.e164}
-                    onChange={(e) => setNewProvisionData({ ...newProvisionData, e164: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                    placeholder="+15125550199"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="font-medium text-zinc-700">Carrier Provider</label>
-                    <select
-                      value={newProvisionData.provider}
-                      onChange={(e) => setNewProvisionData({ ...newProvisionData, provider: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
-                    >
-                      <option value="Twilio Elastic SIP">Twilio Elastic SIP</option>
-                      <option value="Telnyx SIP">Telnyx SIP</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-medium text-zinc-700">Region / State</label>
-                    <input
-                      type="text"
-                      value={newProvisionData.region}
-                      onChange={(e) => setNewProvisionData({ ...newProvisionData, region: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
-                      placeholder="TX"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-medium text-zinc-700">Metro / Locality</label>
-                  <input
-                    type="text"
-                    value={newProvisionData.locality}
-                    onChange={(e) => setNewProvisionData({ ...newProvisionData, locality: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
-                    placeholder="Austin Metro"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-medium text-zinc-700">Assign To Tenant (Optional)</label>
-                  <select
-                    value={newProvisionData.target_tenant_id}
-                    onChange={(e) => setNewProvisionData({ ...newProvisionData, target_tenant_id: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
-                  >
-                    <option value="">Leave in Agency Pool</option>
-                    {tenants.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowProvisionModal(false)}
-                    className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={provisioningNumber}
-                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors shadow-sm"
-                  >
-                    {provisioningNumber ? "Provisioning..." : "Provision & Bind Trunk"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Attach Number to Tenant Modal */}
-        {showAttachModal && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-                <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
-                  <Link2 className="w-4 h-4 text-indigo-600" />
-                  Attach Pool Number
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setShowAttachModal(null)}
-                  className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="space-y-3 text-xs">
-                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-mono">
-                  <span className="text-[10px] text-zinc-500 uppercase font-bold">Selected Number</span>
-                  <div className="font-bold text-zinc-900 mt-0.5">{showAttachModal.formatted || showAttachModal.e164}</div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-medium text-zinc-700">Target Tenant Organization</label>
-                  <select
-                    value={targetTenantId}
-                    onChange={(e) => setTargetTenantId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
-                  >
-                    {tenants.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowAttachModal(null)}
-                    className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAttachNumber(showAttachModal.id)}
-                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm"
-                  >
-                    Attach Number
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Telnyx 1-Click Order Modal (Phase 4) */}
-        {showTelnyxModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-3xl max-w-2xl w-full border border-zinc-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-              {/* Header */}
-              <div className="p-6 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="p-1.5 rounded-lg bg-white/20 backdrop-blur-md">
-                      <Zap className="w-5 h-5 text-amber-300" />
-                    </span>
-                    <h3 className="text-lg font-bold">Telnyx 1-Click Carrier Hub</h3>
-                  </div>
-                  <p className="text-xs text-emerald-100 mt-1">
-                    Live Telnyx API &bull; Search wholesale inventory, order DIDs at $1.00/mo, and auto-dispatch to LiveKit SIP trunk.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowTelnyxModal(false)}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="p-6 overflow-y-auto space-y-6 flex-1">
-                {/* Search & Filter Controls */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-2xl bg-zinc-50 border border-zinc-200">
-                  <div>
-                    <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-                      Area Code
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={3}
-                      value={telnyxAreaCode}
-                      onChange={(e) => setTelnyxAreaCode(e.target.value)}
-                      placeholder="e.g. 415, 212, 312"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-200 text-sm font-mono font-semibold text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-                      City / Locality (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={telnyxLocality}
-                      onChange={(e) => setTelnyxLocality(e.target.value)}
-                      placeholder="e.g. San Francisco"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-200 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button
-                      type="button"
-                      disabled={searchingTelnyx}
-                      onClick={handleSearchTelnyxNumbers}
-                      className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-all"
-                    >
-                      {searchingTelnyx ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Searching...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Search className="w-4 h-4" />
-                          <span>Find Numbers</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Target Tenant Binding Selector */}
-                <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold text-zinc-900">Auto-Assign to Tenant on Purchase</div>
-                    <div className="text-[11px] text-zinc-500">
-                      Purchased number will be immediately provisioned with RLS and LiveKit SIP routing.
-                    </div>
-                  </div>
-                  <select
-                    value={telnyxTargetTenantId}
-                    onChange={(e) => setTelnyxTargetTenantId(e.target.value)}
-                    className="px-3 py-2 rounded-xl bg-white border border-zinc-200 text-xs font-semibold text-zinc-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">-- Keep in Agency Pool (Unassigned) --</option>
-                    {tenants.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Success alert message */}
-                {telnyxSuccessMsg && (
-                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                    <span>{telnyxSuccessMsg}</span>
-                  </div>
-                )}
-
-                {/* Results List */}
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-xs font-bold text-zinc-700 uppercase tracking-wider font-mono">
-                      Available Carrier DIDs ({telnyxSearchResults.length})
-                    </h4>
-                    <span className="text-[11px] text-zinc-400">
-                      Wholesale Rate: $1.00/mo &bull; LiveKit SIP Inbound
-                    </span>
-                  </div>
-
-                  {telnyxSearchResults.length === 0 && !searchingTelnyx && (
-                    <div className="p-8 text-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/50">
-                      <Phone className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
-                      <div className="text-xs font-semibold text-zinc-600">No numbers found</div>
-                      <div className="text-[11px] text-zinc-400 mt-1">
-                        Try searching a different area code or clearing the locality filter.
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-2.5">
-                    {telnyxSearchResults.map((num) => (
-                      <div
-                        key={num.phone_number}
-                        className="p-3.5 rounded-2xl border border-zinc-200 bg-white hover:border-emerald-300 hover:shadow-sm transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700">
-                            <Phone className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-sm text-zinc-900">
-                                {num.phone_number}
-                              </span>
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                                ${num.cost_monthly_usd.toFixed(2)}/mo
-                              </span>
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700">
-                                Setup: ${num.cost_upfront_usd.toFixed(2)}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-zinc-500 mt-0.5 flex items-center gap-2">
-                              <span>{num.locality ? `${num.locality}, ${num.region_information}` : num.region_information || "United States"}</span>
-                              <span>&bull;</span>
-                              <span className="text-emerald-600 font-medium">{num.features?.join(", ") || "voice, sms"}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={orderingTelnyxNumber === num.phone_number}
-                          onClick={() => handleOrderTelnyxNumber(num)}
-                          className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors disabled:opacity-50"
-                        >
-                          {orderingTelnyxNumber === num.phone_number ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Ordering...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Zap className="w-3.5 h-3.5 text-amber-300" />
-                              <span>Order &amp; Bind ($1)</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="p-4 bg-zinc-50 border-t border-zinc-200 flex items-center justify-between text-xs text-zinc-500">
-                <div className="flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Zero Carrier Markup &bull; Direct Telnyx SIP Connection</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowTelnyxModal(false)}
-                  className="px-4 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700 font-semibold transition-colors"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      )}
-
-      {/* SECTION 4A: Tenant Minute Subscriptions & Billing Command Center (Full Width) */}
-      {activeTab === "billing" && (
-      <div className="space-y-6">
-        {/* Billing Overview KPI Deck */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <div className="flex items-center justify-between text-zinc-500 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Active Subs &amp; MRR</span>
-              <CreditCard className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div className="text-xl font-bold font-mono text-zinc-900">
-              {subscriptions.filter((s: any) => s.status === "active").length}
-              <span className="text-xs font-normal text-zinc-500 font-sans ml-1.5">
-                / {subscriptions.length} accounts
-              </span>
-            </div>
-            <div className="text-[10px] text-zinc-500 font-mono mt-1">
-              Est. Monthly Recurring: $
-              {subscriptions
-                .filter((s: any) => s.status === "active")
-                .reduce((acc: number, s: any) => {
-                  const pricing: Record<string, number> = {
-                    lite: 99, starter: 299, growth: 399, pro: 499, scale: 999, enterprise: 1999, agency: 2499,
-                  };
-                  return acc + (pricing[s.tier?.toLowerCase()] || 299);
-                }, 0)
-                .toLocaleString()}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <div className="flex items-center justify-between text-zinc-500 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Rollover Guarantee</span>
-              <Sparkles className="w-4 h-4 text-emerald-600" />
-            </div>
-            <div className="text-xl font-bold font-mono text-emerald-700">
-              +{subscriptions.reduce((acc: number, s: any) => acc + (s.bonus_rollover_minutes || 0), 0).toFixed(0)}
-              <span className="text-xs font-normal text-zinc-500 font-sans ml-1">mins</span>
-            </div>
-            <div className="text-[10px] text-zinc-500 font-mono mt-1">
-              100% trial + 10% monthly compliment
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <div className="flex items-center justify-between text-zinc-500 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Top-Up Minute Pool</span>
-              <Coins className="w-4 h-4 text-blue-600" />
-            </div>
-            <div className="text-xl font-bold font-mono text-blue-700">
-              +{subscriptions.reduce((acc: number, s: any) => acc + (s.topup_minutes_balance || 0), 0).toFixed(0)}
-              <span className="text-xs font-normal text-zinc-500 font-sans ml-1">mins</span>
-            </div>
-            <div className="text-[10px] text-zinc-500 font-mono mt-1">
-              {topupOrders.length} standalone packs completed
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <div className="flex items-center justify-between text-zinc-500 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Setup Fees Collected</span>
-              <DollarSign className="w-4 h-4 text-amber-600" />
-            </div>
-            <div className="text-xl font-bold font-mono text-zinc-900">
-              ${subscriptions
-                .filter((s: any) => s.onboarding_fee_paid)
-                .reduce((acc: number, s: any) => acc + (s.onboarding_fee_usd || 0), 0)
-                .toLocaleString()}
-            </div>
-            <div className="text-[10px] text-zinc-500 font-mono mt-1">
-              Waived: {subscriptions.filter((s: any) => s.onboarding_fee_waived).length} accounts
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <div className="flex items-center justify-between text-zinc-500 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Strict Refund Queue</span>
-              <ShieldAlert className="w-4 h-4 text-red-600" />
-            </div>
-            <div className="text-xl font-bold font-mono text-zinc-900 flex items-center gap-2">
-              <span>{refundRequests.filter((r: any) => r.status === "pending").length}</span>
-              {refundRequests.filter((r: any) => r.status === "pending").length > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-red-100 text-red-700 font-bold border border-red-200 animate-pulse">
-                  Action Required
-                </span>
-              )}
-            </div>
-            <div className="text-[10px] text-zinc-500 font-mono mt-1">
-              &lt;50% usage gate strictly enforced
-            </div>
-          </div>
-        </div>
-
-        {/* Sub-navigation Controls & Search Bar */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-zinc-200 shadow-2xs">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-            <button
-              type="button"
-              onClick={() => setBillingSubTab("all")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                billingSubTab === "all"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
-              }`}
-            >
-              All Views
-            </button>
-            <button
-              type="button"
-              onClick={() => setBillingSubTab("subscriptions")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                billingSubTab === "subscriptions"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
-              }`}
-            >
-              Subscriptions ({subscriptions.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setBillingSubTab("refunds")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                billingSubTab === "refunds"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
-              }`}
-            >
-              <span>Strict Refund Queue ({refundRequests.length})</span>
-              {refundRequests.filter((r: any) => r.status === "pending").length > 0 && (
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setBillingSubTab("topups")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                billingSubTab === "topups"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
-              }`}
-            >
-              Top-Up Ledger ({topupOrders.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setBillingSubTab("fees")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                billingSubTab === "fees"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
-              }`}
-            >
-              Setup Fees ({subscriptions.filter((s: any) => s.onboarding_fee_paid).length} Paid)
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1 sm:w-64">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-              <input
-                type="text"
-                placeholder="Search tenant, ID, tier..."
-                value={billingSearchQuery}
-                onChange={(e) => setBillingSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={exportSubscriptionsCsv}
-              title="Export Subscriptions as CSV"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold transition-all whitespace-nowrap shadow-2xs"
-            >
-              <Download className="w-3.5 h-3.5 text-zinc-600" />
-              <span>Export Subs</span>
-            </button>
-            <button
-              type="button"
-              onClick={exportTopupOrdersCsv}
-              title="Export Top-Up Ledger as CSV"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold transition-all whitespace-nowrap shadow-2xs"
-            >
-              <Download className="w-3.5 h-3.5 text-zinc-600" />
-              <span>Export Top-Ups</span>
-            </button>
-          </div>
-        </div>
-
-        {/* SECTION 4A-1: Tenant Subscriptions Table */}
-        {(billingSubTab === "all" || billingSubTab === "subscriptions" || billingSubTab === "fees") && (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-            <div className="flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-indigo-600" />
-              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-                Tenant Minute Subscriptions &amp; Rollovers
-              </h2>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-zinc-500 font-mono">
-              <span className="inline-flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Instant Upgrade Active
-              </span>
-              <span>&bull;</span>
-              <span>10% Monthly Complimentary Rollover</span>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-                <tr>
-                  <th className="p-3">Organization</th>
-                  <th className="p-3">Current Plan</th>
-                  <th className="p-3">Minute Pools</th>
-                  <th className="p-3">Total Active</th>
-                  <th className="p-3">Usage This Cycle</th>
-                  <th className="p-3">Onboarding Fee</th>
-                  <th className="p-3">Refund Status</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {subscriptions
-                  .filter((sub: any) => {
-                    if (billingSubTab === "fees" && !sub.onboarding_fee_usd && !sub.onboarding_fee_waived) return false;
-                    if (!billingSearchQuery) return true;
-                    const q = billingSearchQuery.toLowerCase();
-                    return (
-                      sub.tenant_name?.toLowerCase().includes(q) ||
-                      sub.tenant_id?.toLowerCase().includes(q) ||
-                      sub.tier?.toLowerCase().includes(q) ||
-                      sub.status?.toLowerCase().includes(q)
-                    );
-                  })
-                  .map((sub: any) => {
-                  const totalPool =
-                    (sub.monthly_included_minutes || 0) +
-                    (sub.bonus_rollover_minutes || 0) +
-                    (sub.topup_minutes_balance || 0);
-                  const usagePct =
-                    totalPool > 0
-                      ? Math.min(100, ((sub.used_minutes_this_cycle || 0) / totalPool) * 100)
-                      : 0;
-
-                  return (
-                    <tr key={sub.tenant_id} className="hover:bg-zinc-50/80 transition-colors">
-                      <td className="p-3">
-                        <div className="font-semibold text-zinc-900">{sub.tenant_name}</div>
-                        <div className="text-[10px] text-zinc-400 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
-                      </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
-                            {sub.tier}
-                          </span>
-                          {sub.status === "active" && (
-                            <span className="text-[10px] text-emerald-600 font-semibold">● Active</span>
-                          )}
-                          {sub.status === "suspended" && (
-                            <span className="text-[10px] text-red-600 font-semibold">● Suspended</span>
-                          )}
-                          {sub.status === "trialing" && (
-                            <span className="text-[10px] text-amber-600 font-semibold">● Trial</span>
-                          )}
-                        </div>
-                        {sub.pending_tier && (
-                          <div className="text-[10px] text-amber-700 font-mono mt-1 font-semibold flex items-center gap-1">
-                            <span>⏳ Queued:</span>
-                            <span className="uppercase">{sub.pending_tier}</span>
-                          </div>
-                        )}
-                        <div className="text-[9px] text-zinc-400 font-mono mt-0.5">
-                          Renews: {sub.cycle_end_date ? new Date(sub.cycle_end_date).toLocaleDateString() : "30d"}
-                        </div>
-                      </td>
-                      <td className="p-3 font-mono space-y-0.5">
-                        <div className="text-zinc-800 font-semibold">
-                          {sub.monthly_included_minutes.toLocaleString()} base
-                        </div>
-                        <div className="text-[10px] text-emerald-700 font-semibold">
-                          +{sub.bonus_rollover_minutes.toFixed(1)} roll
-                        </div>
-                        {sub.topup_minutes_balance > 0 && (
-                          <div className="text-[10px] text-blue-700 font-semibold">
-                            +{sub.topup_minutes_balance.toFixed(1)} top-up
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 font-mono">
-                        <span className="text-sm font-bold text-zinc-900">
-                          {totalPool.toLocaleString()}
-                        </span>
-                        <span className="text-[10px] text-zinc-500 font-normal ml-0.5">mins</span>
-                      </td>
-                      <td className="p-3 font-mono">
-                        <div className="flex items-center justify-between text-[11px] mb-1">
-                          <span className="text-zinc-800 font-semibold">
-                            {sub.used_minutes_this_cycle.toFixed(1)} mins
-                          </span>
-                          <span className="text-zinc-500 text-[10px]">
-                            {usagePct.toFixed(0)}%
-                          </span>
-                        </div>
-                        <div className="w-24 h-1.5 rounded-full bg-zinc-100 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              usagePct > 80 ? "bg-amber-500" : usagePct > 50 ? "bg-blue-500" : "bg-emerald-500"
-                            }`}
-                            style={{ width: `${usagePct}%` }}
-                          />
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        {sub.onboarding_fee_waived ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setOnboardingFeeModal({
-                                tenant_id: sub.tenant_id,
-                                org_name: sub.tenant_name,
-                                current_fee: sub.onboarding_fee_usd || 199,
-                                paid: false,
-                                waived: true,
-                              })
-                            }
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-zinc-100 text-zinc-600 border border-zinc-200 hover:border-zinc-300"
-                          >
-                            Waived ($0)
-                          </button>
-                        ) : sub.onboarding_fee_paid ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setOnboardingFeeModal({
-                                tenant_id: sub.tenant_id,
-                                org_name: sub.tenant_name,
-                                current_fee: sub.onboarding_fee_usd || 199,
-                                paid: true,
-                                waived: false,
-                              })
-                            }
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:border-emerald-300"
-                          >
-                            Paid (${sub.onboarding_fee_usd})
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setOnboardingFeeModal({
-                                tenant_id: sub.tenant_id,
-                                org_name: sub.tenant_name,
-                                current_fee: sub.onboarding_fee_usd || 199,
-                                paid: false,
-                                waived: false,
-                              })
-                            }
-                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:border-amber-300"
-                          >
-                            Due: ${sub.onboarding_fee_usd || 199}
-                          </button>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        {sub.refund_status === "requested" ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            Review ({sub.refund_requested_usage_pct?.toFixed(0)}%)
-                          </span>
-                        ) : sub.refund_status === "approved" ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            Approved
-                          </span>
-                        ) : sub.refund_status === "rejected" ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
-                            <X className="w-3 h-3 text-zinc-500" />
-                            Denied
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-zinc-400 font-mono">None</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-right whitespace-nowrap space-x-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openManageSubModal(sub)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all"
-                        >
-                          Manage Plan
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setOnboardingFeeModal({
-                              tenant_id: sub.tenant_id,
-                              org_name: sub.tenant_name,
-                              current_fee: sub.onboarding_fee_usd || 199,
-                              paid: sub.onboarding_fee_paid || false,
-                              waived: sub.onboarding_fee_waived || false,
-                            })
-                          }
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-medium transition-colors"
-                        >
-                          <Receipt className="w-3 h-3 text-zinc-500" />
-                          Fee
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowGrantModal(sub.tenant_id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-medium transition-colors"
-                        >
-                          <Gift className="w-3 h-3 text-indigo-600" />
-                          Grant
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {subscriptions.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="p-6 text-center text-zinc-500 font-mono text-xs">
-                      No active tenant subscriptions found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        )}
-
-        {/* SECTION 4A-2: SuperAdmin Strict Refund Exception Review Queue */}
-        {(billingSubTab === "all" || billingSubTab === "refunds") && (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-red-600" />
-              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-                Strict Refund Review Queue (&lt; 50% Usage Gate)
-              </h2>
-            </div>
-            <span className="text-xs text-zinc-500 font-mono">
-              Baseline: Strictly No Refunds &bull; Exception Gate: Under 50% Usage
-            </span>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-                <tr>
-                  <th className="p-3">Organization &amp; Plan</th>
-                  <th className="p-3">Cycle Usage at Request</th>
-                  <th className="p-3">Strict Policy Gate Check</th>
-                  <th className="p-3">Requested Amount</th>
-                  <th className="p-3">Client Reason</th>
-                  <th className="p-3">Status &amp; Notes</th>
-                  <th className="p-3 text-right">Review Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {refundRequests
-                  .filter((req: any) => {
-                    if (!billingSearchQuery) return true;
-                    const q = billingSearchQuery.toLowerCase();
-                    return (
-                      req.tenant_name?.toLowerCase().includes(q) ||
-                      req.tenant_id?.toLowerCase().includes(q) ||
-                      req.tier?.toLowerCase().includes(q) ||
-                      req.status?.toLowerCase().includes(q) ||
-                      req.reason?.toLowerCase().includes(q)
-                    );
-                  })
-                  .slice((refundPage - 1) * refundPageSize, refundPage * refundPageSize)
-                  .map((req: any) => (
-                  <tr key={req.id} className="hover:bg-zinc-50/80 transition-colors">
-                    <td className="p-3">
-                      <div className="font-semibold text-zinc-900">{req.tenant_name}</div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold uppercase bg-zinc-100 text-zinc-700 border border-zinc-200">
-                          {req.tier}
-                        </span>
-                        <span className="text-[10px] text-zinc-400 font-mono">
-                          ID: {req.tenant_id.slice(0, 8)}...
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-3 font-mono">
-                      <div className="text-zinc-900 font-semibold">
-                        {req.minutes_used.toFixed(1)} / {req.cycle_included_minutes} mins
-                      </div>
-                      <div className="text-[10px] text-zinc-500">
-                        {req.usage_percentage.toFixed(1)}% of base allocation
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      {req.eligible_under_50pct_rule ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          Eligible (&lt;50% usage)
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-red-50 text-red-700 border border-red-200">
-                          <X className="w-3 h-3 text-red-600" />
-                          Ineligible (&ge;50% - Policy Deny)
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3 font-mono font-bold text-zinc-900">
-                      ${req.amount_usd.toFixed(2)}
-                    </td>
-                    <td className="p-3 max-w-xs text-zinc-600 text-[11px] italic truncate">
-                      &quot;{req.reason}&quot;
-                    </td>
-                    <td className="p-3">
-                      {req.status === "pending" && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                          <Clock className="w-3 h-3 text-amber-600" />
-                          Pending Review
-                        </span>
-                      )}
-                      {req.status === "approved" && (
-                        <div className="space-y-0.5">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            Approved
-                          </span>
-                          {req.decision_notes && (
-                            <div className="text-[10px] text-zinc-500 font-mono truncate max-w-xs">
-                              {req.decision_notes}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {req.status === "rejected" && (
-                        <div className="space-y-0.5">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
-                            Rejected
-                          </span>
-                          {req.decision_notes && (
-                            <div className="text-[10px] text-zinc-500 font-mono truncate max-w-xs">
-                              {req.decision_notes}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3 text-right whitespace-nowrap">
-                      {req.status === "pending" ? (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setRefundActionModal({ request: req, action: "approve" })
-                            }
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors"
-                          >
-                            <Check className="w-3 h-3" />
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setRefundActionModal({ request: req, action: "reject" })
-                            }
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-xs transition-colors"
-                          >
-                            <X className="w-3 h-3" />
-                            Reject
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-[10px] text-zinc-400 font-mono">
-                          Resolved {req.resolved_at ? new Date(req.resolved_at).toLocaleDateString() : ""}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {refundRequests.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="p-6 text-center text-zinc-400 font-mono text-xs">
-                      No refund requests have been submitted.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-
-            {refundRequests.length > 5 && (
-              <div className="p-3 border-t border-slate-100 bg-slate-50/50">
-                <PaginationBar
-                  currentPage={refundPage}
-                  totalItems={refundRequests.length}
-                  pageSize={refundPageSize}
-                  onPageChange={setRefundPage}
-                  onPageSizeChange={setRefundPageSize}
-                  pageSizeOptions={[5, 10, 25]}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-        )}
-
-        {/* SECTION 4A-3: Standalone Top-Up Minutes Orders Ledger */}
-        {(billingSubTab === "all" || billingSubTab === "topups") && (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-            <div className="flex items-center gap-2">
-              <Receipt className="w-4 h-4 text-blue-600" />
-              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-                Standalone Top-Up Minutes Orders Ledger
-              </h2>
-            </div>
-            <span className="text-xs text-zinc-500 font-mono">
-              Independent transactions &bull; Never resets monthly cycle renewal
-            </span>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-                <tr>
-                  <th className="p-3">Order ID &amp; Date</th>
-                  <th className="p-3">Organization</th>
-                  <th className="p-3">Pack &amp; Minutes Added</th>
-                  <th className="p-3">Rate &amp; Total</th>
-                  <th className="p-3">Payment Status</th>
-                  <th className="p-3 text-right">Payment Reference</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {topupOrders
-                  .filter((ord: any) => {
-                    if (!billingSearchQuery) return true;
-                    const q = billingSearchQuery.toLowerCase();
-                    return (
-                      ord.tenant_name?.toLowerCase().includes(q) ||
-                      ord.tenant_id?.toLowerCase().includes(q) ||
-                      ord.pack_name?.toLowerCase().includes(q) ||
-                      ord.status?.toLowerCase().includes(q) ||
-                      ord.payment_intent_id?.toLowerCase().includes(q)
-                    );
-                  })
-                  .map((ord: any) => (
-                  <tr key={ord.id} className="hover:bg-zinc-50/80 transition-colors">
-                    <td className="p-3">
-                      <div className="font-mono font-bold text-zinc-900">{ord.id.slice(0, 8)}...</div>
-                      <div className="text-[10px] text-zinc-400 font-mono">
-                        {ord.created_at ? new Date(ord.created_at).toLocaleString() : "Recently"}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <div className="font-semibold text-zinc-900">{ord.tenant_name}</div>
-                      <div className="text-[10px] text-zinc-400 font-mono">ID: {ord.tenant_id.slice(0, 8)}...</div>
-                    </td>
-                    <td className="p-3">
-                      <span className="font-semibold text-zinc-900">{ord.pack_name}</span>
-                      <div className="text-[11px] font-mono text-emerald-700 font-bold">
-                        +{ord.minutes.toLocaleString()} bonus mins
-                      </div>
-                    </td>
-                    <td className="p-3 font-mono">
-                      <div className="font-bold text-zinc-900">${ord.price_usd.toFixed(2)}</div>
-                      <div className="text-[10px] text-zinc-500">${ord.rate_per_min}/min</div>
-                    </td>
-                    <td className="p-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {ord.status}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right font-mono text-[11px] text-zinc-500">
-                      {ord.payment_intent_id ? (
-                        <span className="bg-zinc-100 px-2 py-0.5 rounded-md text-[10px]">
-                          {ord.payment_intent_id}
-                        </span>
-                      ) : (
-                        "test_ref_sim"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {topupOrders.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="p-6 text-center text-zinc-400 font-mono text-xs">
-                      No standalone minute top-up orders recorded yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        )}
-      </div>
-      )}
-
-      {/* SECTION 4B: Admin Coupon Engine (Full Width) */}
-      {activeTab === "coupons" && (
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-        <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-          <div className="flex items-center gap-2">
-            <Tag className="w-4 h-4 text-emerald-600" />
-            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Admin Platform Coupon Engine
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowCouponModal(true)}
-            className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+      {/* SECTION 2: Platform Sub-Page Jump Deck */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-bold text-slate-900 font-mono uppercase tracking-wide">
+          Dedicated Governance Modules
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Link
+            href="/admin/tenants"
+            className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-blue-400 hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
           >
-            <Plus className="w-3.5 h-3.5" />
-            Create Promo Code
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {coupons.map((c: any) => (
-            <div
-              key={c.code}
-              className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/70 hover:bg-zinc-50 transition-colors flex items-center justify-between text-xs"
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-bold text-zinc-900 bg-white px-2.5 py-1 rounded-lg border border-zinc-200 text-sm">
-                    {c.code}
-                  </span>
-                  <span className="text-[11px] text-emerald-700 font-bold font-mono bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    {c.discount_percent}% OFF
-                  </span>
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+                  <Building2 className="w-5 h-5" />
                 </div>
-                <div className="text-[11px] text-zinc-600 pt-0.5">
-                  +{c.bonus_minutes} complimentary minutes
-                </div>
-                <div className="text-[10px] text-zinc-400 font-mono">
-                  Redemptions: <strong className="text-zinc-700">{c.times_redeemed}</strong> / {c.max_redemptions}
-                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 group-hover:text-blue-600 transition-all" />
               </div>
-              <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
-                Active
-              </span>
+              <h3 className="font-bold text-sm text-slate-900 mt-3">Client Tenants &amp; RLS</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Oversee {tenants.length} client organizations, per-minute unit CoGS waterfall, gross margins, and LiveKit concurrency tiers.
+              </p>
             </div>
-          ))}
-          {coupons.length === 0 && (
-            <div className="col-span-full p-8 text-center text-zinc-400 font-mono text-xs">
-              No active coupon codes created yet. Click &quot;Create Promo Code&quot; above to issue new tenant discounts.
+            <div className="text-[11px] font-mono text-blue-600 font-semibold flex items-center gap-1">
+              <span>View Organizations ({tenants.length})</span>
+              <span>&rarr;</span>
             </div>
-          )}
+          </Link>
+
+          <Link
+            href="/admin/subaccounts"
+            className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-indigo-400 hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                  <UserCheck className="w-5 h-5" />
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 group-hover:text-indigo-600 transition-all" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900 mt-3">Sub-Accounts &amp; Proxy</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Manage agency client sub-accounts, aggregate minutes quotas, and launch operator proxy sessions with mandatory audit logs.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-indigo-600 font-semibold flex items-center gap-1">
+              <span>Open Sub-Accounts</span>
+              <span>&rarr;</span>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/audit"
+            className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-purple-400 hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-purple-50 text-purple-600">
+                  <History className="w-5 h-5" />
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 group-hover:text-purple-600 transition-all" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900 mt-3">Immutable Audit Trail</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Cryptographically anchored event log capturing all impersonation sessions, supervisor overrides, and tenant changes.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-purple-600 font-semibold flex items-center gap-1">
+              <span>Inspect Audit Trail</span>
+              <span>&rarr;</span>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/billing"
+            className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-emerald-400 hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 group-hover:text-emerald-600 transition-all" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900 mt-3">Minute Billing &amp; Strict Refunds</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Master subscriptions control, rollover bonus calculations, setup fee waivers, and the strict &lt;50% refund policy queue.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-emerald-600 font-semibold flex items-center gap-1">
+              <span>Manage Billing &amp; Refunds</span>
+              <span>&rarr;</span>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/inventory"
+            className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-teal-400 hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-teal-50 text-teal-600">
+                  <PhoneCall className="w-5 h-5" />
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 group-hover:text-teal-600 transition-all" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900 mt-3">Inbound Phone Inventory</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                1-Click Telnyx DID purchasing ($1/mo), agency pre-bought phone pool, and LiveKit inbound SIP trunk dispatch rules.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-teal-600 font-semibold flex items-center gap-1">
+              <span>View Lines ({numbers.length})</span>
+              <span>&rarr;</span>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/coupons"
+            className="p-5 rounded-2xl border border-slate-200 bg-white hover:border-amber-400 hover:shadow-sm transition-all group flex flex-col justify-between space-y-3"
+          >
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 group-hover:text-amber-600 transition-all" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-900 mt-3">Coupons &amp; Bonus Credits</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Create founder promotional codes, issue recurring percentage discounts, and grant complimentary VIP bonus minutes.
+              </p>
+            </div>
+            <div className="text-[11px] font-mono text-amber-600 font-semibold flex items-center gap-1">
+              <span>Manage Promo Codes</span>
+              <span>&rarr;</span>
+            </div>
+          </Link>
         </div>
       </div>
-      )}
-
-      {/* Grant Bonus Minutes Modal */}
-      {showGrantModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
-                <Gift className="w-4 h-4 text-indigo-600" />
-                Grant Compliment Bonus Minutes
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowGrantModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">Credit Destination Pool</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setGrantCreditTo("rollover")}
-                    className={`p-2 rounded-xl border text-center font-medium transition-all ${
-                      grantCreditTo === "rollover"
-                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
-                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-                    }`}
-                  >
-                    <div className="font-bold text-[11px]">Rollover Bonus</div>
-                    <div className="text-[9px] opacity-80">10% rollover pool</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setGrantCreditTo("topup")}
-                    className={`p-2 rounded-xl border text-center font-medium transition-all ${
-                      grantCreditTo === "topup"
-                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
-                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-                    }`}
-                  >
-                    <div className="font-bold text-[11px]">Top-Up Balance</div>
-                    <div className="text-[9px] opacity-80">Permanent validity</div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-medium text-zinc-700">Minutes to Grant</label>
-                <input
-                  type="number"
-                  min="10"
-                  max="10000"
-                  step="10"
-                  value={grantMinutesVal}
-                  onChange={(e) => setGrantMinutesVal(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-medium text-zinc-700">Reason / Description</label>
-                <input
-                  type="text"
-                  value={grantReason}
-                  onChange={(e) => setGrantReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900"
-                  placeholder="Promotional Onboarding Bonus"
-                />
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={() => setShowGrantModal(null)}
-                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={grantingMinutes}
-                  onClick={() => handleGrantBonusMinutes(showGrantModal)}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm"
-                >
-                  {grantingMinutes ? "Granting..." : "Grant Minutes"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Manage Subscription Master Modal */}
-      {showManageSubModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div>
-                <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-zinc-900" />
-                  Manage Tenant Subscription
-                </h3>
-                <p className="text-[11px] text-zinc-500 font-mono mt-0.5">
-                  {showManageSubModal.tenant_name}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowManageSubModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">Subscription Tier</label>
-                <select
-                  value={subTierSelect}
-                  onChange={(e) => setSubTierSelect(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
-                >
-                  <option value="trial">Free Trial (100 Mins / 14 Days)</option>
-                  <option value="lite">Lite Plan (300 Mins - $99/mo)</option>
-                  <option value="starter">Starter Plan (1,000 Mins - $299/mo)</option>
-                  <option value="growth">Growth Plan (2,500 Mins - $399/mo)</option>
-                  <option value="pro">Pro Plan (5,000 Mins - $499/mo)</option>
-                  <option value="scale">Scale Plan (12,000 Mins - $999/mo)</option>
-                  <option value="enterprise">Enterprise Plan (30,000 Mins - $1,999/mo)</option>
-                  <option value="agency">Agency Partner Plan (50,000 Mins - $2,499/mo)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">Account Status</label>
-                <select
-                  value={subStatusSelect}
-                  onChange={(e) => setSubStatusSelect(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
-                >
-                  <option value="active">Active (Normal Operational Billing)</option>
-                  <option value="suspended">Suspended (Pause Answering &amp; Webhooks)</option>
-                  <option value="trialing">Trialing (Active Sandbox Evaluation)</option>
-                  <option value="canceled">Canceled (Service Disconnected)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">
-                  Custom Monthly Minutes Override (Optional)
-                </label>
-                <input
-                  type="number"
-                  placeholder="Leave empty for plan default"
-                  value={subCustomMinutes}
-                  onChange={(e) => setSubCustomMinutes(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                />
-              </div>
-
-              <div className="pt-2">
-                <label className="flex items-center gap-2 cursor-pointer text-zinc-700 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={subResetUsage}
-                    onChange={(e) => setSubResetUsage(e.target.checked)}
-                    className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
-                  />
-                  <span>Reset current month used minutes to 0</span>
-                </label>
-              </div>
-
-              <div className="pt-4 flex items-center justify-end gap-2 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={() => setShowManageSubModal(null)}
-                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={updatingSub}
-                  onClick={handleUpdateTenantSubscription}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5"
-                >
-                  {updatingSub ? "Saving Changes..." : "Apply Plan Update"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SuperAdmin Refund Review & Resolution Modal */}
-      {refundActionModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <ShieldAlert
-                  className={`w-4 h-4 ${
-                    refundActionModal.action === "approve" ? "text-emerald-600" : "text-red-600"
-                  }`}
-                />
-                <h3 className="font-bold text-sm text-zinc-900 font-mono uppercase">
-                  {refundActionModal.action === "approve" ? "Approve Refund Exception" : "Reject Refund Request"}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setRefundActionModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1.5 font-mono">
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Organization:</span>
-                  <span className="font-bold text-zinc-900">{refundActionModal.request.tenant_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Tier &amp; Amount:</span>
-                  <span className="font-bold text-zinc-900 uppercase">
-                    {refundActionModal.request.tier} (${refundActionModal.request.amount_usd.toFixed(2)})
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Usage at Request:</span>
-                  <span
-                    className={`font-bold ${
-                      refundActionModal.request.eligible_under_50pct_rule
-                        ? "text-emerald-700"
-                        : "text-red-700"
-                    }`}
-                  >
-                    {refundActionModal.request.usage_percentage.toFixed(1)}% of base allocation
-                  </span>
-                </div>
-                <div className="flex justify-between items-center pt-1 border-t border-zinc-200">
-                  <span className="text-zinc-500">Strict 50% Gate:</span>
-                  {refundActionModal.request.eligible_under_50pct_rule ? (
-                    <span className="text-emerald-700 font-bold flex items-center gap-1">
-                      <Check className="w-3 h-3 text-emerald-600" /> Eligible (&lt;50%)
-                    </span>
-                  ) : (
-                    <span className="text-red-700 font-bold flex items-center gap-1">
-                      <X className="w-3 h-3 text-red-600" /> Ineligible (&ge;50% usage)
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {!refundActionModal.request.eligible_under_50pct_rule && refundActionModal.action === "approve" && (
-                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <strong>SuperAdmin Policy Override:</strong> This tenant used &ge; 50% of their base cycle. Approving this refund will bypass the standard strict policy and be permanently audited.
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">Client Reason</label>
-                <div className="p-2.5 rounded-xl bg-zinc-100/60 text-zinc-700 italic border border-zinc-200 text-[11px]">
-                  &quot;{refundActionModal.request.reason}&quot;
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">SuperAdmin Decision Notes</label>
-                <textarea
-                  rows={3}
-                  value={refundNotes}
-                  onChange={(e) => setRefundNotes(e.target.value)}
-                  placeholder={
-                    refundActionModal.action === "approve"
-                      ? "Approved exception per customer service escalation (<50% usage verified)..."
-                      : "Rejected per strict terms of service (>50% usage consumed or ineligible tier)..."
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900 text-xs"
-                />
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={() => setRefundActionModal(null)}
-                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={resolvingRefund}
-                  onClick={handleResolveRefund}
-                  className={`px-4 py-2 rounded-xl text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 ${
-                    refundActionModal.action === "approve"
-                      ? "bg-emerald-600 hover:bg-emerald-700"
-                      : "bg-red-600 hover:bg-red-700"
-                  }`}
-                >
-                  {resolvingRefund
-                    ? "Processing..."
-                    : refundActionModal.action === "approve"
-                    ? "Confirm Refund Approval"
-                    : "Confirm Refund Rejection"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SuperAdmin Onboarding Fee Control Modal */}
-      {onboardingFeeModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-amber-600" />
-                <h3 className="font-bold text-sm text-zinc-900 font-mono uppercase">
-                  Setup Fee Telemetry &amp; Controls
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOnboardingFeeModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1 font-mono">
-                <div className="text-zinc-900 font-bold">{onboardingFeeModal.org_name}</div>
-                <div className="text-[10px] text-zinc-500">ID: {onboardingFeeModal.tenant_id}</div>
-                <div className="flex justify-between pt-1 border-t border-zinc-200">
-                  <span className="text-zinc-500">Current Status:</span>
-                  <span className="font-bold text-zinc-800">
-                    {onboardingFeeModal.waived
-                      ? "Waived ($0)"
-                      : onboardingFeeModal.paid
-                      ? `Paid ($${onboardingFeeModal.current_fee})`
-                      : `Due ($${onboardingFeeModal.current_fee})`}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="font-semibold text-zinc-700">Choose Action</label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setFeeActionSelect("waive")}
-                    className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
-                      feeActionSelect === "waive"
-                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
-                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-                    }`}
-                  >
-                    Waive ($0)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFeeActionSelect("set_paid")}
-                    className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
-                      feeActionSelect === "set_paid"
-                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
-                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-                    }`}
-                  >
-                    Mark Paid
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFeeActionSelect("charge")}
-                    className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
-                      feeActionSelect === "charge"
-                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
-                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-                    }`}
-                  >
-                    Custom Fee
-                  </button>
-                </div>
-              </div>
-
-              {feeActionSelect === "charge" && (
-                <div className="space-y-1">
-                  <label className="font-semibold text-zinc-700">Fee Amount (USD)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1000"
-                    value={customFeeUsd}
-                    onChange={(e) => setCustomFeeUsd(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-900"
-                  />
-                </div>
-              )}
-
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={() => setOnboardingFeeModal(null)}
-                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={updatingFee}
-                  onClick={handleUpdateOnboardingFee}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5"
-                >
-                  {updatingFee ? "Updating..." : "Save Fee Status"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Create Coupon Modal */}
-      {showCouponModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <h3 className="font-bold text-sm text-zinc-900 flex items-center gap-2">
-                <Tag className="w-4 h-4 text-emerald-600" />
-                Create Platform Coupon Code
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowCouponModal(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateCoupon} className="space-y-3 text-xs">
-              {couponError && (
-                <div className="p-2.5 rounded-xl bg-red-50 text-red-700 border border-red-200 font-mono text-[11px]">
-                  {couponError}
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <label className="font-medium text-zinc-700">Coupon Code *</label>
-                <input
-                  type="text"
-                  required
-                  value={newCouponData.code}
-                  onChange={(e) =>
-                    setNewCouponData({ ...newCouponData, code: e.target.value.toUpperCase() })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono uppercase font-bold focus:outline-none focus:border-zinc-900"
-                  placeholder="LAUNCH50"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="font-medium text-zinc-700">Discount %</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={newCouponData.discount_percent}
-                    onChange={(e) =>
-                      setNewCouponData({ ...newCouponData, discount_percent: Number(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-medium text-zinc-700">Bonus Minutes</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1000"
-                    value={newCouponData.bonus_minutes}
-                    onChange={(e) =>
-                      setNewCouponData({ ...newCouponData, bonus_minutes: Number(e.target.value) })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="font-medium text-zinc-700">Max Redemptions</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="1000"
-                  value={newCouponData.max_redemptions}
-                  onChange={(e) =>
-                    setNewCouponData({ ...newCouponData, max_redemptions: Number(e.target.value) })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono focus:outline-none focus:border-zinc-900"
-                />
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={() => setShowCouponModal(false)}
-                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={creatingCoupon}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm"
-                >
-                  {creatingCoupon ? "Creating..." : "Save Coupon"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* SECTION 5: Client Tenants Table with PII Masking, Search & CoGS Matrix */}
-      {activeTab === "tenants" && (() => {
-        const filteredTenants = tenants.filter((t) => {
-          const query = tenantSearchQuery.toLowerCase().trim();
-          const matchesSearch = !query ||
-            t.name.toLowerCase().includes(query) ||
-            t.id.toLowerCase().includes(query) ||
-            t.phone_numbers.some((p) => p.includes(query));
-          const matchesPlan =
-            tenantPlanFilter === "all" ||
-            (t.plan_code || "growth").toLowerCase() === tenantPlanFilter.toLowerCase();
-          return matchesSearch && matchesPlan;
-        });
-
-        return (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-zinc-500" />
-              <h2 className="text-sm font-bold text-zinc-900">
-                Client Tenant Organizations ({tenants.length})
-              </h2>
-              <span className="text-xs text-zinc-500 font-mono">Row-Level Security Active</span>
-              <InfoTrigger topic="admin_pii_masking" />
-            </div>
-
-            {/* Privacy & PII Toggle */}
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setMaskPii(!maskPii)}
-                className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-xs text-zinc-700 font-mono flex items-center gap-1.5 transition-colors shadow-sm"
-                title="Toggle masked phone numbers for GDPR/CCPA privacy during demonstrations"
-              >
-                {maskPii ? (
-                  <>
-                    <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Reveal Full E.164</span>
-                  </>
-                ) : (
-                  <>
-                    <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
-                    <span>Mask Phone Numbers (PII)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Search & Filter Toolbar */}
-          <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={tenantSearchQuery}
-                onChange={(e) => setTenantSearchQuery(e.target.value)}
-                placeholder="Search organizations by name, phone, or ID..."
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-white border border-zinc-200 text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900"
-              />
-              {tenantSearchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setTenantSearchQuery("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 text-xs"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-mono">
-              <span className="text-[11px] text-zinc-500 uppercase font-bold mr-1">Plan:</span>
-              {[
-                { id: "all", label: "All" },
-                { id: "starter", label: "Starter ($299)" },
-                { id: "growth", label: "Growth ($399)" },
-                { id: "pro", label: "Pro ($499)" },
-                { id: "scale", label: "Scale ($999)" },
-              ].map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setTenantPlanFilter(p.id)}
-                  className={`px-2.5 py-1 rounded-lg text-xs transition-colors shrink-0 ${
-                    tenantPlanFilter === p.id
-                      ? "bg-indigo-600 text-white font-bold shadow-xs"
-                      : "bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-                <tr>
-                  <th className="p-3">Organization Name</th>
-                  <th className="p-3">Timezone / Hours</th>
-                  <th className="p-3">Dedicated Carrier Number</th>
-                  <th className="p-3">Plan &amp; MRR</th>
-                  <th className="p-3">Unit CoGS &amp; Margin</th>
-                  <th className="p-3">Minute Quota</th>
-                  <th className="p-3">Call Volume</th>
-                  <th className="p-3">Health Status</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 font-mono">
-                {filteredTenants.map((t) => {
-                  const usedMins = t.minutes_used ?? (t.call_count * 2.5);
-                  const quota = t.monthly_minute_quota ?? 500;
-                  const quotaPct = Math.min(Math.round((usedMins / quota) * 100), 100);
-
-                  return (
-                    <tr key={t.id} className="hover:bg-zinc-50/80 transition-colors">
-                      <td className="p-3 font-sans">
-                        <div className="font-semibold text-zinc-900">{t.name}</div>
-                        <div className="text-[10px] font-mono text-zinc-500">ID: {t.id.slice(0, 8)}...</div>
-                      </td>
-
-                      <td className="p-3 text-zinc-600 text-[11px] font-sans">
-                        <div className="text-zinc-800 font-mono">{t.timezone}</div>
-                        <div className="text-zinc-500 truncate max-w-[140px]">{t.hours}</div>
-                      </td>
-
-                      <td className="p-3 text-zinc-800 font-mono">
-                        {t.phone_numbers.length > 0 ? (
-                          <div className="space-y-0.5">
-                            {t.phone_numbers.map((num, i) => (
-                              <div key={i} className="flex items-center gap-1.5 text-zinc-900">
-                                <PhoneCall className="w-3 h-3 text-emerald-600 shrink-0" />
-                                <span>{maskPhoneNumber(num)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-zinc-400 italic">Unassigned</span>
-                        )}
-                      </td>
-
-                      <td className="p-3 text-zinc-800 font-mono">
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-zinc-100 text-zinc-700 border border-zinc-200">
-                            {t.plan_code || "growth"}
-                          </span>
-                          <span className="font-bold text-zinc-900">
-                            ${t.monthly_revenue_usd || 499}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-zinc-500">MRR subscription</div>
-                      </td>
-
-                      <td className="p-3 font-mono">
-                        <div className="flex items-center gap-1">
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              (t.gross_margin_pct ?? 95) >= 80
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-amber-50 text-amber-700 border border-amber-200"
-                            }`}
-                          >
-                            {(t.gross_margin_pct ?? 95).toFixed(1)}% Margin
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-zinc-400 mt-0.5">
-                          CoGS: ${(t.monthly_cogs_usd ?? (usedMins * 0.0225)).toFixed(2)}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowCogsModal(t)}
-                          className="mt-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-mono flex items-center gap-0.5 transition-colors"
-                          title="Inspect granular per-minute CoGS waterfall"
-                        >
-                          <Activity className="w-3 h-3 text-indigo-500" />
-                          <span>CoGS Waterfall &rarr;</span>
-                        </button>
-                      </td>
-
-                      <td className="p-3 font-mono">
-                        <div className="flex items-center justify-between text-[11px] mb-1">
-                          <span className="text-zinc-800 font-bold">{usedMins.toFixed(1)}m</span>
-                          <span className="text-zinc-500">/ {quota}m</span>
-                        </div>
-                        <div className="w-24 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              quotaPct > 80 ? "bg-red-500" : quotaPct > 50 ? "bg-amber-500" : "bg-indigo-600"
-                            }`}
-                            style={{ width: `${quotaPct}%` }}
-                          />
-                        </div>
-                      </td>
-
-                      <td className="p-3 text-zinc-900 font-bold">
-                        <div>{t.call_count} calls</div>
-                        {t.emergency_count > 0 && (
-                          <div className="text-[10px] text-red-600 font-normal">
-                            {t.emergency_count} 🚨 emergency
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="p-3">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          {t.status}
-                        </span>
-                      </td>
-
-                      <td className="p-3 text-right">
-                        <Link
-                          href="/portal/dashboard"
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-sans transition-colors"
-                        >
-                          Open Portal
-                          <ArrowUpRight className="w-3 h-3" />
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filteredTenants.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="p-8 text-center text-zinc-400 font-mono text-xs">
-                      No client tenant organizations found matching &quot;{tenantSearchQuery}&quot;.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        );
-      })()}
-
-      {/* Sub-Accounts & Proxy Tab (Milestone M8b) */}
-      {activeTab === "subaccounts" && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
-                <UserCheck className="w-5 h-5 text-indigo-600" />
-                Agency Sub-Accounts &amp; Operator Impersonation
-              </h3>
-              <p className="text-xs text-zinc-500">
-                Manage all client sub-accounts, view aggregated call metrics and launch proxy sessions with mandatory audit logs.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-zinc-500">
-                Total Sub-Accounts: <strong>{subAccounts.length}</strong>
-              </span>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono text-[11px] uppercase">
-                <tr>
-                  <th className="p-3">Client Sub-Account</th>
-                  <th className="p-3">Plan Tier</th>
-                  <th className="p-3">Minutes Usage</th>
-                  <th className="p-3">Calls &amp; Emer.</th>
-                  <th className="p-3">QA / CSAT Rating</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3 text-right">Proxy Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {subAccounts
-                  .slice((subPage - 1) * subPageSize, subPage * subPageSize)
-                  .map((sub) => {
-                  return (
-                    <tr key={sub.id} className="hover:bg-zinc-50/80 transition-colors">
-                      <td className="p-3">
-                        <div className="font-bold text-zinc-900 text-sm flex items-center gap-1.5">
-                          {sub.name}
-                        </div>
-                        <div className="text-[10px] font-mono text-zinc-400">ID: {sub.id}</div>
-                      </td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase">
-                          {sub.plan_tier}
-                        </span>
-                      </td>
-                      <td className="p-3 font-mono">
-                        <div className="flex items-center justify-between text-[11px] mb-1">
-                          <span className="text-zinc-800 font-bold">{sub.minutes_used}m</span>
-                          <span className="text-zinc-400">/ {sub.monthly_minute_quota}m</span>
-                        </div>
-                        <div className="w-24 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${
-                              sub.usage_pct > 80 ? "bg-red-500" : sub.usage_pct > 50 ? "bg-amber-500" : "bg-emerald-500"
-                            }`}
-                            style={{ width: `${Math.min(sub.usage_pct, 100)}%` }}
-                          />
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <div className="font-bold text-zinc-900">{sub.total_calls} calls</div>
-                        {sub.emergency_calls > 0 && (
-                          <div className="text-[10px] text-red-600 font-semibold">{sub.emergency_calls} emergencies</div>
-                        )}
-                      </td>
-                      <td className="p-3 font-mono">
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded bg-zinc-100 font-bold text-zinc-800">
-                            {sub.qa_avg_score.toFixed(0)}% QA
-                          </span>
-                          <span className="text-amber-500 font-bold">★ {sub.csat_avg_score.toFixed(1)}</span>
-                        </div>
-                      </td>
-                      <td className="p-3">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize gap-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          {sub.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setImpersonateTarget(sub)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 hover:bg-indigo-600 hover:text-white text-indigo-700 text-xs font-semibold transition-all shadow-sm"
-                        >
-                          <UserCheck className="w-3.5 h-3.5" />
-                          Impersonate Client
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-
-            {subAccounts.length > 5 && (
-              <div className="p-3 border-t border-slate-100 bg-slate-50/50">
-                <PaginationBar
-                  currentPage={subPage}
-                  totalItems={subAccounts.length}
-                  pageSize={subPageSize}
-                  onPageChange={setSubPage}
-                  onPageSizeChange={setSubPageSize}
-                  pageSizeOptions={[5, 10, 25]}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Immutable Audit Trail Tab (Milestone M8b) */}
-      {activeTab === "audit" && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
-                <History className="w-5 h-5 text-purple-600" />
-                Immutable Agency Audit Trail
-              </h3>
-              <p className="text-xs text-zinc-500">
-                Cryptographically anchored event log recording all operator impersonation sessions, supervisor actions, and tenant changes.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={auditActionFilter}
-                onChange={(e) => {
-                  setAuditActionFilter(e.target.value);
-                }}
-                className="text-xs border border-zinc-200 rounded-xl px-2.5 py-1.5 bg-white text-zinc-800"
-              >
-                <option value="">All Actions</option>
-                <option value="auth.impersonate_start">auth.impersonate_start</option>
-                <option value="auth.impersonate_end">auth.impersonate_end</option>
-                <option value="call.qa_override">call.qa_override</option>
-                <option value="supervisor.whisper">supervisor.whisper</option>
-                <option value="supervisor.barge_in">supervisor.barge_in</option>
-                <option value="supervisor.takeover">supervisor.takeover</option>
-                <option value="supervisor.transfer">supervisor.transfer</option>
-              </select>
-
-              <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer bg-white border border-zinc-200 px-3 py-1.5 rounded-xl">
-                <input
-                  type="checkbox"
-                  checked={auditImpersonatedOnly}
-                  onChange={(e) => setAuditImpersonatedOnly(e.target.checked)}
-                  className="rounded text-purple-600"
-                />
-                <span>Impersonated Only</span>
-              </label>
-
-              <button
-                type="button"
-                onClick={loadAuditLogs}
-                className="p-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition-colors"
-                title="Refresh Audit Logs"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono text-[11px] uppercase">
-                <tr>
-                  <th className="p-3">Timestamp (UTC)</th>
-                  <th className="p-3">Action</th>
-                  <th className="p-3">Actor &amp; Impersonator</th>
-                  <th className="p-3">Target Tenant</th>
-                  <th className="p-3">Resource</th>
-                  <th className="p-3 text-right">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {auditLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-8 text-center text-zinc-400">
-                      No audit events matching criteria.
-                    </td>
-                  </tr>
-                ) : (
-                  auditLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-zinc-50/80 transition-colors">
-                      <td className="p-3 font-mono text-zinc-600 whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString()}
-                      </td>
-                      <td className="p-3">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
-                          log.action.includes("impersonate")
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : log.action.includes("qa")
-                            ? "bg-indigo-50 text-indigo-700 border-indigo-200"
-                            : log.action.includes("supervisor")
-                            ? "bg-purple-50 text-purple-700 border-purple-200"
-                            : "bg-zinc-100 text-zinc-800 border-zinc-200"
-                        }`}>
-                          {log.action}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <div className="font-semibold text-zinc-900">{log.actor_email}</div>
-                        {log.is_impersonated && (
-                          <div className="text-[10px] text-amber-600 font-mono flex items-center gap-1">
-                            <span>Proxy by: {log.impersonator_email || log.impersonator_id}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-3 font-mono text-[11px] text-zinc-600">
-                        {log.tenant_id ? log.tenant_id.slice(0, 12) + "..." : "Global Platform"}
-                      </td>
-                      <td className="p-3 font-mono text-[11px] text-zinc-500">
-                        {log.resource_type} {log.resource_id ? `(${log.resource_id.slice(0, 8)}...)` : ""}
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedAuditLog(log)}
-                          className="px-2.5 py-1 text-[11px] font-medium rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-700 transition-colors"
-                        >
-                          View JSON
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Impersonation Confirmation Modal */}
-      {impersonateTarget && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full border border-zinc-200 shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
-                <UserCheck className="w-5 h-5 text-indigo-600" />
-                Launch Impersonation Session
-              </h3>
-              <button
-                onClick={() => setImpersonateTarget(null)}
-                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
-              <div className="font-bold flex items-center gap-1">
-                <ShieldAlert className="w-3.5 h-3.5 text-amber-700" />
-                Mandatory Audit Trail Enforcement
-              </div>
-              <div>
-                You are about to enter client workspace <strong>{impersonateTarget.name}</strong> as an authenticated operator. All changes will be logged in the immutable audit log under your identity.
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-zinc-700">Audit Reason / Justification</label>
-              <textarea
-                value={impersonateReason}
-                onChange={(e) => setImpersonateReason(e.target.value)}
-                rows={3}
-                className="w-full text-xs rounded-xl border border-zinc-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="State the reason for accessing this client sub-account..."
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setImpersonateTarget(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleStartImpersonation}
-                disabled={impersonating || !impersonateReason.trim()}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
-              >
-                {impersonating ? "Generating Token..." : "Confirm & Enter Portal"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Audit Log JSON Details Modal */}
-      {selectedAuditLog && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full border border-zinc-200 shadow-2xl p-6 space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-zinc-900 font-mono">
-                  {selectedAuditLog.action}
-                </h3>
-                <div className="text-xs text-zinc-500">ID: {selectedAuditLog.id}</div>
-              </div>
-              <button
-                onClick={() => setSelectedAuditLog(null)}
-                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <div className="grid grid-cols-2 gap-2 p-3 bg-zinc-50 rounded-xl font-mono text-[11px]">
-                <div>
-                  <span className="text-zinc-400">Actor:</span> {selectedAuditLog.actor_email}
-                </div>
-                <div>
-                  <span className="text-zinc-400">Role:</span> {selectedAuditLog.actor_role}
-                </div>
-                <div>
-                  <span className="text-zinc-400">Impersonated:</span> {selectedAuditLog.is_impersonated ? "YES" : "NO"}
-                </div>
-                <div>
-                  <span className="text-zinc-400">Impersonator:</span> {selectedAuditLog.impersonator_email || "N/A"}
-                </div>
-                <div>
-                  <span className="text-zinc-400">Tenant:</span> {selectedAuditLog.tenant_id || "Global"}
-                </div>
-                <div>
-                  <span className="text-zinc-400">Time:</span> {new Date(selectedAuditLog.created_at).toISOString()}
-                </div>
-              </div>
-
-              <div>
-                <div className="font-semibold text-zinc-700 mb-1">Payload Details:</div>
-                <pre className="p-3 bg-indigo-600 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto">
-                  {JSON.stringify(selectedAuditLog.details, null, 2)}
-                </pre>
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSelectedAuditLog(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* LiveKit Cloud Scale Limit Increase Modal (Option 3) */}
-      {showScaleIncreaseModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
-                  <Zap className="w-5 h-5 text-indigo-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-zinc-900">
-                    LiveKit Cloud Scale Capacity Upgrade
-                  </h3>
-                  <p className="text-[11px] text-zinc-500 font-mono">
-                    Current Limit: {scaleLimit} Concurrent Channels
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowScaleIncreaseModal(false);
-                  setScaleIncreaseRequested(false);
-                }}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {scaleIncreaseRequested ? (
-              <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-3">
-                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Scale Increase Request Dispatched!</span>
-                </div>
-                <p className="text-xs text-emerald-700 leading-relaxed font-sans">
-                  Your concurrency quota request for <strong>{selectedScaleTier === "scale_100" ? "100 Channels" : selectedScaleTier === "scale_250" ? "250 Channels" : "Enterprise Custom"}</strong> has been logged with LiveKit Cloud Project Dispatch. Expected propagation SLA is &lt;15 minutes with zero audio downtime.
-                </p>
-                <div className="pt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowScaleIncreaseModal(false);
-                      setScaleIncreaseRequested(false);
-                    }}
-                    className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-xs"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4 text-xs">
-                <p className="text-zinc-600 leading-relaxed font-sans">
-                  Select your target LiveKit Cloud concurrency tier to support higher tenant call volumes, multi-line receptionist bursts, and concurrent outbound campaigns without hitting 429 / 503 drops.
-                </p>
-
-                <div className="space-y-2.5">
-                  {[
-                    {
-                      id: "scale_100",
-                      name: "Scale 100",
-                      channels: "100 Concurrent Audio Rooms",
-                      capacity: "Supports ~30 to 50 active tenant organizations",
-                      price: "+$200/mo LiveKit Cloud base",
-                    },
-                    {
-                      id: "scale_250",
-                      name: "Scale 250",
-                      channels: "250 Concurrent Audio Rooms",
-                      capacity: "Supports ~80 to 125 active tenant organizations",
-                      price: "+$450/mo LiveKit Cloud base",
-                    },
-                    {
-                      id: "enterprise",
-                      name: "Enterprise Dedicated SIP",
-                      channels: "500–2,500+ Concurrent Channels",
-                      capacity: "Dedicated SFU edge cluster with 99.99% carrier SLA",
-                      price: "Custom enterprise contract",
-                    },
-                  ].map((tier) => (
-                    <label
-                      key={tier.id}
-                      onClick={() => setSelectedScaleTier(tier.id as any)}
-                      className={`p-3.5 rounded-2xl border flex items-start gap-3 cursor-pointer transition-all ${
-                        selectedScaleTier === tier.id
-                          ? "border-zinc-900 bg-zinc-50 shadow-xs"
-                          : "border-zinc-200 bg-white hover:border-zinc-300"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="scale_tier"
-                        checked={selectedScaleTier === tier.id}
-                        onChange={() => setSelectedScaleTier(tier.id as any)}
-                        className="mt-0.5 text-zinc-900 focus:ring-zinc-900"
-                      />
-                      <div className="flex-1 space-y-0.5">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-zinc-900">{tier.name}</span>
-                          <span className="font-mono text-[11px] font-semibold text-emerald-700">
-                            {tier.price}
-                          </span>
-                        </div>
-                        <div className="text-[11px] font-mono text-zinc-700 font-medium">
-                          {tier.channels}
-                        </div>
-                        <div className="text-[10px] text-zinc-500 font-sans">
-                          {tier.capacity}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-
-                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-[11px] font-mono text-zinc-600 flex items-center justify-between">
-                  <span>Direct LiveKit Console Link:</span>
-                  <a
-                    href="https://cloud.livekit.io/projects/settings"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1"
-                  >
-                    <span>cloud.livekit.io</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-
-                <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowScaleIncreaseModal(false)}
-                    className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setScaleIncreaseRequested(true)}
-                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-colors"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Submit Quota Request</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tenant CoGS & Gross Margin Waterfall Modal (Option 3) */}
-      {showCogsModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
-                  <DollarSign className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-zinc-900">
-                    Tenant CoGS &amp; SaaS Margin Intelligence
-                  </h3>
-                  <p className="text-[11px] text-zinc-500 font-mono">
-                    Client: {showCogsModal.name} (Plan: {showCogsModal.plan_code || "growth"})
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCogsModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              {/* Top Financial Summary KPI */}
-              <div className="grid grid-cols-3 gap-2 p-3.5 rounded-2xl bg-zinc-50 border border-zinc-200 text-center font-mono">
-                <div>
-                  <div className="text-[10px] text-zinc-500 uppercase">Monthly MRR</div>
-                  <div className="text-base font-extrabold text-zinc-900 mt-0.5">
-                    ${showCogsModal.monthly_revenue_usd || 499}.00
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-zinc-500 uppercase">Total CoGS</div>
-                  <div className="text-base font-extrabold text-rose-600 mt-0.5">
-                    ${(showCogsModal.monthly_cogs_usd ?? (showCogsModal.call_count * 2.5 * 0.0225)).toFixed(2)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-emerald-800 uppercase font-bold">Gross Margin</div>
-                  <div className="text-base font-extrabold text-emerald-600 mt-0.5">
-                    {(showCogsModal.gross_margin_pct ?? 95.5).toFixed(1)}%
-                  </div>
-                </div>
-              </div>
-
-              {/* Per-Minute Unit Waterfall */}
-              <div>
-                <div className="text-[11px] font-bold text-zinc-700 uppercase tracking-wide font-mono mb-2">
-                  Real-Time Per-Minute Unit Economics Waterfall:
-                </div>
-                <div className="space-y-2 font-mono">
-                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
-                    <div>
-                      <span className="font-semibold text-zinc-800">LiveKit Cloud WebRTC SFU Media</span>
-                      <div className="text-[10px] text-zinc-400 font-sans">Opus 48kHz audio room routing</div>
-                    </div>
-                    <span className="font-bold text-zinc-900">$0.0040 / min</span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
-                    <div>
-                      <span className="font-semibold text-zinc-800">Deepgram Nova-2 Streaming STT</span>
-                      <div className="text-[10px] text-zinc-400 font-sans">Low-latency acoustic transcription</div>
-                    </div>
-                    <span className="font-bold text-zinc-900">$0.0043 / min</span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
-                    <div>
-                      <span className="font-semibold text-zinc-800">Gemini 2.5 Flash Reasoning LLM</span>
-                      <div className="text-[10px] text-zinc-400 font-sans">~520 input + output tokens / turn</div>
-                    </div>
-                    <span className="font-bold text-zinc-900">$0.0062 / min</span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
-                    <div>
-                      <span className="font-semibold text-zinc-800">Neural TTS Audio Generation</span>
-                      <div className="text-[10px] text-zinc-400 font-sans">Inworld / Rime 24kHz acoustic stream</div>
-                    </div>
-                    <span className="font-bold text-zinc-900">$0.0080 / min</span>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-emerald-300 bg-emerald-50/80 flex items-center justify-between text-emerald-900">
-                    <span className="font-bold">Total Platform Unit Cost:</span>
-                    <span className="font-extrabold text-sm">$0.0225 / min</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-mono text-[11px] text-zinc-600 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span>Billed Minutes Used:</span>
-                  <span className="font-bold text-zinc-800">
-                    {(showCogsModal.minutes_used ?? (showCogsModal.call_count * 2.5)).toFixed(1)} mins
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Net Gross Profit this Month:</span>
-                  <span className="font-bold text-emerald-700">
-                    +${((showCogsModal.monthly_revenue_usd || 499) - (showCogsModal.monthly_cogs_usd ?? (showCogsModal.call_count * 2.5 * 0.0225))).toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowCogsModal(null)}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs"
-                >
-                  Close CoGS Detail
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 export default function AdminDashboardPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="p-8 font-mono text-xs text-zinc-500 flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-          <span>Loading agency command suite...</span>
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="p-8 text-center text-slate-400 font-mono text-xs">Loading Command Center...</div>}>
       <AdminDashboardContent />
     </Suspense>
   );
 }
-
