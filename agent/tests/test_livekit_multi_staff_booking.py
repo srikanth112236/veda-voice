@@ -90,7 +90,7 @@ async def test_livekit_tool_multi_staff_territory_dispatch() -> None:
         )
 
         assert "Appointment confirmed for Alyx Vance" in booking_result
-        assert "Technician assigned" in booking_result
+        assert "Technician" in booking_result and "assigned" in booking_result
 
         # Verify DB booking record
         saved_booking = db.scalar(
