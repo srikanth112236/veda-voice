@@ -46,6 +46,8 @@ import {
   Users,
 } from "lucide-react";
 import { api, CallListItem, CallDetail, LiveActiveCallItem, TestCallSessionResponse } from "@/lib/api";
+import { PaginationBar } from "@/components/ui/pagination";
+import { AcousticWaveformEqualizer, EmptyCallsIllustration } from "@/components/ui/illustrations";
 
 /**
  * Sanitizes dialog text so TTS does not narrate robotic labels like "Apex AI Receptionist:" or "Caller:"
@@ -121,6 +123,10 @@ export default function CallsPage() {
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [detailCall, setDetailCall] = useState<CallDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // QA Override State
   const [showQAOverrideModal, setShowQAOverrideModal] = useState(false);
@@ -1034,6 +1040,11 @@ export default function CallsPage() {
     return true;
   });
 
+  const paginatedCalls = filteredCalls.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1511,12 +1522,15 @@ export default function CallsPage() {
               </tr>
             ) : filteredCalls.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-zinc-500 font-sans">
-                  No calls matching your criteria.
+                <td colSpan={7} className="p-12 text-center text-slate-500">
+                  <div className="flex flex-col items-center justify-center space-y-3">
+                    <EmptyCallsIllustration className="w-16 h-16" />
+                    <p className="text-xs font-semibold text-slate-600">No calls matching your criteria.</p>
+                  </div>
                 </td>
               </tr>
             ) : (
-              filteredCalls.map((call) => {
+              paginatedCalls.map((call) => {
                 const isDone = call.is_followed_up ?? markedFollowedUp[call.id] ?? false;
 
                 return (
@@ -1650,10 +1664,10 @@ export default function CallsPage() {
                               handleTogglePlay();
                             }, 300);
                           }}
-                          className="p-1.5 px-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition-colors"
+                          className="p-1.5 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition-colors"
                           title="Play Call Audio"
                         >
-                          <Play className="w-3 h-3 fill-current text-emerald-400" />
+                          <Play className="w-3 h-3 fill-current text-white" />
                           <span>Play</span>
                         </button>
                         <button
@@ -1694,11 +1708,14 @@ export default function CallsPage() {
             Loading call records...
           </div>
         ) : filteredCalls.length === 0 ? (
-          <div className="p-8 text-center text-zinc-500 font-sans text-xs bg-white rounded-2xl border border-zinc-200">
-            No calls matching your criteria.
+          <div className="p-8 text-center text-slate-500 font-sans text-xs bg-white rounded-2xl border border-slate-200">
+            <div className="flex flex-col items-center justify-center space-y-3">
+              <EmptyCallsIllustration className="w-16 h-16" />
+              <p className="text-xs font-semibold text-slate-600">No calls matching your criteria.</p>
+            </div>
           </div>
         ) : (
-          filteredCalls.map((call) => {
+          paginatedCalls.map((call) => {
             const isDone = call.is_followed_up ?? markedFollowedUp[call.id] ?? false;
 
             return (
@@ -1826,9 +1843,9 @@ export default function CallsPage() {
                         handleTogglePlay();
                       }, 300);
                     }}
-                    className="py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-xs transition-colors"
+                    className="py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-xs transition-colors"
                   >
-                    <Play className="w-3 h-3 fill-current text-emerald-400" />
+                    <Play className="w-3 h-3 fill-current text-white" />
                     Play
                   </button>
                   <button
@@ -1848,6 +1865,18 @@ export default function CallsPage() {
           })
         )}
       </div>
+
+      {/* Pagination Bar */}
+      {filteredCalls.length > 0 && (
+        <PaginationBar
+          currentPage={currentPage}
+          totalItems={filteredCalls.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[10, 25, 50]}
+        />
+      )}
 
       {/* Slide-out Call Detail Drawer with Audio Waveform & Turn Waterfall */}
       {selectedCallId && (
@@ -2021,6 +2050,7 @@ export default function CallsPage() {
                     >
                       {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                       <span>{isPlaying ? "Pause" : "Play Recording"}</span>
+                      <AcousticWaveformEqualizer isPlaying={isPlaying} barCount={5} className="h-3.5 ml-1" />
                     </button>
 
                     <button

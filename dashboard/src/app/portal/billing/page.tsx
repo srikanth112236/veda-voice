@@ -32,6 +32,7 @@ import {
   ShieldAlert,
   Calculator,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
 
 interface TopupPackItem {
   code: string;
@@ -61,6 +62,10 @@ export default function BillingPage() {
   const [downgradeWarning, setDowngradeWarning] = useState<string | null>(null);
   const [billingMode, setBillingMode] = useState<"minute" | "second">("minute");
   const [togglingMode, setTogglingMode] = useState(false);
+
+  // Invoices Pagination State
+  const [invPage, setInvPage] = useState(1);
+  const [invPageSize, setInvPageSize] = useState(5);
 
   // Quote State
   const [quote, setQuote] = useState<BillingQuoteResponse | null>(null);
@@ -565,7 +570,7 @@ export default function BillingPage() {
               type="button"
               onClick={handleOpenCustomerPortal}
               disabled={openingPortal}
-              className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-all"
+              className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all active:scale-[0.98]"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Stripe Customer Portal
@@ -788,7 +793,7 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={() => setShowTopupModal(pack)}
-                className="w-full py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all"
+                className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-2xs transition-all active:scale-[0.98]"
               >
                 Buy Top-Up Pack
               </button>
@@ -819,14 +824,14 @@ export default function BillingPage() {
                 onClick={() => handleSelectTier(plan.id)}
                 className={`p-6 rounded-2xl border text-left cursor-pointer transition-all space-y-4 relative flex flex-col justify-between ${
                   isSelected
-                    ? "border-zinc-900 bg-white ring-2 ring-zinc-900 shadow-md"
+                    ? "border-indigo-600 bg-white ring-2 ring-indigo-500/20 shadow-md"
                     : isCurrent
                     ? "border-emerald-500 bg-emerald-50/20 shadow-xs"
-                    : "border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-xs"
+                    : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs"
                 }`}
               >
                 {plan.badge && (
-                  <span className="absolute -top-3 right-6 px-3 py-0.5 rounded-full bg-zinc-900 text-white text-[10px] font-bold uppercase tracking-wider">
+                  <span className="absolute -top-3 right-6 px-3 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-2xs">
                     {plan.badge}
                   </span>
                 )}
@@ -871,12 +876,12 @@ export default function BillingPage() {
 
                 <div className="pt-2">
                   <div
-                    className={`w-full py-2 rounded-xl text-center text-xs font-bold transition-all ${
+                    className={`w-full py-2.5 rounded-xl text-center text-xs font-bold transition-all ${
                       isSelected
-                        ? "bg-zinc-900 text-white"
+                        ? "bg-indigo-600 text-white shadow-2xs"
                         : isCurrent
-                        ? "bg-emerald-600 text-white"
-                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                        ? "bg-emerald-600 text-white shadow-2xs"
+                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                     }`}
                   >
                     {isCurrent ? "Current Plan" : isSelected ? "✓ Selected Tier" : "Select Tier"}
@@ -927,12 +932,12 @@ export default function BillingPage() {
                   onClick={() => handleSelectTier(p.id)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition-all flex items-center gap-1.5 ${
                     active
-                      ? "bg-zinc-900 text-white shadow-xs"
-                      : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border border-zinc-200"
+                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
                   }`}
                 >
                   <span>{p.name}</span>
-                  <span className={active ? "text-indigo-300" : "text-zinc-500"}>
+                  <span className={active ? "text-indigo-100" : "text-slate-500"}>
                     ${p.price}/mo
                   </span>
                   {isCurrent && (
@@ -1048,40 +1053,40 @@ export default function BillingPage() {
           </div>
 
           {/* Right Column: Executive Summary & Instant Action Box */}
-          <div className="lg:col-span-5 p-5 rounded-2xl bg-zinc-900 text-white flex flex-col justify-between space-y-4 shadow-lg">
+          <div className="lg:col-span-5 p-6 rounded-2xl bg-indigo-50/60 border border-indigo-200/90 text-slate-900 flex flex-col justify-between space-y-4 shadow-2xs">
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                <span className="text-xs uppercase font-mono tracking-wider text-zinc-400">
+              <div className="flex items-center justify-between border-b border-indigo-200/80 pb-3">
+                <span className="text-xs uppercase font-mono tracking-wider text-slate-500 font-bold">
                   Total Due Today
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-mono font-bold">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold border border-emerald-200">
                   Instant Activation
                 </span>
               </div>
 
               <div>
-                <div className="text-3xl font-extrabold font-mono tracking-tight text-white">
-                  ${displayTotalDue.toFixed(2)} <span className="text-xs font-normal text-zinc-400 font-sans">USD</span>
+                <div className="text-3xl font-extrabold font-mono tracking-tight text-slate-900">
+                  ${displayTotalDue.toFixed(2)} <span className="text-xs font-normal text-slate-500 font-sans">USD</span>
                 </div>
-                <p className="text-[11px] text-zinc-400 mt-1">
+                <p className="text-[11px] text-slate-600 mt-1">
                   {displayOnboardingFee > 0
                     ? `Includes $${displayBasePrice.toFixed(2)} base fee + $${displayOnboardingFee.toFixed(2)} one-time setup fee.`
                     : "No onboarding setup fee. Pure base monthly rate."}
                 </p>
               </div>
 
-              <div className="space-y-2 pt-2 border-t border-zinc-800 text-xs font-mono">
-                <div className="flex justify-between text-zinc-300">
-                  <span className="text-zinc-400">Recurring Monthly Rate:</span>
-                  <span className="font-bold">${displayRecurring.toFixed(2)}/mo</span>
+              <div className="space-y-2 pt-2 border-t border-indigo-200/80 text-xs font-mono">
+                <div className="flex justify-between text-slate-700">
+                  <span className="text-slate-500">Recurring Monthly Rate:</span>
+                  <span className="font-bold text-slate-900">${displayRecurring.toFixed(2)}/mo</span>
                 </div>
-                <div className="flex justify-between text-zinc-300">
-                  <span className="text-zinc-400">All-In Unit Cost:</span>
-                  <span className="font-bold">~${displayEffectiveRate} / minute</span>
+                <div className="flex justify-between text-slate-700">
+                  <span className="text-slate-500">All-In Unit Cost:</span>
+                  <span className="font-bold text-slate-900">~${displayEffectiveRate} / minute</span>
                 </div>
-                <div className="flex justify-between text-zinc-300">
-                  <span className="text-zinc-400">Renewal Onboarding Fee:</span>
-                  <span className="text-emerald-400 font-bold">$0.00 (Waived)</span>
+                <div className="flex justify-between text-slate-700">
+                  <span className="text-slate-500">Renewal Onboarding Fee:</span>
+                  <span className="text-emerald-700 font-bold">$0.00 (Waived)</span>
                 </div>
               </div>
             </div>
@@ -1089,8 +1094,8 @@ export default function BillingPage() {
             {/* Action CTA */}
             <div className="pt-2">
               {selectedTier === sub.tier ? (
-                <div className="w-full py-2.5 rounded-xl bg-zinc-800 text-emerald-400 text-xs font-semibold flex items-center justify-center gap-2 border border-zinc-700">
-                  <Check className="w-4 h-4 text-emerald-400" />
+                <div className="w-full py-2.5 rounded-xl bg-indigo-100 text-indigo-900 text-xs font-bold flex items-center justify-center gap-2 border border-indigo-200">
+                  <Check className="w-4 h-4 text-emerald-600" />
                   Currently Active Plan (Auto-Renews)
                 </div>
               ) : isDowngrade ? (
@@ -1108,9 +1113,9 @@ export default function BillingPage() {
                   type="button"
                   disabled={Boolean(downgradeWarning) || loadingQuote}
                   onClick={() => setShowCheckoutModal(true)}
-                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-extrabold flex items-center justify-center gap-2 shadow-md transition-all disabled:opacity-50"
+                  className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
                 >
-                  <Zap className="w-4 h-4 fill-zinc-950" />
+                  <Zap className="w-4 h-4 fill-white" />
                   {sub.is_trial
                     ? `Activate ${selectedTier.toUpperCase()} ($${displayTotalDue.toFixed(2)})`
                     : `Instant Upgrade to ${selectedTier.toUpperCase()} ($${displayTotalDue.toFixed(2)})`}
@@ -1144,7 +1149,7 @@ export default function BillingPage() {
               type="button"
               disabled={validatingCoupon}
               onClick={handleValidateCoupon}
-              className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50"
             >
               {validatingCoupon ? "Validating..." : "Apply Coupon"}
             </button>
@@ -1217,7 +1222,9 @@ export default function BillingPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 font-mono">
-                {invoices.map((inv: any) => (
+                {invoices
+                  .slice((invPage - 1) * invPageSize, invPage * invPageSize)
+                  .map((inv: any) => (
                   <tr key={inv.id} className="hover:bg-zinc-50/80 transition-colors">
                     <td className="p-3 font-bold text-zinc-900">{inv.number}</td>
                     <td className="p-3 text-zinc-600">{inv.date}</td>
@@ -1243,6 +1250,19 @@ export default function BillingPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {invoices.length > 5 && (
+          <div className="pt-2">
+            <PaginationBar
+              currentPage={invPage}
+              totalItems={invoices.length}
+              pageSize={invPageSize}
+              onPageChange={setInvPage}
+              onPageSizeChange={setInvPageSize}
+              pageSizeOptions={[5, 10, 20]}
+            />
           </div>
         )}
       </div>
@@ -1388,9 +1408,9 @@ export default function BillingPage() {
                 type="button"
                 disabled={upgrading}
                 onClick={handleUpgrade}
-                className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
+                className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
               >
-                <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                <Lock className="w-3.5 h-3.5 text-white" />
                 {upgrading ? "Processing..." : `Confirm & Pay $${displayTotalDue.toFixed(2)} USD`}
               </button>
             </div>
@@ -1572,7 +1592,7 @@ export default function BillingPage() {
                       type="button"
                       disabled={submittingRefund}
                       onClick={handleSubmitRefund}
-                      className="px-5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold disabled:opacity-50"
+                      className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
                     >
                       {submittingRefund ? "Submitting..." : "Submit Exception Request"}
                     </button>
@@ -1634,7 +1654,7 @@ export default function BillingPage() {
                 type="button"
                 disabled={purchasingTopup}
                 onClick={handlePurchaseTopup}
-                className="px-5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold disabled:opacity-50"
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
               >
                 {purchasingTopup ? "Processing..." : `Pay $${showTopupModal.price_usd.toFixed(2)} USD`}
               </button>
