@@ -212,6 +212,8 @@ def apply_industry_pack(
             "version_id": app_record.version_id,
             "message": f"Successfully applied pack '{req.pack_slug}' to tenant",
         }
+    except PermissionError as err:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(err)) from err
     except KeyError as err:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
 

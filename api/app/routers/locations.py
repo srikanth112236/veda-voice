@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from api.app.core.deps import get_current_tenant, get_current_user
 from api.app.db.session import get_db
 from api.app.models.location import Location
+from api.app.models.staff import StaffMember
+from api.app.models.subscription import Subscription
 from api.app.models.tenant import PhoneNumber, Tenant
 from api.app.models.user import User
+from api.app.services.calendar.availability import (
+    AvailableSlotsResponse,
+    compute_available_slots,
+)
 from api.app.services.locations import (
     get_location_metrics,
     resolve_location_for_caller,
@@ -83,6 +90,43 @@ class ResolveLocationRequest(BaseModel):
     dialed_number: str | None = None
     postal_code: str | None = None
     spoken_city: str | None = None
+
+
+class LocationStaffResponse(BaseModel):
+    id: str
+    tenant_id: str
+    location_id: str | None
+    name: str
+    email: str
+    phone: str
+    role: str
+    skills: list[str]
+    service_territory_zips: list[str]
+    calendar_provider: str
+    calendar_id: str
+    is_active: bool
+    duty_status: str
+    priority_weight: int
+    last_assigned_at: str | None = None
+    notes: str | None = None
+
+
+class StaffStatusUpdateRequest(BaseModel):
+    duty_status: str = Field(..., pattern="^(on_duty|busy|on_break|off_duty)$")
+
+
+class LocationStaffCreateRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=128)
+    email: str = Field(..., min_length=5, max_length=255)
+    phone: str = ""
+    role: str = "technician"
+    skills: list[str] = Field(default_factory=list)
+    service_territory_zips: list[str] = Field(default_factory=list)
+    calendar_provider: str = "internal"
+    calendar_id: str = "primary"
+    duty_status: str = "on_duty"
+    priority_weight: int = 1
+    notes: str | None = None
 
 
 # --- Endpoints ---
@@ -154,6 +198,18 @@ def create_location(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only tenant owners and managers can create new business locations.",
         )
+
+    # Enforce Subscription Location Quotas
+    sub = db.scalar(select(Subscription).where(Subscription.tenant_id == tenant.id))
+    if sub and user.role != "platform_admin":
+        current_loc_count = (
+            db.scalar(select(func.count(Location.id)).where(Location.tenant_id == tenant.id)) or 0
+        )
+        if current_loc_count >= sub.max_locations:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"Subscription tier '{sub.tier}' limit of {sub.max_locations} location(s) reached. Please upgrade your plan to add more branches.",
+            )
 
     # Check for duplicate code
     existing_code = db.scalar(
@@ -436,3 +492,195 @@ def resolve_incoming_location(
             "is_primary": loc.is_primary,
         },
     }
+
+
+@router.get("/{location_id}/staff", response_model=list[LocationStaffResponse])
+def list_location_staff(
+    location_id: str,
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[LocationStaffResponse]:
+    """List all technicians and staff members assigned to this branch location."""
+    if not user_has_location_access(user, location_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have administrative access to this branch location.",
+        )
+
+    loc = db.scalar(
+        select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+    )
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+
+    staff_members = db.scalars(
+        select(StaffMember)
+        .where(
+            StaffMember.tenant_id == tenant.id,
+            StaffMember.location_id == location_id,
+        )
+        .order_by(StaffMember.name)
+    ).all()
+
+    return [
+        LocationStaffResponse(
+            id=s.id,
+            tenant_id=s.tenant_id,
+            location_id=s.location_id,
+            name=s.name,
+            email=s.email,
+            phone=s.phone,
+            role=s.role,
+            skills=s.skills or [],
+            service_territory_zips=s.service_territory_zips or [],
+            calendar_provider=s.calendar_provider,
+            calendar_id=s.calendar_id,
+            is_active=s.is_active,
+            duty_status=s.duty_status,
+            priority_weight=s.priority_weight,
+            last_assigned_at=s.last_assigned_at.isoformat() if s.last_assigned_at else None,
+            notes=s.notes,
+        )
+        for s in staff_members
+    ]
+
+
+@router.post(
+    "/{location_id}/staff",
+    response_model=LocationStaffResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_location_staff(
+    location_id: str,
+    req: LocationStaffCreateRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LocationStaffResponse:
+    """Create a new staff technician assigned directly to this branch location."""
+    if user.role not in ("platform_admin", "tenant_owner", "tenant_manager"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only tenant owners and managers can add staff members.",
+        )
+
+    loc = db.scalar(
+        select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+    )
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+
+    staff = StaffMember(
+        tenant_id=tenant.id,
+        location_id=location_id,
+        name=req.name.strip(),
+        email=req.email.strip().lower(),
+        phone=req.phone.strip(),
+        role=req.role.strip(),
+        skills=req.skills,
+        service_territory_zips=req.service_territory_zips or loc.service_territory_zips,
+        calendar_provider=req.calendar_provider,
+        calendar_id=req.calendar_id,
+        duty_status=req.duty_status,
+        priority_weight=req.priority_weight,
+        notes=req.notes,
+        is_active=True,
+    )
+    db.add(staff)
+    db.commit()
+    db.refresh(staff)
+
+    return LocationStaffResponse(
+        id=staff.id,
+        tenant_id=staff.tenant_id,
+        location_id=staff.location_id,
+        name=staff.name,
+        email=staff.email,
+        phone=staff.phone,
+        role=staff.role,
+        skills=staff.skills or [],
+        service_territory_zips=staff.service_territory_zips or [],
+        calendar_provider=staff.calendar_provider,
+        calendar_id=staff.calendar_id,
+        is_active=staff.is_active,
+        duty_status=staff.duty_status,
+        priority_weight=staff.priority_weight,
+        last_assigned_at=staff.last_assigned_at.isoformat() if staff.last_assigned_at else None,
+        notes=staff.notes,
+    )
+
+
+@router.patch("/{location_id}/staff/{staff_id}/status")
+def update_staff_duty_status(
+    location_id: str,
+    staff_id: str,
+    req: StaffStatusUpdateRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Toggle or update real-time duty status of a technician at this location."""
+    staff = db.scalar(
+        select(StaffMember).where(
+            StaffMember.id == staff_id,
+            StaffMember.tenant_id == tenant.id,
+            StaffMember.location_id == location_id,
+        )
+    )
+    if not staff:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Staff member '{staff_id}' not found at this location",
+        )
+
+    staff.duty_status = req.duty_status
+    db.commit()
+    return {
+        "success": True,
+        "staff_id": staff.id,
+        "name": staff.name,
+        "location_id": location_id,
+        "duty_status": staff.duty_status,
+    }
+
+
+@router.get("/{location_id}/availability", response_model=AvailableSlotsResponse)
+def get_location_availability(
+    location_id: str,
+    target_date: str = Query(..., description="Target date in YYYY-MM-DD format"),
+    service_type: str | None = Query(None, description="Requested service type"),
+    duration_minutes: int = Query(60, ge=15, le=240),
+    tenant: Tenant = Depends(get_current_tenant),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AvailableSlotsResponse:
+    """Inspect real-time bookable slots specifically for this branch location and its on-duty staff."""
+    if not user_has_location_access(user, location_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have administrative access to this branch location.",
+        )
+
+    loc = db.scalar(
+        select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+    )
+    if not loc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+
+    try:
+        t_date = datetime.strptime(target_date.strip(), "%Y-%m-%d").date()
+    except ValueError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid target_date format. Expected YYYY-MM-DD",
+        ) from err
+
+    return compute_available_slots(
+        tenant=tenant,
+        target_date=t_date,
+        db=db,
+        service_duration_minutes=duration_minutes,
+        service_type=service_type,
+        location_id=location_id,
+    )

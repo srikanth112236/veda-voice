@@ -249,7 +249,15 @@ Note: Platform safety rules and emergency protocols above strictly take preceden
     location_profile = ""
     if getattr(config, "location_name", None):
         city_sub = f" in {config.location_city}" if getattr(config, "location_city", None) else ""
-        location_profile = f"\n- Assigned Branch Location: {config.location_name}{city_sub}"
+        zips = getattr(config, "location_territory_zips", []) or []
+        zips_str = f" (Serving Postal Codes: {', '.join(zips)})" if zips else ""
+        addr = getattr(config, "location_address", None)
+        addr_str = f" | Branch Address: {addr}" if addr else ""
+        transfer = getattr(config, "location_transfer_number", None)
+        transfer_str = f" | Branch Transfer: {transfer}" if transfer else ""
+        emergency = getattr(config, "location_emergency_phone", None)
+        emerg_str = f" | Branch Emergency: {emergency}" if emergency else ""
+        location_profile = f"\n- Assigned Branch Location: {config.location_name}{city_sub}{zips_str}{addr_str}{transfer_str}{emerg_str}"
 
     office_address_str = (
         getattr(config, "office_address", "") or "10400 Metric Blvd, Suite 200, Austin, TX 78758"

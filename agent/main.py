@@ -177,6 +177,12 @@ async def entrypoint(ctx: JobContext) -> None:
                 config.location_id = raw_cfg["location_id"]
                 config.location_name = raw_cfg.get("location_name")
                 config.location_city = raw_cfg.get("location_city")
+                config.location_code = raw_cfg.get("location_code")
+                config.location_phone = raw_cfg.get("location_phone")
+                config.location_address = raw_cfg.get("location_address")
+                config.location_territory_zips = raw_cfg.get("location_territory_zips") or []
+                config.location_transfer_number = raw_cfg.get("location_transfer_number")
+                config.location_emergency_phone = raw_cfg.get("location_emergency_phone")
                 if raw_cfg.get("location_hours"):
                     config.hours = raw_cfg["location_hours"]
             if raw_cfg.get("industry_pack_slug"):

@@ -48,15 +48,19 @@ def filter_eligible_staff(
     service_type: str | None,
     postal_code: str | None,
     db: Session,
+    location_id: str | None = None,
 ) -> list[StaffMember]:
-    """Filter active staff members by service skill capability and territory postal code."""
+    """Filter active, on-duty staff members by service skill capability, branch location, and territory postal code."""
+    query = select(StaffMember).where(
+        StaffMember.tenant_id == tenant_id,
+        StaffMember.is_active == True,  # noqa: E712
+        StaffMember.duty_status == "on_duty",
+    )
+    if location_id:
+        query = query.where(StaffMember.location_id == location_id)
+
     staff_members = db.scalars(
-        select(StaffMember)
-        .where(
-            StaffMember.tenant_id == tenant_id,
-            StaffMember.is_active == True,  # noqa: E712
-        )
-        .order_by(StaffMember.priority_weight.desc(), StaffMember.name)
+        query.order_by(StaffMember.priority_weight.desc(), StaffMember.name)
     ).all()
 
     if not staff_members:
@@ -186,18 +190,31 @@ def compute_multi_staff_available_slots(
     custom_provider: CalendarProvider | None = None,
     scheduling_mode: str = "exact_time",
     arrival_window_hours: int = 2,
+    location_id: str | None = None,
 ) -> AvailableSlotsResponse:
     """Compute aggregate slot availability across all eligible staff for target_date with Google Calendar FreeBusy and Buffer Protection."""
-    # 1. Resolve Timezone
+    # 1. Resolve Timezone (prefer location branch timezone if specified)
+    tz_str = tenant.timezone
+    if location_id:
+        from api.app.models.location import Location
+
+        loc = db.scalar(
+            select(Location).where(Location.id == location_id, Location.tenant_id == tenant.id)
+        )
+        if loc and loc.timezone:
+            tz_str = loc.timezone
+
     try:
-        tz = ZoneInfo(tenant.timezone)
+        tz = ZoneInfo(tz_str)
     except Exception:
         tz = ZoneInfo("America/New_York")
 
     now_tz = datetime.now(tz)
     earliest_allowed = now_tz + timedelta(hours=minimum_notice_hours)
 
-    eligible_staff = filter_eligible_staff(tenant.id, service_type, postal_code, db)
+    eligible_staff = filter_eligible_staff(
+        tenant.id, service_type, postal_code, db, location_id=location_id
+    )
 
     # 2. Operating hours: use tenant default 08:00 - 18:00 if not specified
     open_time = time(8, 0)

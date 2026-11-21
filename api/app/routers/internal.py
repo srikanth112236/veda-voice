@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -63,6 +63,12 @@ class InternalTenantConfigResponse(BaseModel):
     location_name: str | None = None
     location_city: str | None = None
     location_hours: str | None = None
+    location_code: str | None = None
+    location_phone: str | None = None
+    location_address: str | None = None
+    location_territory_zips: list[str] = Field(default_factory=list)
+    location_transfer_number: str | None = None
+    location_emergency_phone: str | None = None
     industry_pack_slug: str | None = None
     industry_pack_prompt: str | None = None
 
@@ -203,6 +209,16 @@ def _build_tenant_config(
         location_name=location.name if location else None,
         location_city=location.city if location else None,
         location_hours=resolved_hours if location else None,
+        location_code=location.code if location else None,
+        location_phone=location.phone if location else None,
+        location_address=f"{location.address_line1}, {location.city}, {location.state} {location.postal_code}".strip(
+            ", "
+        )
+        if location
+        else None,
+        location_territory_zips=location.service_territory_zips if location else [],
+        location_transfer_number=location.transfer_number if location else None,
+        location_emergency_phone=location.emergency_phone if location else None,
         industry_pack_slug=pack_slug,
         industry_pack_prompt=pack_prompt,
     )
@@ -1006,6 +1022,7 @@ class CheckAvailabilityRequest(BaseModel):
     duration_minutes: int = 60
     service_type: str = "general_appointment"
     postal_code: str | None = None
+    location_id: str | None = None
 
 
 class HoldSlotRequest(BaseModel):
@@ -1074,6 +1091,8 @@ def get_slot_availability(
             detail="Invalid target_date format. Expected YYYY-MM-DD",
         ) from err
 
+    effective_loc_id = payload.location_id or claims.get("location_id")
+
     return compute_available_slots(
         tenant=tenant,
         target_date=t_date,
@@ -1081,6 +1100,7 @@ def get_slot_availability(
         service_duration_minutes=payload.duration_minutes,
         service_type=payload.service_type,
         postal_code=payload.postal_code,
+        location_id=effective_loc_id,
     )
 
 
@@ -1188,10 +1208,13 @@ def confirm_appointment_booking(
                 exc_info=True,
             )
 
+        staff_name = booking.staff.name if booking.staff is not None else None
+
         return {
             "status": "confirmed",
             "booking_id": booking.id,
             "staff_id": booking.staff_id,
+            "staff_name": staff_name,
             "location_id": booking.location_id,
             "start_at": booking.start_at.isoformat(),
             "end_at": booking.end_at.isoformat(),

@@ -82,6 +82,17 @@ def parse_tenant_config_from_dict(data: dict[str, Any], dialed_number: str = "")
         transfer_number=data.get("transfer_number", ""),
         call_token=data.get("call_token", ""),
         max_call_duration_seconds=data.get("max_call_duration_seconds", 600),
+        location_id=data.get("location_id"),
+        location_name=data.get("location_name"),
+        location_city=data.get("location_city"),
+        location_code=data.get("location_code"),
+        location_phone=data.get("location_phone"),
+        location_address=data.get("location_address"),
+        location_territory_zips=data.get("location_territory_zips") or [],
+        location_transfer_number=data.get("location_transfer_number"),
+        location_emergency_phone=data.get("location_emergency_phone"),
+        industry_pack_slug=data.get("industry_pack_slug"),
+        industry_pack_prompt=data.get("industry_pack_prompt"),
     )
 
 

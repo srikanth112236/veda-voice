@@ -108,6 +108,7 @@ def compute_available_slots(
     postal_code: str | None = None,
     scheduling_mode: str | None = None,
     arrival_window_hours: int | None = None,
+    location_id: str | None = None,
 ) -> AvailableSlotsResponse:
     """Compute conflict-free available slots or dispatch arrival windows for a given tenant on target_date."""
     # Resolve scheduling mode and buffer time from AgentProfile if not explicitly overridden
@@ -155,6 +156,7 @@ def compute_available_slots(
             minimum_notice_hours=minimum_notice_hours,
             scheduling_mode=scheduling_mode,
             arrival_window_hours=arrival_window_hours,
+            location_id=location_id,
         )
 
     # 1. Resolve Timezone

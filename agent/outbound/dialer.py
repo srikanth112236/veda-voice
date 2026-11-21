@@ -61,3 +61,25 @@ async def trigger_instant_outbound_call(
             logger.warning("LiveKit create_sip_participant warning or mock: %s", e)
 
     return sip_call_id
+
+
+def resolve_outbound_branch_and_script(
+    tenant_id: str,
+    postal_code: str | None,
+    db: Any,
+) -> tuple[str, str, str]:
+    """Resolve nearest branch phone caller ID, branch location_id, and campaign script."""
+    from api.app.services.industry_packs import get_tenant_effective_pack
+    from api.app.services.locations import resolve_location_for_caller
+
+    loc = resolve_location_for_caller(tenant_id=tenant_id, db=db, postal_code=postal_code)
+    caller_id = loc.phone if loc and loc.phone else ""
+    loc_id = loc.id if loc else ""
+
+    pack = get_tenant_effective_pack(tenant_id, db)
+    outbound_scripts = pack.get("outbound_scripts", {})
+    script = ""
+    if outbound_scripts and isinstance(outbound_scripts, dict):
+        script = next(iter(outbound_scripts.values()), "")
+
+    return caller_id, loc_id, script

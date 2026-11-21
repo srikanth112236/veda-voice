@@ -54,6 +54,8 @@ class StaffMember(Base):
     calendar_id: Mapped[str] = mapped_column(String(255), default="primary", nullable=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Duty & Dispatch Status: "on_duty", "busy", "on_break", "off_duty"
+    duty_status: Mapped[str] = mapped_column(String(32), default="on_duty", nullable=False)
 
     # Custom working hours override dict: {"monday": {"start": "08:00", "end": "17:00"}, ...}
     working_hours: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)

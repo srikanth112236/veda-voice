@@ -61,6 +61,12 @@ class IndustryPackVersion(Base):
     status: Mapped[str] = mapped_column(
         String(32), default="published", nullable=False
     )  # draft, published, deprecated
+    # Validation status & system origin
+    validation_status: Mapped[str] = mapped_column(
+        String(32), default="valid", nullable=False
+    )  # valid, incomplete, draft
+    validation_errors: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    is_system_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Prompt blueprint & variable schema
     prompt_base: Mapped[str] = mapped_column(Text, nullable=False)

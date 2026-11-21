@@ -1,5 +1,6 @@
 """Authentication and onboarding endpoints."""
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,11 +12,14 @@ from api.app.core.deps import get_current_user
 from api.app.core.security import create_access_token, hash_password, verify_password
 from api.app.db.session import get_db
 from api.app.models.entitlement import TrialAbuseRecord
+from api.app.models.location import Location
 from api.app.models.subscription import Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.services.entitlements import verify_trial_eligibility
 from api.app.services.livekit_sync import sync_tenant_to_livekit
+
+logger = logging.getLogger("vedavoice.auth")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -49,6 +53,13 @@ class RegisterTenantRequest(BaseModel):
         default_factory=lambda: ["burst pipe", "flooding", "gas leak", "urgent"]
     )
     faq: list[dict[str, Any]] = Field(default_factory=list)
+    # Primary Location details
+    address_line1: str = ""
+    city: str = ""
+    state: str = ""
+    postal_code: str = ""
+    service_territory_zips: list[str] = Field(default_factory=list)
+    niche_pack_slug: str | None = None
 
 
 class UserResponse(BaseModel):
@@ -171,7 +182,27 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
     )
     db.add(agent_profile)
 
-    # Attach phone number if provided
+    # 2. Automatically create Primary Location (HQ) for this tenant
+    primary_location = Location(
+        tenant_id=tenant.id,
+        name=f"{tenant.name} Headquarters",
+        code="HQ",
+        address_line1=req.address_line1 or "",
+        city=req.city or "",
+        state=req.state or "",
+        postal_code=req.postal_code or "",
+        country="US",
+        phone=req.phone_number or "",
+        timezone=tenant.timezone,
+        hours=tenant.hours,
+        service_territory_zips=req.service_territory_zips,
+        is_primary=True,
+        is_active=True,
+    )
+    db.add(primary_location)
+    db.flush()
+
+    # Attach phone number if provided and bind to primary location
     if req.phone_number:
         # Check if number is already in database (from seed pool or existing inventory)
         existing_phone = db.scalar(
@@ -191,11 +222,13 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
                 )
             # Reassign / claim pool number for this new tenant
             existing_phone.tenant_id = tenant.id
+            existing_phone.location_id = primary_location.id
             existing_phone.status = "active"
             existing_phone.label = f"{tenant.name} Main Line"
         else:
             phone = PhoneNumber(
                 tenant_id=tenant.id,
+                location_id=primary_location.id,
                 e164=req.phone_number,
                 provider="livekit",
                 status="active",
@@ -248,7 +281,29 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         ) from ie
     db.refresh(user)
 
-    # 5. Automatically compile & synchronize LiveKit Agent runtime configuration
+    # 5. Automatically apply selected Industry Pack to the newly registered tenant
+    slug_map = {
+        "plumbing": "home_services",
+        "hvac": "home_services",
+        "electrical": "home_services",
+        "home_services": "home_services",
+        "dental": "dental_clinic",
+        "dental_clinic": "dental_clinic",
+        "legal": "legal_intake",
+        "legal_intake": "legal_intake",
+        "general": "general",
+    }
+    pack_slug = req.niche_pack_slug or slug_map.get(req.niche.lower(), "home_services")
+    try:
+        from api.app.services.industry_packs import apply_pack_to_tenant
+
+        apply_pack_to_tenant(tenant_id=tenant.id, pack_slug=pack_slug, db=db)
+    except Exception as pe:
+        logger.warning(
+            "Could not auto-apply industry pack %s during registration: %s", pack_slug, pe
+        )
+
+    # 6. Automatically compile & synchronize LiveKit Agent runtime configuration
     try:
         sync_tenant_to_livekit(tenant.id, db)
     except Exception as e:

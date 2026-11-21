@@ -514,6 +514,9 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
                 pack_id=pack.id,
                 version_semver=blueprint["version"],
                 status="published",
+                validation_status="valid",
+                validation_errors=[],
+                is_system_default=True,
                 prompt_base=blueprint["prompt_base"],
                 prompt_vars_schema=blueprint["prompt_vars_schema"],
                 faq_seed=blueprint["faq_seed"],
@@ -529,6 +532,10 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
             db.add(version)
             db.flush()
             logger.info("Seeded Industry Pack Version: %s v%s", pack.slug, version.version_semver)
+        else:
+            version.is_system_default = True
+            version.validation_status = "valid"
+            db.flush()
 
         seeded_packs.append(pack)
 
@@ -562,6 +569,16 @@ def apply_pack_to_tenant(
     version = db.scalar(version_query)
     if not version:
         raise KeyError(f"No published version found for industry pack '{pack_slug}'")
+
+    # HIPAA Compliance Enforcement
+    if version.requires_hipaa_baa:
+        from api.app.models.subscription import Subscription
+
+        sub = db.scalar(select(Subscription).where(Subscription.tenant_id == tenant_id))
+        if sub and not sub.hipaa_baa_signed:
+            raise PermissionError(
+                "A signed HIPAA Business Associate Agreement (BAA) is required on your subscription before applying this healthcare pack."
+            )
 
     existing_app = db.scalar(
         select(TenantPackApplication).where(TenantPackApplication.tenant_id == tenant_id)
@@ -661,6 +678,17 @@ def compile_tenant_prompt(tenant_id: str, db: Session) -> str:
     biz_name = tenant.name if tenant else "Our Business"
 
     prompt_base: str = str(pack_data.get("prompt_base") or "")
+    if len(prompt_base.strip()) < 10:
+        logger.warning(
+            "Applied industry pack for tenant %s has incomplete prompt_base; applying safe baseline fallback.",
+            tenant_id,
+        )
+        prompt_base = (
+            f"You are a professional, helpful customer receptionist for {biz_name}. "
+            "Assist callers with scheduling appointments, answering common questions, and taking detailed messages. "
+            "If an emergency is detected, calmly instruct the caller on immediate safety precautions and prioritize urgent dispatch."
+        )
+
     schema = pack_data.get("prompt_vars_schema", {})
     overrides_dict = pack_data.get("overrides", {}) or {}
     overrides_vars = overrides_dict.get("vars", {}) or {}
@@ -693,6 +721,13 @@ def compile_tenant_prompt(tenant_id: str, db: Session) -> str:
     safety_advice = overrides_dict.get("custom_safety_script") or emergencies.get(
         "safety_advice", ""
     )
+    if not merged_keywords:
+        merged_keywords = ["urgent", "emergency", "immediate danger"]
+        safety_advice = (
+            safety_advice
+            or "In case of an emergency or immediate danger, please dial 911 or provide your address for priority follow-up."
+        )
+
     if merged_keywords:
         compiled_prompt += (
             f"\nEmergency Triggers: {', '.join(merged_keywords)}. Safety guidance: {safety_advice}"

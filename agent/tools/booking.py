@@ -403,7 +403,12 @@ def create_booking_tools(call_token: str, caller_phone: str = "") -> list[Functi
             )
             if res.get("status") == "confirmed":
                 meet = f" Google Meet: {res['meet_link']}" if res.get("meet_link") else ""
-                tech = " (Technician assigned)" if res.get("staff_id") else ""
+                staff_name = res.get("staff_name")
+                tech = (
+                    f" (Technician {staff_name} assigned)"
+                    if staff_name
+                    else (" (Technician assigned)" if res.get("staff_id") else "")
+                )
                 return f"Appointment confirmed for {customer_name} at {start_iso}. Booking ID: {res.get('booking_id')}.{meet}{tech}"
             return f"Unable to confirm booking: {res.get('message', 'Slot no longer available.')}"
         except Exception as e:

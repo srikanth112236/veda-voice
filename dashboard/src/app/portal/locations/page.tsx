@@ -16,8 +16,12 @@ import {
   AlertCircle,
   ExternalLink,
   ShieldCheck,
+  Calendar,
+  UserCheck,
+  UserX,
+  X,
 } from "lucide-react";
-import { api, TenantLocation } from "@/lib/api";
+import { api, TenantLocation, LocationStaffMember } from "@/lib/api";
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<TenantLocation[]>([]);
@@ -32,6 +36,27 @@ export default function LocationsPage() {
   const [simCity, setSimCity] = useState<string>("");
   const [simResult, setSimResult] = useState<any>(null);
   const [simulating, setSimulating] = useState<boolean>(false);
+
+  // Staff Management State
+  const [staffModalOpen, setStaffModalOpen] = useState<boolean>(false);
+  const [selectedLocForStaff, setSelectedLocForStaff] = useState<TenantLocation | null>(null);
+  const [staffList, setStaffList] = useState<LocationStaffMember[]>([]);
+  const [loadingStaff, setLoadingStaff] = useState<boolean>(false);
+  const [newStaffName, setNewStaffName] = useState<string>("");
+  const [newStaffEmail, setNewStaffEmail] = useState<string>("");
+  const [newStaffPhone, setNewStaffPhone] = useState<string>("");
+  const [newStaffRole, setNewStaffRole] = useState<string>("technician");
+  const [newStaffSkills, setNewStaffSkills] = useState<string>("");
+  const [addingStaff, setAddingStaff] = useState<boolean>(false);
+
+  // Live Slots Inspector State
+  const [slotsModalOpen, setSlotsModalOpen] = useState<boolean>(false);
+  const [selectedLocForSlots, setSelectedLocForSlots] = useState<TenantLocation | null>(null);
+  const [targetSlotDate, setTargetSlotDate] = useState<string>(
+    new Date(Date.now() + 86400000).toISOString().split("T")[0]
+  );
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState<boolean>(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -155,6 +180,84 @@ export default function LocationsPage() {
       await loadLocations();
     } catch (err: any) {
       setMessage({ type: "error", text: err.message || "Failed to delete location" });
+    }
+  };
+
+  const openStaffModal = async (loc: TenantLocation) => {
+    setSelectedLocForStaff(loc);
+    setStaffModalOpen(true);
+    setNewStaffName("");
+    setNewStaffEmail("");
+    setNewStaffPhone("");
+    setNewStaffSkills("");
+    try {
+      setLoadingStaff(true);
+      const staff = await api.listLocationStaff(loc.id);
+      setStaffList(staff);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Failed to load staff for location" });
+    } finally {
+      setLoadingStaff(false);
+    }
+  };
+
+  const handleToggleStaffDutyStatus = async (staff: LocationStaffMember) => {
+    if (!selectedLocForStaff) return;
+    const nextStatus = staff.duty_status === "on_duty" ? "off_duty" : "on_duty";
+    try {
+      await api.updateStaffDutyStatus(selectedLocForStaff.id, staff.id, nextStatus);
+      setStaffList((prev) =>
+        prev.map((s) => (s.id === staff.id ? { ...s, duty_status: nextStatus as any } : s))
+      );
+    } catch (err: any) {
+      alert(`Failed to update technician duty status: ${err.message || err}`);
+    }
+  };
+
+  const handleAddStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLocForStaff) return;
+    try {
+      setAddingStaff(true);
+      const skillsArray = newStaffSkills
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      const created = await api.createLocationStaff(selectedLocForStaff.id, {
+        name: newStaffName,
+        email: newStaffEmail,
+        phone: newStaffPhone,
+        role: newStaffRole,
+        skills: skillsArray,
+        duty_status: "on_duty",
+      });
+      setStaffList((prev) => [...prev, created]);
+      setNewStaffName("");
+      setNewStaffEmail("");
+      setNewStaffPhone("");
+      setNewStaffSkills("");
+    } catch (err: any) {
+      alert(`Failed to add staff: ${err.message || err}`);
+    } finally {
+      setAddingStaff(false);
+    }
+  };
+
+  const openSlotsModal = async (loc: TenantLocation) => {
+    setSelectedLocForSlots(loc);
+    setSlotsModalOpen(true);
+    fetchSlotsForDate(loc.id, targetSlotDate);
+  };
+
+  const fetchSlotsForDate = async (locationId: string, dateStr: string) => {
+    try {
+      setLoadingSlots(true);
+      const res = await api.getLocationAvailability(locationId, dateStr);
+      setAvailableSlots(res.slots || []);
+    } catch (err: any) {
+      setAvailableSlots([]);
+    } finally {
+      setLoadingSlots(false);
     }
   };
 
@@ -360,15 +463,36 @@ export default function LocationsPage() {
               </div>
             </div>
 
-            {/* Metrics Footer */}
-            <div className="pt-3 border-t border-zinc-100 flex items-center justify-between text-xs text-zinc-500 font-medium">
-              <span className="flex items-center gap-1">
-                <Users className="h-3.5 w-3.5 text-zinc-400" />
-                {loc.metrics?.staff_count || 0} Staff
-              </span>
-              <span>{loc.metrics?.phone_count || 0} Lines</span>
-              <span>{loc.metrics?.total_calls || 0} Calls</span>
-              <span>{loc.metrics?.total_bookings || 0} Bookings</span>
+            {/* Quick Actions & Metrics Footer */}
+            <div className="pt-3 border-t border-zinc-100 space-y-2.5">
+              <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
+                <span className="flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5 text-zinc-400" />
+                  {loc.metrics?.staff_count || 0} Staff
+                </span>
+                <span>{loc.metrics?.phone_count || 0} Lines</span>
+                <span>{loc.metrics?.total_calls || 0} Calls</span>
+                <span>{loc.metrics?.total_bookings || 0} Bookings</span>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1 border-t border-zinc-50">
+                <button
+                  type="button"
+                  onClick={() => openStaffModal(loc)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                >
+                  <Users className="h-3 w-3 text-indigo-600" />
+                  Manage Technicians
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openSlotsModal(loc)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                >
+                  <Calendar className="h-3 w-3 text-teal-600" />
+                  Inspect Slots
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -599,6 +723,220 @@ export default function LocationsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Staff / Technicians Roster Modal */}
+      {staffModalOpen && selectedLocForStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-indigo-600" />
+                <h3 className="text-sm font-bold text-zinc-900">
+                  Technicians Roster &bull; {selectedLocForStaff.name} ({selectedLocForStaff.code})
+                </h3>
+              </div>
+              <button
+                onClick={() => setStaffModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 p-1 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-5">
+              {/* Add New Technician Form */}
+              <form onSubmit={handleAddStaff} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-3">
+                <span className="text-xs font-bold text-zinc-800 uppercase tracking-wider block">
+                  Add Technician to Branch
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Full Name (e.g. Dave Miller)"
+                    value={newStaffName}
+                    onChange={(e) => setNewStaffName(e.target.value)}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Email (e.g. dave@example.com)"
+                    value={newStaffEmail}
+                    onChange={(e) => setNewStaffEmail(e.target.value)}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Mobile Phone (for SMS dispatch)"
+                    value={newStaffPhone}
+                    onChange={(e) => setNewStaffPhone(e.target.value)}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Skills (e.g. water_heater, drain_cleaning)"
+                    value={newStaffSkills}
+                    onChange={(e) => setNewStaffSkills(e.target.value)}
+                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    disabled={addingStaff}
+                    className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition"
+                  >
+                    {addingStaff ? "Adding..." : "+ Add to Roster"}
+                  </button>
+                </div>
+              </form>
+
+              {/* Staff List */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-zinc-700 block">
+                  Assigned Technicians ({staffList.length})
+                </span>
+                {loadingStaff ? (
+                  <div className="py-6 text-center text-xs text-zinc-500">Loading technician roster...</div>
+                ) : staffList.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-zinc-400 italic border border-dashed rounded-lg">
+                    No technicians currently assigned to this branch location.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl overflow-hidden">
+                    {staffList.map((st) => (
+                      <div
+                        key={st.id}
+                        className="flex items-center justify-between p-3 bg-white hover:bg-zinc-50/50 transition text-xs"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-zinc-900">{st.name}</span>
+                            <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 font-mono">
+                              {st.role}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-zinc-500 mt-0.5">
+                            {st.email} {st.phone ? `&bull; ${st.phone}` : ""}
+                          </div>
+                          {st.skills && st.skills.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {st.skills.map((sk, i) => (
+                                <span
+                                  key={i}
+                                  className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700"
+                                >
+                                  {sk}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStaffDutyStatus(st)}
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                              st.duty_status === "on_duty"
+                                ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                            }`}
+                            title="Click to toggle Shift Status"
+                          >
+                            {st.duty_status === "on_duty" ? (
+                              <>
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                On Duty
+                              </>
+                            ) : (
+                              <>
+                                <span className="h-1.5 w-1.5 rounded-full bg-zinc-400" />
+                                Off Shift
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Calendar Availability Inspector Modal */}
+      {slotsModalOpen && selectedLocForSlots && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-teal-600" />
+                <h3 className="text-sm font-bold text-zinc-900">
+                  Live Slots Inspector &bull; {selectedLocForSlots.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSlotsModalOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 p-1 rounded"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <div className="flex items-center gap-3">
+                <label className="text-xs font-semibold text-zinc-700">Target Date:</label>
+                <input
+                  type="date"
+                  value={targetSlotDate}
+                  onChange={(e) => {
+                    setTargetSlotDate(e.target.value);
+                    if (selectedLocForSlots) {
+                      fetchSlotsForDate(selectedLocForSlots.id, e.target.value);
+                    }
+                  }}
+                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-teal-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => selectedLocForSlots && fetchSlotsForDate(selectedLocForSlots.id, targetSlotDate)}
+                  className="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 transition"
+                >
+                  Refresh Slots
+                </button>
+              </div>
+
+              <div>
+                <span className="text-xs font-bold text-zinc-700 block mb-2">
+                  Open Bookable Slots on {targetSlotDate} ({availableSlots.length})
+                </span>
+                {loadingSlots ? (
+                  <div className="py-8 text-center text-xs text-zinc-500">Calculating real-time slots...</div>
+                ) : availableSlots.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-zinc-400 italic border border-dashed rounded-lg">
+                    No conflict-free slots available on this date for this branch. Ensure technicians are set to On Duty.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {availableSlots.map((slot, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-lg border border-teal-200 bg-teal-50/50 p-2 text-center text-xs text-teal-900 font-semibold"
+                      >
+                        {slot.display_time || slot.start_iso?.split("T")[1]?.slice(0, 5)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

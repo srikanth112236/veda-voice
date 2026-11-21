@@ -304,6 +304,12 @@ export default function IndustryPacksPage() {
                   <p className="mt-2 text-xs text-zinc-600 line-clamp-2">{p.description}</p>
 
                   <div className="mt-3 flex flex-wrap items-center gap-1.5 pt-2 border-t border-zinc-100">
+                    {p.validation_status === "incomplete" && (
+                      <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                        <AlertTriangle className="h-3 w-3 text-amber-600" />
+                        Draft / Fallback Mode
+                      </span>
+                    )}
                     {p.requires_hipaa_baa && (
                       <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 border border-amber-200">
                         <ShieldCheck className="h-3 w-3" />
@@ -348,6 +354,18 @@ export default function IndustryPacksPage() {
                     {applying ? "Applying Blueprint..." : packDetail.is_applied ? "Already Active" : "Apply Blueprint"}
                   </button>
                 </div>
+
+                {packDetail.validation_status === "incomplete" && (
+                  <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 text-xs text-amber-900">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-bold">Incomplete / Draft Industry Pack:</strong>
+                      <p className="mt-0.5 text-[11px] text-amber-800 leading-relaxed">
+                        This blueprint is currently in draft mode. When activated, the AI voice agent automatically applies safe commercial baseline fallbacks for any missing prompts or emergency triggers, guaranteeing complete operational safety during calls.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Appointment Types */}
                 <div>

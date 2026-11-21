@@ -90,6 +90,12 @@ class TenantConfig(BaseModel):
     location_id: str | None = None
     location_name: str | None = None
     location_city: str | None = None
+    location_code: str | None = None
+    location_phone: str | None = None
+    location_address: str | None = None
+    location_territory_zips: list[str] = Field(default_factory=list)
+    location_transfer_number: str | None = None
+    location_emergency_phone: str | None = None
 
     @property
     def emergency_keywords(self) -> list[str]:

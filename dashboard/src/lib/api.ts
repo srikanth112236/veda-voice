@@ -756,6 +756,12 @@ export const api = {
     emergency_advice?: string;
     emergency_keywords?: string[];
     faq?: Array<{ question: string; answer: string }>;
+    address_line1?: string;
+    city?: string;
+    state?: string;
+    postal_code?: string;
+    service_territory_zips?: string[];
+    niche_pack_slug?: string;
   }) =>
     request<AuthResponse>("/api/v1/auth/register", {
       method: "POST",
@@ -1728,6 +1734,31 @@ export const api = {
       method: "DELETE",
     }),
 
+  listLocationStaff: (locationId: string) =>
+    request<LocationStaffMember[]>(`/api/v1/portal/locations/${locationId}/staff`),
+
+  createLocationStaff: (locationId: string, data: Partial<LocationStaffMember>) =>
+    request<LocationStaffMember>(`/api/v1/portal/locations/${locationId}/staff`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateStaffDutyStatus: (locationId: string, staffId: string, status: string) =>
+    request<{ success: boolean; staff_id: string; duty_status: string }>(
+      `/api/v1/portal/locations/${locationId}/staff/${staffId}/status`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ duty_status: status }),
+      }
+    ),
+
+  getLocationAvailability: (locationId: string, targetDate: string, serviceType?: string) =>
+    request<{ slots: Array<any>; available_count: number }>(
+      `/api/v1/portal/locations/${locationId}/availability?target_date=${targetDate}${
+        serviceType ? `&service_type=${serviceType}` : ""
+      }`
+    ),
+
   resolveLocation: (data: { dialed_number?: string; postal_code?: string; spoken_city?: string }) =>
     request<{
       resolved: boolean;
@@ -2009,6 +2040,8 @@ export interface IndustryPackSummary {
   active_version?: string;
   is_applied?: boolean;
   requires_hipaa_baa?: boolean;
+  validation_status?: "valid" | "incomplete" | "draft";
+  validation_errors?: string[];
   allowed_outbound_categories?: string[];
   permitted_outbound_categories?: string[];
 }
@@ -2085,6 +2118,25 @@ export interface TenantLocation {
     total_calls: number;
     total_bookings: number;
   };
+}
+
+export interface LocationStaffMember {
+  id: string;
+  tenant_id: string;
+  location_id: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  skills: string[];
+  service_territory_zips: string[];
+  calendar_provider: string;
+  calendar_id: string;
+  is_active: boolean;
+  duty_status: "on_duty" | "busy" | "on_break" | "off_duty";
+  priority_weight: number;
+  last_assigned_at: string | null;
+  notes: string | null;
 }
 
 export interface VoiceCampaignSummary {

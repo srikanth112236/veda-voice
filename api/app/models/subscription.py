@@ -51,6 +51,11 @@ class Subscription(Base):
         String(16), default="minute", nullable=False
     )  # "minute" or "second"
 
+    # Multi-Location & Enterprise Capabilities (Milestone M11)
+    max_locations: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    allow_custom_packs: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    hipaa_baa_signed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # Stripe Identifiers
     stripe_customer_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

@@ -74,6 +74,12 @@ export default function OnboardingPage() {
     timezone: "America/New_York",
     hours: "Monday to Friday, 8:00 AM to 6:00 PM EST",
     niche: "plumbing",
+    niche_pack_slug: "home_services",
+    address_line1: "100 Congress Ave",
+    city: "Austin",
+    state: "TX",
+    postal_code: "78701",
+    service_territory_zips: "78701, 78702, 78703, 78704",
     phone_number: "+15125550199",
     tts_voice: "Alex",
     agent_name: "Alex",
@@ -496,6 +502,15 @@ export default function OnboardingPage() {
         emergency_advice: formData.emergency_advice,
         emergency_keywords: formData.emergency_keywords,
         faq: formData.faq,
+        address_line1: formData.address_line1,
+        city: formData.city,
+        state: formData.state,
+        postal_code: formData.postal_code,
+        service_territory_zips: formData.service_territory_zips
+          .split(",")
+          .map((z) => z.trim())
+          .filter((z) => z.length > 0),
+        niche_pack_slug: formData.niche_pack_slug,
       });
 
       if (typeof window !== "undefined") {
@@ -686,6 +701,57 @@ export default function OnboardingPage() {
                   className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
                   placeholder="Monday to Friday, 8:00 AM to 6:00 PM EST"
                 />
+              </div>
+
+              {/* Primary Location Dispatch & Territory */}
+              <div className="space-y-1.5 sm:col-span-2 pt-3 border-t border-zinc-100">
+                <span className="text-xs font-bold text-zinc-800 block">
+                  Primary Headquarters &amp; Service Territory Geofence
+                </span>
+                <p className="text-[11px] text-zinc-500 mb-2">
+                  Used by the AI receptionist to confirm physical branch service availability and dispatch technicians.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <input
+                    type="text"
+                    value={formData.address_line1}
+                    onChange={(e) => setFormData({ ...formData, address_line1: e.target.value })}
+                    className="sm:col-span-2 px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Street Address (e.g. 100 Congress Ave)"
+                  />
+                  <input
+                    type="text"
+                    value={formData.city}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    className="px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="City (e.g. Austin)"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formData.state}
+                      onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                      className="w-16 px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      placeholder="State (TX)"
+                    />
+                    <input
+                      type="text"
+                      value={formData.postal_code}
+                      onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
+                      className="flex-1 px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
+                      placeholder="Zip (78701)"
+                    />
+                  </div>
+                </div>
+                <div className="pt-2">
+                  <input
+                    type="text"
+                    value={formData.service_territory_zips}
+                    onChange={(e) => setFormData({ ...formData, service_territory_zips: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
+                    placeholder="Service Territory Postal Codes (comma-separated, e.g. 78701, 78702, 78703)"
+                  />
+                </div>
               </div>
             </div>
           </div>
