@@ -42,6 +42,24 @@ class UpdateOverridesRequest(BaseModel):
     custom_notes: str | None = None
 
 
+class PreviewPromptRequest(BaseModel):
+    pack_slug: str = Field(..., min_length=2, max_length=64)
+    vars: dict[str, Any] = Field(default_factory=dict)
+    emergency_keywords: list[str] = Field(default_factory=list)
+    custom_safety_script: str = ""
+    custom_intake_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class SandboxTurnRequest(BaseModel):
+    pack_slug: str = Field(..., min_length=2, max_length=64)
+    message: str = Field(..., min_length=1)
+    history: list[dict[str, str]] = Field(default_factory=list)
+    vars: dict[str, Any] = Field(default_factory=dict)
+    emergency_keywords: list[str] = Field(default_factory=list)
+    custom_safety_script: str = ""
+    custom_intake_schema: dict[str, Any] = Field(default_factory=dict)
+
+
 class PackSummaryResponse(BaseModel):
     id: str
     slug: str
@@ -265,3 +283,199 @@ def run_pack_test_scenarios(
     """Run automated 10-scenario validation evaluation suite against tenant's active pack."""
     evaluation = evaluate_pack_test_scenarios(tenant.id, db)
     return evaluation
+
+
+@router.post("/preview-prompt", status_code=status.HTTP_200_OK)
+def preview_pack_prompt(
+    req: PreviewPromptRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Compile and preview industry pack prompt in real-time with variable overrides and intake trees."""
+    from api.app.services.industry_packs import LAUNCH_PACKS
+
+    blueprint = next((p for p in LAUNCH_PACKS if p["slug"] == req.pack_slug), None)
+    if not blueprint:
+        pack = db.scalar(select(IndustryPack).where(IndustryPack.slug == req.pack_slug))
+        if not pack or not pack.versions:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Pack '{req.pack_slug}' not found"
+            )
+        ver = pack.versions[0]
+        prompt_base = ver.prompt_base
+        schema = ver.prompt_vars_schema
+        emergencies = ver.emergency_rules or {}
+        intake_schema = req.custom_intake_schema or ver.intake_schema or {}
+    else:
+        prompt_base = blueprint["prompt_base"]
+        schema = blueprint["prompt_vars_schema"]
+        emergencies = blueprint.get("emergency_rules", {})
+        intake_schema = req.custom_intake_schema or blueprint.get("intake_schema", {})
+
+    substitutions: dict[str, str] = {
+        "business_name": str(
+            req.vars.get("business_name") or req.vars.get("practice_name") or tenant.name
+        )
+    }
+    for var_name, spec in schema.items():
+        if var_name in req.vars:
+            substitutions[var_name] = str(req.vars[var_name])
+        elif var_name not in substitutions:
+            substitutions[var_name] = str(spec.get("default", ""))
+
+    compiled_prompt = prompt_base
+    for k, v in substitutions.items():
+        compiled_prompt = compiled_prompt.replace(f"{{{{{k}}}}}", v)
+
+    merged_keywords = list(emergencies.get("keywords", []))
+    for ck in req.emergency_keywords:
+        if ck and ck not in merged_keywords:
+            merged_keywords.append(ck)
+
+    safety_advice = req.custom_safety_script or emergencies.get("safety_advice", "")
+    if merged_keywords:
+        compiled_prompt += (
+            f"\nEmergency Triggers: {', '.join(merged_keywords)}. Safety guidance: {safety_advice}"
+        )
+
+    fields = intake_schema.get("fields", [])
+    if fields:
+        title = intake_schema.get("title", "Caller Intake & Triage")
+        intake_lines = [f"\n\n# {title.upper()} PROTOCOL:"]
+        intake_lines.append(
+            "Before confirming an appointment booking, you must conversationally ask the caller the following triage intake questions and extract the answers into structured intake details:"
+        )
+        for fld in fields:
+            req_str = "Required" if fld.get("required") else "Optional"
+            opts = f" (Options: {', '.join(fld['options'])})" if fld.get("options") else ""
+            intake_lines.append(
+                f"- [{fld.get('key')}] ({req_str}){opts}: {fld.get('prompt') or fld.get('label')}"
+            )
+        intake_lines.append(
+            "When calling the booking tool, provide these triage answers in the 'intake_details' parameter."
+        )
+        compiled_prompt += "\n".join(intake_lines)
+
+    return {
+        "pack_slug": req.pack_slug,
+        "compiled_prompt": compiled_prompt,
+        "substitutions": substitutions,
+        "emergency_triggers": merged_keywords,
+        "safety_advice": safety_advice,
+        "intake_tree_active": bool(fields),
+        "fields_count": len(fields),
+    }
+
+
+@router.post("/sandbox/turn", status_code=status.HTTP_200_OK)
+def simulate_sandbox_turn(
+    req: SandboxTurnRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Execute interactive conversational turn in studio sandbox against compiled pack rules."""
+    from api.app.services.industry_packs import LAUNCH_PACKS
+
+    blueprint = next((p for p in LAUNCH_PACKS if p["slug"] == req.pack_slug), None)
+    msg_low = req.message.lower().strip()
+
+    # 1. Evaluate emergency detection
+    keywords = list(blueprint.get("emergency_rules", {}).get("keywords", [])) if blueprint else []
+    for ck in req.emergency_keywords:
+        if ck and ck not in keywords:
+            keywords.append(ck)
+    if not keywords:
+        keywords = ["gas leak", "burst pipe", "flooding", "abscess", "arrested"]
+
+    matched_kw = next((kw for kw in keywords if kw.lower() in msg_low), None)
+    is_emergency = matched_kw is not None
+    safety_script = (
+        req.custom_safety_script
+        or (blueprint.get("emergency_rules", {}).get("safety_advice", "") if blueprint else "")
+        or "Please stay in a safe location outdoors and call 911 if in immediate danger."
+    )
+    biz_name = str(req.vars.get("business_name") or req.vars.get("practice_name") or tenant.name)
+    escalated_to = str(req.vars.get("emergency_phone") or "+18005550199")
+
+    # 2. Extract structured intake answers
+    intake_schema = req.custom_intake_schema or (
+        blueprint.get("intake_schema", {}) if blueprint else {}
+    )
+    fields = intake_schema.get("fields", [])
+    extracted_intake: dict[str, Any] = {}
+
+    for fld in fields:
+        k = fld.get("key")
+        opts = fld.get("options", [])
+        if opts:
+            for opt in opts:
+                if opt.lower() in msg_low:
+                    extracted_intake[k] = opt
+                    break
+        elif k == "issue_summary" and len(msg_low) > 8:
+            extracted_intake[k] = req.message
+        elif k == "chief_complaint" and any(
+            w in msg_low for w in ("pain", "tooth", "molar", "swelling", "ache", "clean")
+        ):
+            extracted_intake[k] = req.message
+        elif k == "practice_area":
+            for area in ("personal injury", "employment", "criminal", "litigation", "estate"):
+                if area in msg_low:
+                    extracted_intake[k] = area.title()
+                    break
+
+    # 3. Conversational response generation
+    if is_emergency:
+        reply = (
+            f"I understand this is an urgent emergency regarding {matched_kw}. "
+            f"{safety_script} "
+            f"I am connecting you directly with our on-call technician at {biz_name} now."
+        )
+    elif any(g in msg_low for g in ("hello", "hi", "hey", "good morning", "good afternoon")):
+        specialties = req.vars.get("specialties") or "professional commercial services"
+        reply = (
+            f"Thanks for calling {biz_name}! We specialize in {specialties}. "
+            "How can I assist you with scheduling or service today?"
+        )
+    elif any(
+        b in msg_low
+        for b in ("book", "schedule", "appointment", "opening", "slot", "tomorrow", "friday")
+    ):
+        pending_field = next(
+            (
+                fld
+                for fld in fields
+                if fld.get("required") and fld.get("key") not in extracted_intake
+            ),
+            None,
+        )
+        if pending_field and len(req.history) < 2:
+            reply = f"I would be glad to help schedule that for you. {pending_field.get('prompt') or pending_field.get('label')}"
+        else:
+            reply = (
+                f"I have conflict-free openings tomorrow at 10:00 AM or 2:00 PM for {biz_name}. "
+                "Which of those times works best for you?"
+            )
+    elif any(p in msg_low for p in ("fee", "price", "cost", "how much", "rate")):
+        fee = (
+            req.vars.get("diagnostic_fee")
+            or req.vars.get("consultation_fee")
+            or "standard competitive pricing"
+        )
+        reply = f"For our service visits, {biz_name} has {fee}. Would you like to check open appointment slots?"
+    else:
+        reply = (
+            f"Thank you for contacting {biz_name}. I can assist with scheduling an appointment, "
+            "answering questions about our services, or having an on-call team member follow up. What can I help you with?"
+        )
+
+    return {
+        "reply": reply,
+        "role": "assistant",
+        "detected_emergency": is_emergency,
+        "emergency_trigger": matched_kw,
+        "safety_advice": safety_script if is_emergency else "",
+        "escalated_to": escalated_to if is_emergency else None,
+        "extracted_intake": extracted_intake,
+        "turn_count": len(req.history) + 1,
+    }

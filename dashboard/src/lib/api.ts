@@ -1711,6 +1711,49 @@ export const api = {
       method: "POST",
     }),
 
+  previewPackPrompt: (data: {
+    pack_slug: string;
+    vars?: Record<string, any>;
+    emergency_keywords?: string[];
+    custom_safety_script?: string;
+    custom_intake_schema?: Record<string, any>;
+  }) =>
+    request<{
+      pack_slug: string;
+      compiled_prompt: string;
+      substitutions: Record<string, string>;
+      emergency_triggers: string[];
+      safety_advice: string;
+      intake_tree_active: boolean;
+      fields_count: number;
+    }>("/api/v1/portal/industry-packs/preview-prompt", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  simulateSandboxTurn: (data: {
+    pack_slug: string;
+    message: string;
+    history?: Array<{ role: string; text: string }>;
+    vars?: Record<string, any>;
+    emergency_keywords?: string[];
+    custom_safety_script?: string;
+    custom_intake_schema?: Record<string, any>;
+  }) =>
+    request<{
+      reply: string;
+      role: string;
+      detected_emergency: boolean;
+      emergency_trigger?: string;
+      safety_advice?: string;
+      escalated_to?: string;
+      extracted_intake: Record<string, any>;
+      turn_count: number;
+    }>("/api/v1/portal/industry-packs/sandbox/turn", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   // Multi-Location Tenant Architecture (Milestone M11, FR-LOC-1 to 6)
   listLocations: (includeInactive = false) =>
     request<TenantLocation[]>(

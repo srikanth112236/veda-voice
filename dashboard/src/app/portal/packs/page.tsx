@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Briefcase,
   CheckCircle2,
@@ -13,11 +13,40 @@ import {
   ShieldCheck,
   Clock,
   ClipboardList,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Send,
+  Plus,
+  X,
+  Radio,
+  Cpu,
+  Flame,
+  PhoneCall,
+  Terminal,
 } from "lucide-react";
 import { api, IndustryPackSummary, IndustryPackDetail } from "@/lib/api";
 
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  is_emergency?: boolean;
+  timestamp: string;
+}
+
+interface SandboxHudState {
+  detectedEmergency: boolean;
+  emergencyTrigger?: string;
+  safetyAdvice?: string;
+  escalatedTo?: string;
+  extractedIntake: Record<string, any>;
+  turnCount: number;
+}
+
 export default function IndustryPacksPage() {
-  const [activeTab, setActiveTab] = useState<"catalog" | "overrides" | "test">("catalog");
+  const [activeTab, setActiveTab] = useState<"catalog" | "studio" | "sandbox" | "test">("catalog");
   const [packs, setPacks] = useState<IndustryPackSummary[]>([]);
   const [selectedPackSlug, setSelectedPackSlug] = useState<string>("home_services");
   const [packDetail, setPackDetail] = useState<IndustryPackDetail | null>(null);
@@ -29,10 +58,34 @@ export default function IndustryPacksPage() {
   const [testResult, setTestResult] = useState<any>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // Overrides form state
-  const [emergencyKeywordsInput, setEmergencyKeywordsInput] = useState<string>("");
-  const [customSafetyScript, setCustomSafetyScript] = useState<string>("");
-  const [customVarsJson, setCustomVarsJson] = useState<string>("{}");
+  // Customization Studio state
+  const [studioVars, setStudioVars] = useState<Record<string, string>>({});
+  const [studioEmergencyKeywords, setStudioEmergencyKeywords] = useState<string[]>([]);
+  const [newKeywordInput, setNewKeywordInput] = useState<string>("");
+  const [studioSafetyScript, setStudioSafetyScript] = useState<string>("");
+  const [studioCompiledPrompt, setStudioCompiledPrompt] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
+  const [previewStats, setPreviewStats] = useState<{
+    substitutionsCount: number;
+    triggersCount: number;
+    intakeActive: boolean;
+    fieldsCount: number;
+  }>({ substitutionsCount: 0, triggersCount: 0, intakeActive: false, fieldsCount: 0 });
+
+  // Sandbox state
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [userInput, setUserInput] = useState<string>("");
+  const [isSendingTurn, setIsSendingTurn] = useState<boolean>(false);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [speechSynthesisEnabled, setSpeechSynthesisEnabled] = useState<boolean>(true);
+  const [hudState, setHudState] = useState<SandboxHudState>({
+    detectedEmergency: false,
+    extractedIntake: {},
+    turnCount: 0,
+  });
+
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const speechRecognitionRef = useRef<any>(null);
 
   const loadData = async () => {
     try {
@@ -64,16 +117,8 @@ export default function IndustryPacksPage() {
         is_applied: detail.slug === activeSlug,
       });
 
-      // Hydrate overrides
-      if (applied?.overrides) {
-        setEmergencyKeywordsInput(
-          (applied.overrides.emergency_keywords || []).join(", ")
-        );
-        setCustomSafetyScript(applied.overrides.custom_safety_script || "");
-        setCustomVarsJson(
-          JSON.stringify(applied.overrides.vars || {}, null, 2)
-        );
-      }
+      // Hydrate Studio State
+      hydrateStudio(detail, applied?.overrides);
     } catch (err: any) {
       console.error("Failed to load industry packs", err);
       setMessage({ type: "error", text: err.message || "Failed to load industry packs" });
@@ -82,9 +127,73 @@ export default function IndustryPacksPage() {
     }
   };
 
+  const hydrateStudio = (detail: IndustryPackDetail, overrides?: Record<string, any>) => {
+    // 1. Prompt Variables
+    const defaultVars: Record<string, string> = {};
+    if (detail.prompt_vars_schema) {
+      for (const [k, v] of Object.entries(detail.prompt_vars_schema)) {
+        defaultVars[k] = (v as any)?.default || "";
+      }
+    }
+    const mergedVars = { ...defaultVars, ...(overrides?.vars || {}) };
+    setStudioVars(mergedVars);
+
+    // 2. Emergency Keywords
+    const defaultKeywords = detail.emergency_rules?.keywords || detail.emergency_protocol?.triggers || [];
+    const mergedKeywords = Array.from(
+      new Set([...defaultKeywords, ...(overrides?.emergency_keywords || [])])
+    );
+    setStudioEmergencyKeywords(mergedKeywords);
+
+    // 3. Safety Script
+    const safetyScript =
+      overrides?.custom_safety_script ||
+      detail.emergency_rules?.safety_advice ||
+      detail.emergency_protocol?.script ||
+      "";
+    setStudioSafetyScript(safetyScript);
+
+    // Initial recompile preview
+    triggerPromptPreview(detail.slug, mergedVars, mergedKeywords, safetyScript);
+  };
+
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatHistory, isSendingTurn]);
+
+  const triggerPromptPreview = async (
+    slug: string,
+    vars: Record<string, string>,
+    keywords: string[],
+    safetyScript: string
+  ) => {
+    try {
+      setPreviewLoading(true);
+      const res = await api.previewPackPrompt({
+        pack_slug: slug,
+        vars,
+        emergency_keywords: keywords,
+        custom_safety_script: safetyScript,
+      });
+      setStudioCompiledPrompt(res.compiled_prompt);
+      setPreviewStats({
+        substitutionsCount: Object.keys(res.substitutions || {}).length,
+        triggersCount: res.emergency_triggers?.length || 0,
+        intakeActive: res.intake_tree_active,
+        fieldsCount: res.fields_count,
+      });
+    } catch (err) {
+      console.warn("Failed to preview prompt", err);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
   const handleSelectPack = async (slug: string) => {
     setSelectedPackSlug(slug);
@@ -95,6 +204,8 @@ export default function IndustryPacksPage() {
         ...detail,
         is_applied: detail.slug === activeSlug,
       });
+      hydrateStudio(detail, currentApplied?.overrides);
+      resetSandboxSession(slug);
     } catch (err: any) {
       console.error("Failed to fetch pack detail", err);
     }
@@ -117,37 +228,199 @@ export default function IndustryPacksPage() {
     }
   };
 
-  const handleSaveOverrides = async () => {
+  const handleSaveStudioOverrides = async () => {
     try {
       setSavingOverrides(true);
       setMessage(null);
 
-      let parsedVars = {};
-      try {
-        parsedVars = JSON.parse(customVarsJson);
-      } catch {
-        throw new Error("Custom Variables must be valid JSON format");
-      }
-
-      const keywords = emergencyKeywordsInput
-        .split(",")
-        .map((k) => k.trim())
-        .filter((k) => k.length > 0);
-
       await api.updatePackOverrides({
-        vars: parsedVars,
-        emergency_keywords: keywords,
-        custom_safety_script: customSafetyScript,
+        vars: studioVars,
+        emergency_keywords: studioEmergencyKeywords,
+        custom_safety_script: studioSafetyScript,
       });
 
-      setMessage({ type: "success", text: "Custom pack overrides updated and compiled." });
+      setMessage({ type: "success", text: "Studio customizations compiled and saved to voice agent!" });
       await loadData();
     } catch (err: any) {
-      setMessage({ type: "error", text: err.message || "Failed to save overrides" });
+      setMessage({ type: "error", text: err.message || "Failed to save studio customizations" });
     } finally {
       setSavingOverrides(false);
     }
   };
+
+  const handleAddKeyword = () => {
+    const trimmed = newKeywordInput.trim().toLowerCase();
+    if (!trimmed) return;
+    if (!studioEmergencyKeywords.includes(trimmed)) {
+      const updated = [...studioEmergencyKeywords, trimmed];
+      setStudioEmergencyKeywords(updated);
+      setNewKeywordInput("");
+      triggerPromptPreview(selectedPackSlug, studioVars, updated, studioSafetyScript);
+    }
+  };
+
+  const handleRemoveKeyword = (keywordToRemove: string) => {
+    const updated = studioEmergencyKeywords.filter((k) => k !== keywordToRemove);
+    setStudioEmergencyKeywords(updated);
+    triggerPromptPreview(selectedPackSlug, studioVars, updated, studioSafetyScript);
+  };
+
+  const handleVarChange = (key: string, value: string) => {
+    const updated = { ...studioVars, [key]: value };
+    setStudioVars(updated);
+    triggerPromptPreview(selectedPackSlug, updated, studioEmergencyKeywords, studioSafetyScript);
+  };
+
+  // Sandbox Speech & Interaction
+  const speakText = (text: string) => {
+    if (!speechSynthesisEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const toggleVoiceListening = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+      return;
+    }
+
+    if (isListening) {
+      speechRecognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setUserInput(transcript);
+        setIsListening(false);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Speech recognition error:", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error("Speech recognition failed to start", err);
+      setIsListening(false);
+    }
+  };
+
+  const handleSendTurn = async (forcedText?: string) => {
+    const textToSend = (forcedText || userInput).trim();
+    if (!textToSend || isSendingTurn) return;
+
+    const userMessage: ChatMessage = {
+      id: `msg_u_${Date.now()}`,
+      role: "user",
+      text: textToSend,
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    setChatHistory((prev) => [...prev, userMessage]);
+    setUserInput("");
+    setIsSendingTurn(true);
+
+    try {
+      const historyPayload = chatHistory.map((m) => ({
+        role: m.role,
+        text: m.text,
+      }));
+
+      const res = await api.simulateSandboxTurn({
+        pack_slug: selectedPackSlug,
+        message: textToSend,
+        history: historyPayload,
+        vars: studioVars,
+        emergency_keywords: studioEmergencyKeywords,
+        custom_safety_script: studioSafetyScript,
+      });
+
+      const assistantMessage: ChatMessage = {
+        id: `msg_a_${Date.now()}`,
+        role: "assistant",
+        text: res.reply,
+        is_emergency: res.detected_emergency,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+
+      setChatHistory((prev) => [...prev, assistantMessage]);
+
+      setHudState((prev) => ({
+        detectedEmergency: res.detected_emergency || prev.detectedEmergency,
+        emergencyTrigger: res.emergency_trigger || prev.emergencyTrigger,
+        safetyAdvice: res.safety_advice || prev.safetyAdvice,
+        escalatedTo: res.escalated_to || prev.escalatedTo,
+        extractedIntake: { ...prev.extractedIntake, ...(res.extracted_intake || {}) },
+        turnCount: res.turn_count,
+      }));
+
+      // Speak assistant reply
+      speakText(res.reply);
+    } catch (err: any) {
+      console.error("Failed sandbox turn", err);
+      const errMsg: ChatMessage = {
+        id: `msg_err_${Date.now()}`,
+        role: "assistant",
+        text: "Error executing turn: " + (err.message || "Failed to reach simulation agent."),
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setChatHistory((prev) => [...prev, errMsg]);
+    } finally {
+      setIsSendingTurn(false);
+    }
+  };
+
+  const resetSandboxSession = (slug?: string) => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    const currentSlug = slug || selectedPackSlug;
+    const biz = studioVars["business_name"] || studioVars["practice_name"] || "our company";
+    setChatHistory([
+      {
+        id: `msg_init_${Date.now()}`,
+        role: "assistant",
+        text: `Thanks for calling ${biz}! How can I help you today?`,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      },
+    ]);
+    setHudState({
+      detectedEmergency: false,
+      extractedIntake: {},
+      turnCount: 0,
+    });
+  };
+
+  useEffect(() => {
+    resetSandboxSession();
+  }, [selectedPackSlug]);
 
   const handleRunTests = async () => {
     try {
@@ -169,6 +442,35 @@ export default function IndustryPacksPage() {
   const currentPackName = currentApplied?.pack_name || currentApplied?.applied_pack?.name || currentApplied?.pack_slug;
   const currentPackVersion = currentApplied?.version_semver || currentApplied?.applied_pack?.active_version || "1.0.0";
 
+  // Scenario pills tailored to current industry pack
+  const getScenarioPills = () => {
+    if (selectedPackSlug === "home_services") {
+      return [
+        { label: "🚨 Burst Pipe Emergency", text: "Help! There is a burst pipe in my basement and water is pouring everywhere!" },
+        { label: "🚨 Gas Odor Emergency", text: "I smell strong natural gas near the water heater." },
+        { label: "📅 Schedule Plumbing Service", text: "I need to schedule a residential plumbing inspection for tomorrow morning." },
+        { label: "💰 Diagnostic Fee Query", text: "How much is your diagnostic dispatch fee for coming out?" },
+      ];
+    } else if (selectedPackSlug === "dental_clinic") {
+      return [
+        { label: "🚨 Severe Abscess Emergency", text: "I have severe unbearable toothache and swelling under my jaw!" },
+        { label: "📅 Schedule Routine Cleaning", text: "I'd like to book a routine dental cleaning and checkup this Friday." },
+        { label: "💰 Consultation Pricing", text: "What are your fees for new patient examinations?" },
+      ];
+    } else if (selectedPackSlug === "legal_intake") {
+      return [
+        { label: "🚨 Urgent Arrest / Bail", text: "My family member was arrested an hour ago and is being held in custody." },
+        { label: "⚖️ Personal Injury Claim", text: "I was injured in a car collision and need to consult with an attorney." },
+        { label: "📅 Book Legal Consultation", text: "Can I book a 30-minute consultation regarding an employment contract dispute?" },
+      ];
+    }
+    return [
+      { label: "🚨 Urgent Life Safety Alert", text: "We have an urgent emergency and need immediate technician assistance!" },
+      { label: "📅 Appointment Scheduling", text: "I would like to schedule an appointment for tomorrow afternoon." },
+      { label: "💰 Service Rates Query", text: "Could you tell me your standard rates and business hours?" },
+    ];
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -184,7 +486,7 @@ export default function IndustryPacksPage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-zinc-500">
-            Pre-built operational blueprints, prompt synthesizers, emergency protocols, and automated 10-scenario QA suites.
+            Operational blueprints, interactive studio prompt synthesizers, live voice sandbox, and automated QA suites.
           </p>
         </div>
 
@@ -230,7 +532,7 @@ export default function IndustryPacksPage() {
           onClick={() => setActiveTab("catalog")}
           className={`pb-3 border-b-2 flex items-center gap-2 transition ${
             activeTab === "catalog"
-              ? "border-indigo-600 text-indigo-600"
+              ? "border-indigo-600 text-indigo-600 font-semibold"
               : "border-transparent text-zinc-500 hover:text-zinc-800"
           }`}
         >
@@ -238,21 +540,32 @@ export default function IndustryPacksPage() {
           Blueprint Catalog
         </button>
         <button
-          onClick={() => setActiveTab("overrides")}
+          onClick={() => setActiveTab("studio")}
           className={`pb-3 border-b-2 flex items-center gap-2 transition ${
-            activeTab === "overrides"
-              ? "border-indigo-600 text-indigo-600"
+            activeTab === "studio"
+              ? "border-indigo-600 text-indigo-600 font-semibold"
               : "border-transparent text-zinc-500 hover:text-zinc-800"
           }`}
         >
           <Sliders className="h-4 w-4" />
-          Tenant Custom Overrides
+          Customization Studio
+        </button>
+        <button
+          onClick={() => setActiveTab("sandbox")}
+          className={`pb-3 border-b-2 flex items-center gap-2 transition ${
+            activeTab === "sandbox"
+              ? "border-indigo-600 text-indigo-600 font-semibold"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          <Radio className="h-4 w-4" />
+          Live Voice & Text Sandbox
         </button>
         <button
           onClick={() => setActiveTab("test")}
           className={`pb-3 border-b-2 flex items-center gap-2 transition ${
             activeTab === "test"
-              ? "border-indigo-600 text-indigo-600"
+              ? "border-indigo-600 text-indigo-600 font-semibold"
               : "border-transparent text-zinc-500 hover:text-zinc-800"
           }`}
         >
@@ -343,17 +656,26 @@ export default function IndustryPacksPage() {
                     </div>
                     <p className="mt-1 text-xs text-zinc-500">{packDetail.description}</p>
                   </div>
-                  <button
-                    onClick={() => handleApplyPack(packDetail.slug)}
-                    disabled={applying || packDetail.is_applied}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium text-white transition ${
-                      packDetail.is_applied
-                        ? "bg-zinc-400 cursor-not-allowed"
-                        : "bg-indigo-600 hover:bg-indigo-700 shadow-sm"
-                    }`}
-                  >
-                    {applying ? "Applying Blueprint..." : packDetail.is_applied ? "Already Active" : "Apply Blueprint"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setActiveTab("studio")}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition"
+                    >
+                      <Sliders className="h-3.5 w-3.5" />
+                      Open Studio
+                    </button>
+                    <button
+                      onClick={() => handleApplyPack(packDetail.slug)}
+                      disabled={applying || packDetail.is_applied}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium text-white transition ${
+                        packDetail.is_applied
+                          ? "bg-zinc-400 cursor-not-allowed"
+                          : "bg-indigo-600 hover:bg-indigo-700 shadow-sm"
+                      }`}
+                    >
+                      {applying ? "Applying Blueprint..." : packDetail.is_applied ? "Already Active" : "Apply Blueprint"}
+                    </button>
+                  </div>
                 </div>
 
                 {packDetail.validation_status === "incomplete" && (
@@ -451,24 +773,6 @@ export default function IndustryPacksPage() {
                           )}
                         </div>
                       ))}
-                      {(!packDetail.intake_schema?.fields || packDetail.intake_schema.fields.length === 0) &&
-                        packDetail.intake_questions?.map((iq: any) => (
-                          <div
-                            key={iq.id}
-                            className="rounded-lg border border-zinc-100 bg-zinc-50 p-2.5 text-xs flex items-center justify-between"
-                          >
-                            <span className="text-zinc-700 font-medium">{iq.question}</span>
-                            <span
-                              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
-                                iq.required
-                                  ? "bg-emerald-100 text-emerald-800"
-                                  : "bg-zinc-200 text-zinc-600"
-                              }`}
-                            >
-                              {iq.required ? "Required" : "Optional"}
-                            </span>
-                          </div>
-                        ))}
                     </div>
                   </div>
                 )}
@@ -514,76 +818,463 @@ export default function IndustryPacksPage() {
         </div>
       )}
 
-      {/* Tab 2: Custom Overrides */}
-      {activeTab === "overrides" && (
-        <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm space-y-6">
-          <div>
-            <h3 className="text-sm font-bold text-zinc-900">Tenant-Level Custom Overrides</h3>
-            <p className="mt-1 text-xs text-zinc-500">
-              Customize emergency detection triggers, dispatch safety scripts, and variable dictionaries for your applied industry pack.
-            </p>
+      {/* Tab 2: Customization Studio */}
+      {activeTab === "studio" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Column: Interactive Form Controls */}
+          <div className="lg:col-span-6 space-y-5">
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-5">
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900">Customization Studio Controls</h3>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Fine-tune variables, life safety rules, and emergency routing for {packDetail?.name || selectedPackSlug}.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveTab("sandbox")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition"
+                >
+                  <Radio className="h-3.5 w-3.5" />
+                  Test in Sandbox
+                </button>
+              </div>
+
+              {/* Dynamic Variables from Schema */}
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-600 mb-2.5 flex items-center gap-1.5">
+                  <Cpu className="h-3.5 w-3.5 text-indigo-600" />
+                  Prompt Variable Substitutions
+                </h4>
+                <div className="space-y-3">
+                  {packDetail?.prompt_vars_schema && Object.keys(packDetail.prompt_vars_schema).length > 0 ? (
+                    Object.entries(packDetail.prompt_vars_schema).map(([key, schema]: [string, any]) => (
+                      <div key={key}>
+                        <label className="block text-xs font-medium text-zinc-700 mb-1">
+                          {key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                          <code className="ml-1.5 text-[10px] font-mono text-zinc-400">({`{${key}}`})</code>
+                        </label>
+                        <input
+                          type="text"
+                          value={studioVars[key] || ""}
+                          onChange={(e) => handleVarChange(key, e.target.value)}
+                          placeholder={schema.default || `Enter ${key}`}
+                          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-zinc-400 italic">No variables required for this blueprint.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Emergency Triggers Tags Manager */}
+              <div className="border-t border-zinc-100 pt-4">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-600 mb-1 flex items-center gap-1.5">
+                  <Flame className="h-3.5 w-3.5 text-amber-600" />
+                  Emergency Detection Keywords
+                </h4>
+                <p className="text-[11px] text-zinc-400 mb-2">
+                  Keywords that instantly flag life safety emergencies, whisper briefing alerts, and trigger warm transfers.
+                </p>
+
+                <div className="flex flex-wrap gap-1.5 mb-2.5">
+                  {studioEmergencyKeywords.map((kw) => (
+                    <span
+                      key={kw}
+                      className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-1 text-xs font-medium text-amber-900"
+                    >
+                      {kw}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveKeyword(kw)}
+                        className="text-amber-600 hover:text-amber-800 focus:outline-none"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newKeywordInput}
+                    onChange={(e) => setNewKeywordInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddKeyword();
+                      }
+                    }}
+                    placeholder="Add trigger keyword (e.g. electrical fire, severe collapse)..."
+                    className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddKeyword}
+                    className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 transition"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Safety Guidance Script */}
+              <div className="border-t border-zinc-100 pt-4">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 mb-1">
+                  Agent Life Safety Guidance Script
+                </label>
+                <p className="text-[11px] text-zinc-400 mb-2">
+                  What the voice receptionist must calmly speak to the caller while immediately bridging the technician.
+                </p>
+                <textarea
+                  rows={3}
+                  value={studioSafetyScript}
+                  onChange={(e) => {
+                    setStudioSafetyScript(e.target.value);
+                    triggerPromptPreview(selectedPackSlug, studioVars, studioEmergencyKeywords, e.target.value);
+                  }}
+                  placeholder="e.g. Please step outside into a well-ventilated area away from the premises immediately. I am escalating directly to our emergency dispatch team right now."
+                  className="w-full rounded-lg border border-zinc-300 p-2.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="border-t border-zinc-100 pt-4 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() =>
+                    triggerPromptPreview(
+                      selectedPackSlug,
+                      studioVars,
+                      studioEmergencyKeywords,
+                      studioSafetyScript
+                    )
+                  }
+                  disabled={previewLoading}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
+                >
+                  <RotateCw className={`h-3 w-3 ${previewLoading ? "animate-spin" : ""}`} />
+                  Recompile Preview
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveStudioOverrides}
+                  disabled={savingOverrides}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-700 transition shadow-sm"
+                >
+                  {savingOverrides ? "Saving Changes..." : "Save & Apply to Voice Agent"}
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Additional Emergency Keywords (Comma-separated)
-              </label>
-              <input
-                type="text"
-                value={emergencyKeywordsInput}
-                onChange={(e) => setEmergencyKeywordsInput(e.target.value)}
-                placeholder="e.g. gas leak, sparking wires, ceiling collapsed"
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
-              />
-              <p className="mt-1 text-[11px] text-zinc-400">
-                These keywords immediately trigger tier 1 dispatch escalation and bypass standard triage queues.
+          {/* Right Column: Live Prompt Preview */}
+          <div className="lg:col-span-6 space-y-4">
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-indigo-600" />
+                  <h3 className="text-sm font-bold text-zinc-900">Live Compiled Prompt Preview</h3>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+                  <span className="rounded bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                    {previewStats.substitutionsCount} vars
+                  </span>
+                  <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">
+                    {previewStats.triggersCount} triggers
+                  </span>
+                  {previewStats.intakeActive && (
+                    <span className="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                      {previewStats.fieldsCount} triage fields
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs text-zinc-500">
+                This shows the exact compiled system prompt that your LiveKit voice agent loads for incoming calls, incorporating all variable substitutions, life safety rules, and intake triage trees.
               </p>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Custom Emergency Safety Script (Spoken by Agent)
-              </label>
-              <textarea
-                rows={3}
-                value={customSafetyScript}
-                onChange={(e) => setCustomSafetyScript(e.target.value)}
-                placeholder="e.g. If you suspect gas or electrical hazards, please evacuate the building immediately and dial 911."
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Custom Prompt Variables (JSON)
-              </label>
-              <textarea
-                rows={6}
-                value={customVarsJson}
-                onChange={(e) => setCustomVarsJson(e.target.value)}
-                placeholder='{"diagnostic_fee": "$89", "service_radius_miles": 25}'
-                className="w-full rounded-lg border border-zinc-300 p-3 font-mono text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
-              />
-              <p className="mt-1 text-[11px] text-zinc-400">
-                Variables are interpolated directly into your LiveKit agent prompt blueprint.
-              </p>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={handleSaveOverrides}
-                disabled={savingOverrides}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-700 transition"
-              >
-                {savingOverrides ? "Saving..." : "Save Overrides & Recompile"}
-              </button>
+              <div className="relative">
+                <pre className="max-h-[540px] overflow-y-auto rounded-lg bg-zinc-950 p-4 font-mono text-[11px] text-zinc-200 leading-relaxed whitespace-pre-wrap selection:bg-indigo-800">
+                  {studioCompiledPrompt || "Loading compiled prompt..."}
+                </pre>
+                {previewLoading && (
+                  <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] flex items-center justify-center rounded-lg text-white text-xs font-mono">
+                    Compiling preview...
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Tab 3: QA Test Runner */}
+      {/* Tab 3: Live Voice & Text Sandbox */}
+      {activeTab === "sandbox" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Main Chat Area */}
+          <div className="lg:col-span-7 flex flex-col rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden h-[640px]">
+            {/* Sandbox Header */}
+            <div className="border-b border-zinc-200 bg-zinc-50/70 p-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span className="text-xs font-semibold text-zinc-800">
+                  Interactive Voice Sandbox • {packDetail?.name || selectedPackSlug}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSpeechSynthesisEnabled(!speechSynthesisEnabled)}
+                  title={speechSynthesisEnabled ? "Audio speech is ON" : "Audio speech is MUTED"}
+                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium border transition ${
+                    speechSynthesisEnabled
+                      ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                      : "border-zinc-200 bg-zinc-100 text-zinc-500"
+                  }`}
+                >
+                  {speechSynthesisEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                  {speechSynthesisEnabled ? "Speech On" : "Muted"}
+                </button>
+
+                <button
+                  onClick={() => resetSandboxSession()}
+                  className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 transition"
+                >
+                  <RotateCw className="h-3 w-3" />
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Scenario Pills */}
+            <div className="border-b border-zinc-100 bg-zinc-50/40 p-2.5 overflow-x-auto flex gap-1.5 scrollbar-thin">
+              <span className="text-[10px] uppercase font-semibold text-zinc-400 self-center mr-1 whitespace-nowrap">
+                Quick Utterances:
+              </span>
+              {getScenarioPills().map((pill, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleSendTurn(pill.text)}
+                  disabled={isSendingTurn}
+                  className="whitespace-nowrap rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:border-indigo-300 hover:bg-indigo-50/50 transition shadow-2xs"
+                >
+                  {pill.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Messages Transcript */}
+            <div ref={chatContainerRef} className="flex-1 p-4 overflow-y-auto space-y-3.5 bg-zinc-50/20">
+              {chatHistory.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+                >
+                  <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] text-zinc-400 font-mono">
+                    <span>{msg.role === "user" ? "Caller" : "AI Receptionist"}</span>
+                    <span>•</span>
+                    <span>{msg.timestamp}</span>
+                  </div>
+
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-2xs leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-indigo-600 text-white rounded-br-none"
+                        : msg.is_emergency
+                        ? "bg-amber-50 border border-amber-300 text-amber-950 font-medium rounded-bl-none ring-1 ring-amber-400/50"
+                        : "bg-white border border-zinc-200 text-zinc-800 rounded-bl-none"
+                    }`}
+                  >
+                    {msg.is_emergency && (
+                      <div className="flex items-center gap-1.5 text-amber-800 font-bold mb-1 border-b border-amber-200 pb-1">
+                        <Flame className="h-3.5 w-3.5 text-amber-600 animate-pulse" />
+                        <span>Life Safety Emergency Escalation Activated</span>
+                      </div>
+                    )}
+                    <p>{msg.text}</p>
+                  </div>
+                </div>
+              ))}
+
+              {isSendingTurn && (
+                <div className="flex items-center gap-2 text-xs text-zinc-400 italic py-1 px-2">
+                  <span className="h-2 w-2 rounded-full bg-indigo-500 animate-ping" />
+                  AI Receptionist is synthesizing response...
+                </div>
+              )}
+            </div>
+
+            {/* Input Row */}
+            <div className="border-t border-zinc-200 p-3 bg-white">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendTurn();
+                }}
+                className="flex items-center gap-2"
+              >
+                <button
+                  type="button"
+                  onClick={toggleVoiceListening}
+                  className={`p-2 rounded-lg border transition ${
+                    isListening
+                      ? "border-rose-500 bg-rose-50 text-rose-600 animate-pulse"
+                      : "border-zinc-300 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                  }`}
+                  title={isListening ? "Listening... click to stop" : "Speak via Microphone"}
+                >
+                  {isListening ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4 text-zinc-400" />}
+                </button>
+
+                <input
+                  type="text"
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  placeholder={
+                    isListening
+                      ? "Listening to your voice..."
+                      : "Type a caller inquiry or speak via microphone..."
+                  }
+                  className="flex-1 rounded-lg border border-zinc-300 px-3.5 py-2 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
+                />
+
+                <button
+                  type="submit"
+                  disabled={!userInput.trim() || isSendingTurn}
+                  className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition shadow-sm"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Send
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Right Column: Live Extraction & Life Safety HUD */}
+          <div className="lg:col-span-5 space-y-4">
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-5">
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+                <h3 className="text-sm font-bold text-zinc-900">Real-Time Extraction & Safety HUD</h3>
+                <span className="rounded bg-zinc-100 px-2 py-0.5 text-[11px] font-mono text-zinc-600">
+                  Turn {hudState.turnCount}
+                </span>
+              </div>
+
+              {/* Emergency Status Banner */}
+              <div
+                className={`rounded-xl border p-3.5 text-xs transition ${
+                  hudState.detectedEmergency
+                    ? "border-rose-300 bg-rose-50 text-rose-950 shadow-xs"
+                    : "border-emerald-200 bg-emerald-50/60 text-emerald-950"
+                }`}
+              >
+                <div className="flex items-center justify-between font-bold mb-1.5">
+                  <span className="flex items-center gap-1.5">
+                    {hudState.detectedEmergency ? (
+                      <>
+                        <Flame className="h-4 w-4 text-rose-600 animate-bounce" />
+                        <span className="text-rose-900 uppercase tracking-wide">
+                          Life Safety Emergency Active
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        <span className="text-emerald-900">Standard Operational Mode</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                {hudState.detectedEmergency ? (
+                  <div className="space-y-1.5 text-[11px]">
+                    <div className="flex items-center gap-1">
+                      <span className="text-rose-700">Trigger Detected:</span>
+                      <strong className="rounded bg-rose-100 px-1.5 py-0.2 font-mono text-rose-900">
+                        {hudState.emergencyTrigger || "life safety alert"}
+                      </strong>
+                    </div>
+                    {hudState.escalatedTo && (
+                      <div className="flex items-center gap-1">
+                        <PhoneCall className="h-3 w-3 text-rose-600" />
+                        <span className="text-rose-700">Warm SIP Escalation:</span>
+                        <strong className="font-mono text-rose-950">{hudState.escalatedTo}</strong>
+                      </div>
+                    )}
+                    {hudState.safetyAdvice && (
+                      <div className="rounded bg-rose-100/70 p-2 font-mono text-[10px] text-rose-900 border border-rose-200">
+                        {hudState.safetyAdvice}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-emerald-800">
+                    No life safety hazards triggered. Agent is conducting conversational triage and qualification.
+                  </p>
+                )}
+              </div>
+
+              {/* Dynamic Intake Extraction View */}
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-600 mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <ClipboardList className="h-3.5 w-3.5 text-indigo-600" />
+                    Live CRM Extracted Intake Fields
+                  </span>
+                  <span className="text-[10px] font-normal text-zinc-400">
+                    {Object.keys(hudState.extractedIntake).length} extracted
+                  </span>
+                </h4>
+
+                {Object.keys(hudState.extractedIntake).length > 0 ? (
+                  <div className="space-y-2">
+                    {Object.entries(hudState.extractedIntake).map(([key, val]) => (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 text-xs"
+                      >
+                        <span className="font-mono font-medium text-zinc-600 text-[11px]">{key}</span>
+                        <span className="rounded bg-indigo-50 px-2 py-0.5 font-semibold text-indigo-700 text-xs">
+                          {String(val)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-zinc-200 p-4 text-center text-xs text-zinc-400">
+                    No intake fields extracted yet. Speak or type answers (e.g. trade type, urgency level, property type) to watch live CRM extraction.
+                  </div>
+                )}
+              </div>
+
+              {/* Pack Metadata */}
+              <div className="border-t border-zinc-100 pt-3 text-xs space-y-1 text-zinc-500">
+                <div className="flex justify-between">
+                  <span>Tested Blueprint:</span>
+                  <span className="font-mono font-medium text-zinc-800">{selectedPackSlug}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Simulation Engine:</span>
+                  <span className="font-mono text-zinc-600">VedaVoice Prompt Synthesizer v2</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: QA Test Runner */}
       {activeTab === "test" && (
         <div className="space-y-5">
           <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -608,9 +1299,13 @@ export default function IndustryPacksPage() {
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm text-zinc-900">Scorecard:</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                    testResult.score_pct >= 90 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                  }`}>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                      testResult.score_pct >= 90
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
                     {testResult.score_pct}% ({testResult.passed_scenarios}/{testResult.total_scenarios} passed)
                   </span>
                   <span className="text-xs text-zinc-500 font-mono">Pack: {testResult.pack_slug}</span>
