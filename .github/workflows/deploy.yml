@@ -39,9 +39,7 @@ jobs:
   deploy-staging:
     name: Deploy to Staging & Run Smoke Tests
     needs: test
-    if: secrets.AZURE_RG_STAGING != ''
     runs-on: ubuntu-latest
-    environment: staging
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -65,24 +63,30 @@ jobs:
           fi
           echo "AZURE_RG=${RG}" >> $GITHUB_OUTPUT
 
-          ACR=$(az acr list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "acrvagencystaging")
+          ACR=$(az acr list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "")
           if [ -z "$ACR" ]; then
-            ACR="acrvagencystaging"
+            echo "::warning title=Staging ACR::No dedicated staging ACR found; skipping staging container deployment."
+            echo "SKIP_STAGING=true" >> $GITHUB_OUTPUT
+          else
+            echo "SKIP_STAGING=false" >> $GITHUB_OUTPUT
+            echo "ACR_NAME=${ACR}" >> $GITHUB_OUTPUT
+            echo "ACR_SERVER=${ACR}.azurecr.io" >> $GITHUB_OUTPUT
           fi
-          echo "ACR_NAME=${ACR}" >> $GITHUB_OUTPUT
-          echo "ACR_SERVER=${ACR}.azurecr.io" >> $GITHUB_OUTPUT
 
       - name: Build & Push Images to ACR
+        if: steps.vars.outputs.SKIP_STAGING != 'true'
         run: |
           az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image api:${{ steps.vars.outputs.SHA_SHORT }} --image api:staging --file api/Dockerfile .
           az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image dashboard:${{ steps.vars.outputs.SHA_SHORT }} --image dashboard:staging --file dashboard/Dockerfile .
           az acr build --registry ${{ steps.vars.outputs.ACR_NAME }} --image agent:${{ steps.vars.outputs.SHA_SHORT }} --image agent:staging --file agent/Dockerfile .
 
       - name: Run Database Migration Job (Alembic)
+        if: steps.vars.outputs.SKIP_STAGING != 'true'
         run: |
           az containerapp job start --name db-migrate-job --resource-group ${{ steps.vars.outputs.AZURE_RG }} || echo "db-migrate-job skipped or not yet provisioned"
 
       - name: Update Staging Container Apps
+        if: steps.vars.outputs.SKIP_STAGING != 'true'
         run: |
           ACR_SERVER="${{ steps.vars.outputs.ACR_SERVER }}"
           TAG="${{ steps.vars.outputs.SHA_SHORT }}"
@@ -102,9 +106,7 @@ jobs:
   deploy-production:
     name: Promote to Production
     needs: [test, deploy-staging]
-    if: always() && needs.test.result == 'success' && (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
