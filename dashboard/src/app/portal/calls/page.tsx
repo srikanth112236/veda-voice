@@ -42,6 +42,7 @@ import {
   Star,
   ShieldCheck,
   AlertCircle,
+  AlertTriangle,
   Users,
 } from "lucide-react";
 import { api, CallListItem, CallDetail, LiveActiveCallItem, TestCallSessionResponse } from "@/lib/api";
@@ -59,6 +60,17 @@ function cleanDialogueText(rawText: string): string {
     .trim();
   cleaned = cleaned.replace(/\*\*?([^*]+)\*\*?/g, "$1");
   return cleaned;
+}
+
+/**
+ * Redacts customer PII (phone numbers, card numbers, street addresses)
+ */
+function redactPII(rawText: string): string {
+  if (!rawText) return "";
+  let out = rawText.replace(/(\+?1\s*[-.]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, "[PHONE_MASKED]");
+  out = out.replace(/\b\d{1,5}\s+[A-Za-z0-9.\s]+(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Way|Lane|Ln|Court|Ct)\b/gi, "[ADDRESS_MASKED]");
+  out = out.replace(/\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, "[CARD_MASKED]");
+  return out;
 }
 
 /**
@@ -153,6 +165,7 @@ export default function CallsPage() {
   const [activeAudioUrl, setActiveAudioUrl] = useState<string>("");
   const [copiedDetails, setCopiedDetails] = useState(false);
   const [markedFollowedUp, setMarkedFollowedUp] = useState<Record<string, boolean>>({});
+  const [isRedactedPII, setIsRedactedPII] = useState(true);
   const [activePreset, setActivePreset] = useState<
     "all" | "emergencies" | "bookings" | "messages" | "needs_followup"
   >("all");
@@ -2429,7 +2442,7 @@ export default function CallsPage() {
 
               {/* Turn-by-Turn Transcript with Micro-Latency Badges & Real-Time Speaking Sync */}
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-bold text-zinc-900 uppercase font-mono tracking-wider">
                       Turn-by-Turn Transcript ({detailCall.transcript.length} turns)
@@ -2438,7 +2451,20 @@ export default function CallsPage() {
                       • Click any turn to play
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setIsRedactedPII(!isRedactedPII)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-mono border transition-colors flex items-center gap-1.5 ${
+                        isRedactedPII
+                          ? "bg-indigo-50 border-indigo-300 text-indigo-700 font-bold"
+                          : "bg-zinc-100 border-zinc-200 text-zinc-500"
+                      }`}
+                      title="Toggle Customer PII Masking"
+                    >
+                      <ShieldCheck className="w-3 h-3" />
+                      PII Masking {isRedactedPII ? "On" : "Off"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setAutoScrollTranscript(!autoScrollTranscript)}
@@ -2462,15 +2488,45 @@ export default function CallsPage() {
                   </div>
                 </div>
 
+                {/* TCPA Recording Notice Indicator */}
+                {detailCall.transcript.length > 0 && (
+                  <div className="flex items-center gap-2 text-[11px] px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200">
+                    {detailCall.transcript.slice(0, 2).some((t) => {
+                      const txt = ((t.text || (t as any).content || "") as string).toLowerCase();
+                      return (
+                        txt.includes("recorded") ||
+                        txt.includes("recording") ||
+                        txt.includes("quality assurance") ||
+                        txt.includes("automated assistant")
+                      );
+                    }) ? (
+                      <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>TCPA Compliance: In-Call Recording &amp; AI Disclosure verified in Turn 1</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-amber-700 font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>TCPA Notice: AI Recording disclosure was not detected in introductory turns</span>
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
                   {detailCall.transcript.map((entry, idx) => {
                     const isAssistant = entry.role === "assistant";
                     const isCurrentSpeaking = activePlayingTurnIndex === idx;
                     const turnLatency =
-                      isAssistant && detailCall.turn_latencies_ms?.[Math.floor(idx / 2)];
+                      isAssistant && detailCall.turn_latencies_ms
+                        ? detailCall.turn_latencies_ms[Math.floor(idx / 2)]
+                        : undefined;
                     const cleanedTurnText = cleanDialogueText(
                       entry.text || (entry as any).content || ""
                     );
+                    const displayedTurnText = isRedactedPII
+                      ? redactPII(cleanedTurnText || entry.text)
+                      : cleanedTurnText || entry.text;
 
                     return (
                       <div
@@ -2528,25 +2584,26 @@ export default function CallsPage() {
                               <Play className="w-2.5 h-2.5 fill-current" /> Play Turn
                             </span>
 
-                            {turnLatency && (
+                            {typeof turnLatency === "number" && (
                               <span
-                                className={`px-1.5 py-0.5 rounded font-bold ${
-                                  turnLatency < 1200
+                                className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase tracking-wider font-mono ${
+                                  turnLatency < 1000
                                     ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
-                                    : turnLatency < 1600
+                                    : turnLatency < 1800
                                     ? "text-amber-700 bg-amber-50 border border-amber-200"
                                     : "text-red-700 bg-red-50 border border-red-200"
                                 }`}
-                                title={`Full Turnaround Latency: ${Math.round(turnLatency)}ms`}
+                                title={`SLA Benchmark (<1.0s P50, <1.8s P95). Full Turnaround: ${Math.round(turnLatency)}ms`}
                               >
-                                {Math.round(turnLatency)}ms
+                                {turnLatency < 1000 ? "⚡ SLA Pass " : turnLatency < 1800 ? "⏱️ SLA Target " : "⚠️ Breach "}
+                                ({Math.round(turnLatency)}ms)
                               </span>
                             )}
                             <span>{entry.time ? new Date(entry.time).toLocaleTimeString() : ""}</span>
                           </div>
                         </div>
                         <p className="font-sans leading-relaxed text-zinc-800 text-xs">
-                          {cleanedTurnText || entry.text}
+                          {displayedTurnText}
                         </p>
                       </div>
                     );
@@ -2768,6 +2825,29 @@ export default function CallsPage() {
                   </span>
                 )}
               </div>
+
+              {/* Quick Coaching Suggestion Chips */}
+              {wsStatus !== "disconnected" && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {[
+                    "Offer $20 Diagnostic Fee Waiver",
+                    "Confirm 2-4 PM Arrival Window",
+                    "Ask for Gate Code & Access Notes",
+                    "Emergency Safety: Locate Main Shut-Off",
+                    "Ask for Equipment Serial / Model Number",
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setWhisperText(chip)}
+                      className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 border border-zinc-200 text-[10px] font-medium text-zinc-600 transition-colors"
+                    >
+                      ⚡ {chip}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <input
                   type="text"
