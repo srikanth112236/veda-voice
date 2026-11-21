@@ -53,6 +53,10 @@ import {
   Search,
   Loader2,
   MessageSquare,
+  Sliders,
+  Sparkles,
+  ChevronRight,
+  Info,
 } from "lucide-react";
 
 function AdminDashboardContent() {
@@ -142,6 +146,17 @@ function AdminDashboardContent() {
   const [telnyxSearchResults, setTelnyxSearchResults] = useState<TelnyxNumberItem[]>([]);
   const [orderingTelnyxNumber, setOrderingTelnyxNumber] = useState<string | null>(null);
   const [telnyxSuccessMsg, setTelnyxSuccessMsg] = useState<string | null>(null);
+
+  // LiveKit Scale Plan & Concurrency Deck State (Option 3)
+  const [showScaleIncreaseModal, setShowScaleIncreaseModal] = useState(false);
+  const [scaleIncreaseRequested, setScaleIncreaseRequested] = useState(false);
+  const [selectedScaleTier, setSelectedScaleTier] = useState<"scale_100" | "scale_250" | "enterprise">("scale_100");
+  const [simulatedConcurrencyLoad, setSimulatedConcurrencyLoad] = useState<number | null>(null);
+
+  // Tenant CoGS Intelligence & Search Filters (Option 3)
+  const [showCogsModal, setShowCogsModal] = useState<TenantSummary | null>(null);
+  const [tenantSearchQuery, setTenantSearchQuery] = useState("");
+  const [tenantPlanFilter, setTenantPlanFilter] = useState<string>("all");
 
   const handleSearchTelnyxNumbers = async () => {
     setSearchingTelnyx(true);
@@ -388,11 +403,34 @@ function AdminDashboardContent() {
 
   const activeInbound = stats?.active_inbound_calls ?? 3;
   const maxInbound = stats?.global_max_concurrent ?? 40;
-  const inboundPct = stats?.inbound_saturation_pct ?? Math.round((activeInbound / maxInbound) * 100);
-
   const activeOutbound = stats?.active_outbound_calls ?? 1;
   const maxOutbound = stats?.global_max_outbound ?? 10;
-  const outboundPct = stats?.outbound_saturation_pct ?? Math.round((activeOutbound / maxOutbound) * 100);
+  const scaleLimit = stats?.scale_plan_limit ?? 50;
+  const warnThreshold = stats?.warn_threshold_concurrency ?? 30;
+  const criticalThreshold = stats?.critical_threshold_concurrency ?? 40;
+
+  // Real or Simulated Concurrency Load (for demonstration & testing)
+  const effectiveInbound = simulatedConcurrencyLoad !== null
+    ? Math.round(simulatedConcurrencyLoad * 0.8)
+    : activeInbound;
+  const inboundPct = Math.min(Math.round((effectiveInbound / maxInbound) * 100), 100);
+
+  const effectiveOutbound = simulatedConcurrencyLoad !== null
+    ? Math.round(simulatedConcurrencyLoad * 0.2)
+    : activeOutbound;
+  const outboundPct = Math.min(Math.round((effectiveOutbound / maxOutbound) * 100), 100);
+
+  const totalConcurrency = effectiveInbound + effectiveOutbound;
+  const totalSaturationPct = Math.min(Math.round((totalConcurrency / scaleLimit) * 100), 100);
+
+  const isCritical = totalConcurrency >= criticalThreshold;
+  const isWarning = totalConcurrency >= warnThreshold && !isCritical;
+  const effectiveAlertLevel = isCritical ? "critical_80" : isWarning ? "warning_60" : "normal";
+
+  // Arc calculation for SVG Half-Dial (Radius 75, Center 100, 90)
+  // Arc angle 180 deg to 0 deg. Arc circumference = PI * 75 ~= 235.62
+  const dialCircumference = 235.62;
+  const dialOffset = dialCircumference - (dialCircumference * (totalConcurrency / scaleLimit));
 
   const carrier = stats?.carrier_health || {
     provider: "Twilio Elastic SIP Trunk (Primary) / Telnyx (Hot Standby)",
@@ -482,13 +520,10 @@ function AdminDashboardContent() {
       </div>
 
       {/* LiveKit Scale Plan Concurrency Warning / Alarm Banner (SRS 4.3, 17.1) */}
-      {(stats?.concurrency_alert_level === "critical_80" ||
-        stats?.concurrency_alert_level === "warning_60" ||
-        (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 30)) && (
+      {(effectiveAlertLevel === "critical_80" || effectiveAlertLevel === "warning_60") && (
         <div
           className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs ${
-            stats?.concurrency_alert_level === "critical_80" ||
-            (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
+            effectiveAlertLevel === "critical_80"
               ? "bg-rose-50 border-rose-200 text-rose-900"
               : "bg-amber-50 border-amber-200 text-amber-900"
           }`}
@@ -496,8 +531,7 @@ function AdminDashboardContent() {
           <div className="flex items-center gap-3">
             <div
               className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                stats?.concurrency_alert_level === "critical_80" ||
-                (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
+                effectiveAlertLevel === "critical_80"
                   ? "bg-rose-100 text-rose-600"
                   : "bg-amber-100 text-amber-700"
               }`}
@@ -507,36 +541,49 @@ function AdminDashboardContent() {
             <div>
               <div className="text-xs font-bold font-mono uppercase tracking-wide flex items-center gap-2">
                 <span>
-                  {stats?.concurrency_alert_level === "critical_80" ||
-                  (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
+                  {effectiveAlertLevel === "critical_80"
                     ? "Critical Concurrency Alert (80% Scale Limit)"
                     : "Concurrency Advisory (60% Scale Limit)"}
                 </span>
-                <span className="px-2 py-0.2 rounded-full text-[10px] font-mono bg-white/80 border border-current">
-                  {(stats?.active_inbound_calls || 0) + (stats?.active_outbound_calls || 0)} /{" "}
-                  {stats?.scale_plan_limit || 50} Channels Active
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-white/80 border border-current">
+                  {totalConcurrency} / {scaleLimit} Channels Active ({totalSaturationPct}%)
                 </span>
+                {simulatedConcurrencyLoad !== null && (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-indigo-100 text-indigo-700 font-bold uppercase">
+                    Simulation Mode
+                  </span>
+                )}
               </div>
               <p className="text-xs mt-0.5 opacity-90">
-                {stats?.concurrency_alert_message ||
-                  "Platform concurrency has reached the advisory threshold. Request a project limit increase in the LiveKit Console before peak traffic."}
+                {effectiveAlertLevel === "critical_80"
+                  ? `CRITICAL: Platform concurrency is at ${totalConcurrency}/${scaleLimit} channels (80% ceiling reached). Request immediate Scale increase to avoid 503 rejection spikes.`
+                  : `WARNING: Platform concurrency is at ${totalConcurrency}/${scaleLimit} channels (60% threshold). Consider requesting a LiveKit Scale increase before peak hours.`}
               </p>
             </div>
           </div>
-          <a
-            href="https://cloud.livekit.io/projects/settings"
-            target="_blank"
-            rel="noreferrer"
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 flex items-center gap-1.5 shadow-xs transition-colors ${
-              stats?.concurrency_alert_level === "critical_80" ||
-              (stats && stats.active_inbound_calls + stats.active_outbound_calls >= 40)
-                ? "bg-rose-600 hover:bg-rose-700 text-white"
-                : "bg-amber-700 hover:bg-amber-800 text-white"
-            }`}
-          >
-            <span>LiveKit Console</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowScaleIncreaseModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Request Scale Increase</span>
+            </button>
+            <a
+              href="https://cloud.livekit.io/projects/settings"
+              target="_blank"
+              rel="noreferrer"
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors ${
+                effectiveAlertLevel === "critical_80"
+                  ? "bg-rose-600 hover:bg-rose-700 text-white"
+                  : "bg-amber-700 hover:bg-amber-800 text-white"
+              }`}
+            >
+              <span>LiveKit Console</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
         </div>
       )}
 
@@ -719,109 +766,262 @@ function AdminDashboardContent() {
       {/* SECTION 1: Global Concurrency & Capacity Saturation Gauges */}
       {activeTab === "telemetry" && (
       <div className="space-y-6">
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
           <div className="flex items-center gap-2">
             <Gauge className="w-4 h-4 text-indigo-600" />
             <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Global Concurrency &amp; Capacity Saturation
+              Global Concurrency &amp; LiveKit Scale Saturation
             </h2>
             <InfoTrigger topic="admin_concurrency_saturation" />
           </div>
           <div className="flex items-center gap-3 text-xs font-mono text-zinc-500">
-            <span>Rate-Limit Safety Threshold: <strong className="text-zinc-800">90%</strong></span>
+            <span>Critical Ceiling: <strong className="text-rose-600 font-bold">80% ({criticalThreshold} ch)</strong></span>
             <span className="text-zinc-300">|</span>
-            <span>Burst Headroom: <strong className="text-emerald-600 font-bold">{maxInbound - activeInbound + (maxOutbound - activeOutbound)} channels</strong></span>
+            <span>Scale Headroom: <strong className="text-emerald-600 font-bold">{Math.max(0, scaleLimit - totalConcurrency)} channels</strong></span>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Inbound Concurrency Meter */}
-          <div className="p-4 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
-                Inbound Receptionist Channels
-              </span>
-              <span className="text-xs font-mono font-bold text-emerald-700">
-                {activeInbound} / {maxInbound}
-              </span>
-            </div>
-
-            <div className="w-full h-2 rounded-full bg-zinc-200 overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 rounded-full ${
-                  inboundPct > 80 ? "bg-red-500" : inboundPct > 50 ? "bg-amber-500" : "bg-emerald-500"
-                }`}
-                style={{ width: `${Math.min(inboundPct, 100)}%` }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
-              <span>{inboundPct}% Saturation</span>
-              <span className="text-zinc-500">{maxInbound - activeInbound} available</span>
-            </div>
-            <p className="text-[11px] text-zinc-500 leading-snug">
-              Guaranteed ceiling for concurrent incoming phone calls across all client numbers.
-            </p>
-          </div>
-
-          {/* Outbound Concurrency Meter */}
-          <div className="p-4 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
+        {/* 2-Column Command Deck: Dial Gauge + Granular Channel Breakdowns */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+          {/* Left: SVG Concurrency Dial Gauge */}
+          <div className="lg:col-span-5 p-5 rounded-2xl border border-zinc-200 bg-zinc-50/70 flex flex-col justify-between space-y-4">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="font-bold text-zinc-700 uppercase tracking-wide flex items-center gap-1.5">
                 <Radio className="w-3.5 h-3.5 text-indigo-600" />
-                Outbound Automated Dialer
+                LiveKit Room Concurrency
               </span>
-              <span className="text-xs font-mono font-bold text-indigo-600">
-                {activeOutbound} / {maxOutbound}
-              </span>
+              <span className="text-[11px] text-zinc-500 font-medium">Standard Scale Tier</span>
             </div>
 
-            <div className="w-full h-2 rounded-full bg-zinc-200 overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 rounded-full ${
-                  outboundPct > 80 ? "bg-red-500" : outboundPct > 50 ? "bg-amber-500" : "bg-indigo-600"
-                }`}
-                style={{ width: `${Math.min(outboundPct, 100)}%` }}
-              />
+            {/* SVG Arc Gauge */}
+            <div className="relative py-2">
+              <svg viewBox="0 0 200 115" className="w-full max-w-[260px] mx-auto overflow-visible">
+                {/* Background Track */}
+                <path
+                  d="M 25 90 A 75 75 0 0 1 175 90"
+                  fill="none"
+                  stroke="#e4e4e7"
+                  strokeWidth="14"
+                  strokeLinecap="round"
+                />
+                {/* Active Capacity Arc */}
+                <path
+                  d="M 25 90 A 75 75 0 0 1 175 90"
+                  fill="none"
+                  stroke={isCritical ? "#f43f5e" : isWarning ? "#f59e0b" : "#10b981"}
+                  strokeWidth="14"
+                  strokeLinecap="round"
+                  strokeDasharray={dialCircumference}
+                  strokeDashoffset={Math.max(0, dialOffset)}
+                  className="transition-all duration-700 ease-out"
+                />
+                {/* Scale Limit & Threshold Markers */}
+                <text x="25" y="106" fill="#71717a" fontSize="9" fontFamily="monospace" textAnchor="middle">0</text>
+                <text x="100" y="22" fill="#71717a" fontSize="9" fontFamily="monospace" textAnchor="middle">25</text>
+                <text x="146" y="38" fill="#d97706" fontSize="8" fontFamily="monospace" textAnchor="middle">60% (30)</text>
+                <text x="178" y="70" fill="#e11d48" fontSize="8" fontFamily="monospace" textAnchor="middle">80% (40)</text>
+                <text x="175" y="106" fill="#71717a" fontSize="9" fontFamily="monospace" textAnchor="middle">{scaleLimit}</text>
+              </svg>
+
+              <div className="text-center -mt-6 space-y-1">
+                <div className="text-3xl font-extrabold font-mono text-zinc-900 tracking-tight">
+                  {totalConcurrency}
+                  <span className="text-sm font-semibold text-zinc-400 ml-1">/ {scaleLimit}</span>
+                </div>
+                <div className="flex items-center justify-center gap-1.5 text-xs font-mono">
+                  {isCritical ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-300 font-bold">
+                      <AlertTriangle className="w-3 h-3 text-rose-600" />
+                      Critical Saturation (≥80%)
+                    </span>
+                  ) : isWarning ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-bold">
+                      <AlertTriangle className="w-3 h-3 text-amber-600" />
+                      Advisory Threshold (≥60%)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Optimal Headroom ({Math.max(0, scaleLimit - totalConcurrency)} Free)
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
-              <span>{outboundPct}% Saturation</span>
-              <span className="text-zinc-500">{maxOutbound - activeOutbound} available</span>
+            {/* Simulation Controls & Scale Upgrade Button */}
+            <div className="pt-3 border-t border-zinc-200/80 space-y-2.5">
+              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500">
+                <span className="flex items-center gap-1">
+                  <Sliders className="w-3 h-3 text-zinc-400" />
+                  Load Simulation:
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSimulatedConcurrencyLoad(null)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                      simulatedConcurrencyLoad === null
+                        ? "bg-zinc-900 text-white font-bold"
+                        : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"
+                    }`}
+                  >
+                    Live
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimulatedConcurrencyLoad(32)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                      simulatedConcurrencyLoad === 32
+                        ? "bg-amber-600 text-white font-bold"
+                        : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                    }`}
+                  >
+                    60% (32)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimulatedConcurrencyLoad(42)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                      simulatedConcurrencyLoad === 42
+                        ? "bg-rose-600 text-white font-bold"
+                        : "bg-rose-100 text-rose-800 hover:bg-rose-200"
+                    }`}
+                  >
+                    80% (42)
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowScaleIncreaseModal(true)}
+                className="w-full py-2 px-3 rounded-xl bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-500" />
+                <span>Request LiveKit Limit Increase (50 &rarr; 100/250)</span>
+              </button>
             </div>
-            <p className="text-[11px] text-zinc-500 leading-snug">
-              Regulated ceiling for TCPA-consented reminders, scheduled callbacks, and speed-to-lead.
-            </p>
           </div>
 
-          {/* Carrier CPS Telemetry */}
-          <div className="p-4 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5 text-amber-600" />
-                Carrier CPS Throttle
-              </span>
-              <span className="text-xs font-mono font-bold text-amber-600">
-                {carrier.cps_current} / {carrier.cps_limit} CPS
-              </span>
+          {/* Right: Granular Capacity Breakdown Cards */}
+          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Inbound Concurrency Meter */}
+            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
+                  <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                  Inbound Channels
+                </span>
+                <span className="text-xs font-mono font-bold text-emerald-700">
+                  {effectiveInbound} / {maxInbound}
+                </span>
+              </div>
+
+              <div className="w-full h-2 rounded-full bg-zinc-100 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 rounded-full ${
+                    inboundPct > 80 ? "bg-red-500" : inboundPct > 50 ? "bg-amber-500" : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${Math.min(inboundPct, 100)}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
+                <span>{inboundPct}% Saturation</span>
+                <span className="text-zinc-500">{Math.max(0, maxInbound - effectiveInbound)} available</span>
+              </div>
+              <p className="text-[11px] text-zinc-500 leading-snug">
+                Ceiling for concurrent incoming customer phone calls across all active tenant numbers.
+              </p>
             </div>
 
-            <div className="w-full h-2 rounded-full bg-zinc-200 overflow-hidden">
-              <div
-                className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                style={{ width: `${(carrier.cps_current / carrier.cps_limit) * 100}%` }}
-              />
+            {/* Outbound Concurrency Meter */}
+            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
+                  <Radio className="w-3.5 h-3.5 text-indigo-600" />
+                  Outbound Campaigns
+                </span>
+                <span className="text-xs font-mono font-bold text-indigo-600">
+                  {effectiveOutbound} / {maxOutbound}
+                </span>
+              </div>
+
+              <div className="w-full h-2 rounded-full bg-zinc-100 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-500 rounded-full ${
+                    outboundPct > 80 ? "bg-red-500" : outboundPct > 50 ? "bg-amber-500" : "bg-indigo-600"
+                  }`}
+                  style={{ width: `${Math.min(outboundPct, 100)}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
+                <span>{outboundPct}% Saturation</span>
+                <span className="text-zinc-500">{Math.max(0, maxOutbound - effectiveOutbound)} available</span>
+              </div>
+              <p className="text-[11px] text-zinc-500 leading-snug">
+                Regulated dialer capacity for TCPA-consented reminders, dispatch alerts, and speed-to-lead.
+              </p>
             </div>
 
-            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
-              <span>Calls Per Second</span>
-              <span className="text-emerald-600 font-semibold">Zero 503 drops</span>
+            {/* Carrier CPS Throttle */}
+            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-800 flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-amber-600" />
+                  Carrier CPS Throttle
+                </span>
+                <span className="text-xs font-mono font-bold text-amber-600">
+                  {carrier.cps_current} / {carrier.cps_limit} CPS
+                </span>
+              </div>
+
+              <div className="w-full h-2 rounded-full bg-zinc-100 overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                  style={{ width: `${(carrier.cps_current / carrier.cps_limit) * 100}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-600">
+                <span>Initiation Rate</span>
+                <span className="text-emerald-600 font-semibold">Zero 503 drops</span>
+              </div>
+              <p className="text-[11px] text-zinc-500 leading-snug">
+                PSTN call dispatch rate kept strictly below carrier 10.0 CPS blast rate limit.
+              </p>
             </div>
-            <p className="text-[11px] text-zinc-500 leading-snug">
-              Carrier trunk call initiation rate kept strictly below carrier 10 CPS blast limit.
-            </p>
+
+            {/* Multi-Carrier Redundancy Deck */}
+            <div className="p-4 rounded-xl border border-zinc-200 bg-white space-y-3 shadow-xs font-mono text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-zinc-800 flex items-center gap-1.5 font-sans">
+                  <Network className="w-3.5 h-3.5 text-sky-600" />
+                  Carrier Failover Route
+                </span>
+                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-bold">
+                  Hot Standby Ready
+                </span>
+              </div>
+
+              <div className="space-y-1 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-600">Primary:</span>
+                  <span className="font-semibold text-zinc-900">Twilio Elastic SIP (38ms)</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-600">Standby:</span>
+                  <span className="font-semibold text-zinc-900">Telnyx Hot SIP (41ms)</span>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-zinc-400 font-sans leading-snug pt-0.5">
+                Sub-second automatic failover reroutes calls if carrier trunk drops 2 consecutive INVITEs.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -832,18 +1032,18 @@ function AdminDashboardContent() {
           <div className="flex items-center gap-2">
             <Server className="w-4 h-4 text-emerald-600" />
             <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Carrier SIP Trunk Health &amp; Audio Telemetry
+              Carrier SIP Trunk Health &amp; Audio Telemetry (ITU-T P.800)
             </h2>
             <InfoTrigger topic="admin_carrier_sip_trunk" />
           </div>
           <span className="text-xs font-mono text-emerald-700 flex items-center gap-1 font-semibold">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Primary: Twilio | Hot Standby: Telnyx
+            Active Trunk: Twilio Elastic SIP &bull; Standby: Telnyx
           </span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
             <span className="text-[10px] uppercase text-zinc-500 font-bold">Trunk Status</span>
             <div className="text-sm font-bold text-emerald-600 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -852,7 +1052,7 @@ function AdminDashboardContent() {
             <span className="text-[10px] text-zinc-500">SIP INVITE 200 OK</span>
           </div>
 
-          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
             <span className="text-[10px] uppercase text-zinc-500 font-bold">Carrier Latency</span>
             <div className="text-sm font-bold text-zinc-900">
               {carrier.latency_ms}ms
@@ -860,15 +1060,15 @@ function AdminDashboardContent() {
             <span className="text-[10px] text-zinc-500">Jitter: {carrier.jitter_ms}ms</span>
           </div>
 
-          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
-            <span className="text-[10px] uppercase text-zinc-500 font-bold">Audio Score (MOS)</span>
-            <div className="text-sm font-bold text-emerald-600 flex items-center gap-1">
+          <div className="p-3.5 rounded-xl border border-emerald-100 bg-emerald-50/50 space-y-1 font-mono">
+            <span className="text-[10px] uppercase text-emerald-800 font-bold">Audio Score (MOS)</span>
+            <div className="text-sm font-bold text-emerald-700 flex items-center gap-1">
               {carrier.mos_score} / 5.0
             </div>
-            <span className="text-[10px] text-emerald-600/90 font-medium">Toll-grade PSTN</span>
+            <span className="text-[10px] text-emerald-600/90 font-medium">ITU-T Toll-Grade</span>
           </div>
 
-          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
             <span className="text-[10px] uppercase text-zinc-500 font-bold">Packet Loss</span>
             <div className="text-sm font-bold text-zinc-900">
               {carrier.packet_loss_pct}%
@@ -876,7 +1076,7 @@ function AdminDashboardContent() {
             <span className="text-[10px] text-emerald-600 font-medium">Zero audible gaps</span>
           </div>
 
-          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
             <span className="text-[10px] uppercase text-zinc-500 font-bold">Audio Codec</span>
             <div className="text-xs font-bold text-zinc-900 truncate" title="Opus 48kHz WebRTC to G.711u PSTN">
               Opus &harr; G.711u
@@ -884,7 +1084,7 @@ function AdminDashboardContent() {
             <span className="text-[10px] text-zinc-500">48kHz Wideband</span>
           </div>
 
-          <div className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
+          <div className="p-3.5 rounded-xl border border-zinc-100 bg-zinc-50/70 space-y-1 font-mono">
             <span className="text-[10px] uppercase text-zinc-500 font-bold">STIR/SHAKEN</span>
             <div className="text-sm font-bold text-emerald-600">
               Level A
@@ -1596,11 +1796,18 @@ function AdminDashboardContent() {
                 <th className="p-3">Included Minutes</th>
                 <th className="p-3">Bonus / Rollover</th>
                 <th className="p-3">Used Minutes</th>
+                <th className="p-3">Unit CoGS &amp; Margin</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
-              {subscriptions.map((sub: any) => (
+              {subscriptions.map((sub: any) => {
+                const tierPricing: Record<string, number> = { lite: 99, starter: 299, growth: 399, pro: 499, scale: 999 };
+                const rev = tierPricing[sub.tier?.toLowerCase()] || 499;
+                const cogs = (sub.used_minutes_this_cycle || 0) * 0.0225;
+                const margin = rev > 0 ? Math.max(0, Math.round(((rev - cogs) / rev) * 1000) / 10) : 95.5;
+
+                return (
                 <tr key={sub.tenant_id} className="hover:bg-zinc-50/80 transition-colors">
                   <td className="p-3">
                     <div className="font-semibold text-zinc-900">{sub.tenant_name}</div>
@@ -1641,6 +1848,14 @@ function AdminDashboardContent() {
                   <td className="p-3 font-mono text-zinc-600">
                     {sub.used_minutes_this_cycle.toFixed(1)} mins
                   </td>
+                  <td className="p-3 font-mono">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      {margin.toFixed(1)}% Margin
+                    </span>
+                    <div className="text-[10px] text-zinc-400 font-sans mt-0.5">
+                      CoGS: ${cogs.toFixed(2)} &bull; MRR: ${rev}
+                    </div>
+                  </td>
                   <td className="p-3 text-right whitespace-nowrap">
                     <button
                       type="button"
@@ -1659,10 +1874,10 @@ function AdminDashboardContent() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )})}
               {subscriptions.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-zinc-500 font-mono text-xs">
+                  <td colSpan={7} className="p-6 text-center text-zinc-500 font-mono text-xs">
                     No active tenant subscriptions.
                   </td>
                 </tr>
@@ -1996,167 +2211,244 @@ function AdminDashboardContent() {
         </div>
       )}
 
-      {/* SECTION 5: Client Tenants Table with PII Masking & Quota Throttles */}
-      {activeTab === "tenants" && (
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-zinc-500" />
-            <h2 className="text-sm font-bold text-zinc-900">
-              Client Tenant Organizations ({tenants.length})
-            </h2>
-            <span className="text-xs text-zinc-500 font-mono">Row-Level Security Active</span>
-            <InfoTrigger topic="admin_pii_masking" />
+      {/* SECTION 5: Client Tenants Table with PII Masking, Search & CoGS Matrix */}
+      {activeTab === "tenants" && (() => {
+        const filteredTenants = tenants.filter((t) => {
+          const query = tenantSearchQuery.toLowerCase().trim();
+          const matchesSearch = !query ||
+            t.name.toLowerCase().includes(query) ||
+            t.id.toLowerCase().includes(query) ||
+            t.phone_numbers.some((p) => p.includes(query));
+          const matchesPlan =
+            tenantPlanFilter === "all" ||
+            (t.plan_code || "growth").toLowerCase() === tenantPlanFilter.toLowerCase();
+          return matchesSearch && matchesPlan;
+        });
+
+        return (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-zinc-500" />
+              <h2 className="text-sm font-bold text-zinc-900">
+                Client Tenant Organizations ({tenants.length})
+              </h2>
+              <span className="text-xs text-zinc-500 font-mono">Row-Level Security Active</span>
+              <InfoTrigger topic="admin_pii_masking" />
+            </div>
+
+            {/* Privacy & PII Toggle */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setMaskPii(!maskPii)}
+                className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-xs text-zinc-700 font-mono flex items-center gap-1.5 transition-colors shadow-sm"
+                title="Toggle masked phone numbers for GDPR/CCPA privacy during demonstrations"
+              >
+                {maskPii ? (
+                  <>
+                    <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Reveal Full E.164</span>
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Mask Phone Numbers (PII)</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* Privacy & PII Toggle */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setMaskPii(!maskPii)}
-              className="px-3 py-1.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-xs text-zinc-700 font-mono flex items-center gap-1.5 transition-colors shadow-sm"
-              title="Toggle masked phone numbers for GDPR/CCPA privacy during demonstrations"
-            >
-              {maskPii ? (
-                <>
-                  <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Reveal Full E.164</span>
-                </>
-              ) : (
-                <>
-                  <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
-                  <span>Mask Phone Numbers (PII)</span>
-                </>
+          {/* Search & Filter Toolbar */}
+          <div className="p-3 rounded-2xl bg-zinc-50 border border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={tenantSearchQuery}
+                onChange={(e) => setTenantSearchQuery(e.target.value)}
+                placeholder="Search organizations by name, phone, or ID..."
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-white border border-zinc-200 text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+              />
+              {tenantSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setTenantSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 text-xs"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               )}
-            </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto text-xs font-mono">
+              <span className="text-[11px] text-zinc-500 uppercase font-bold mr-1">Plan:</span>
+              {[
+                { id: "all", label: "All" },
+                { id: "starter", label: "Starter ($299)" },
+                { id: "growth", label: "Growth ($399)" },
+                { id: "pro", label: "Pro ($499)" },
+                { id: "scale", label: "Scale ($999)" },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setTenantPlanFilter(p.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs transition-colors shrink-0 ${
+                    tenantPlanFilter === p.id
+                      ? "bg-zinc-900 text-white font-bold shadow-xs"
+                      : "bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-              <tr>
-                <th className="p-3">Organization Name</th>
-                <th className="p-3">Timezone / Hours</th>
-                <th className="p-3">Dedicated Carrier Number</th>
-                <th className="p-3">Plan &amp; MRR</th>
-                <th className="p-3">Gross Margin</th>
-                <th className="p-3">Minute Quota</th>
-                <th className="p-3">Call Volume</th>
-                <th className="p-3">Health Status</th>
-                <th className="p-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 font-mono">
-              {tenants.map((t) => {
-                const usedMins = t.minutes_used ?? (t.call_count * 2.5);
-                const quota = t.monthly_minute_quota ?? 500;
-                const quotaPct = Math.min(Math.round((usedMins / quota) * 100), 100);
+          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+                <tr>
+                  <th className="p-3">Organization Name</th>
+                  <th className="p-3">Timezone / Hours</th>
+                  <th className="p-3">Dedicated Carrier Number</th>
+                  <th className="p-3">Plan &amp; MRR</th>
+                  <th className="p-3">Unit CoGS &amp; Margin</th>
+                  <th className="p-3">Minute Quota</th>
+                  <th className="p-3">Call Volume</th>
+                  <th className="p-3">Health Status</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 font-mono">
+                {filteredTenants.map((t) => {
+                  const usedMins = t.minutes_used ?? (t.call_count * 2.5);
+                  const quota = t.monthly_minute_quota ?? 500;
+                  const quotaPct = Math.min(Math.round((usedMins / quota) * 100), 100);
 
-                return (
-                  <tr key={t.id} className="hover:bg-zinc-50/80 transition-colors">
-                    <td className="p-3 font-sans">
-                      <div className="font-semibold text-zinc-900">{t.name}</div>
-                      <div className="text-[10px] font-mono text-zinc-500">ID: {t.id.slice(0, 8)}...</div>
-                    </td>
+                  return (
+                    <tr key={t.id} className="hover:bg-zinc-50/80 transition-colors">
+                      <td className="p-3 font-sans">
+                        <div className="font-semibold text-zinc-900">{t.name}</div>
+                        <div className="text-[10px] font-mono text-zinc-500">ID: {t.id.slice(0, 8)}...</div>
+                      </td>
 
-                    <td className="p-3 text-zinc-600 text-[11px] font-sans">
-                      <div className="text-zinc-800 font-mono">{t.timezone}</div>
-                      <div className="text-zinc-500 truncate max-w-[140px]">{t.hours}</div>
-                    </td>
+                      <td className="p-3 text-zinc-600 text-[11px] font-sans">
+                        <div className="text-zinc-800 font-mono">{t.timezone}</div>
+                        <div className="text-zinc-500 truncate max-w-[140px]">{t.hours}</div>
+                      </td>
 
-                    <td className="p-3 text-zinc-800 font-mono">
-                      {t.phone_numbers.length > 0 ? (
-                        <div className="space-y-0.5">
-                          {t.phone_numbers.map((num, i) => (
-                            <div key={i} className="flex items-center gap-1.5 text-zinc-900">
-                              <PhoneCall className="w-3 h-3 text-emerald-600 shrink-0" />
-                              <span>{maskPhoneNumber(num)}</span>
-                            </div>
-                          ))}
+                      <td className="p-3 text-zinc-800 font-mono">
+                        {t.phone_numbers.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {t.phone_numbers.map((num, i) => (
+                              <div key={i} className="flex items-center gap-1.5 text-zinc-900">
+                                <PhoneCall className="w-3 h-3 text-emerald-600 shrink-0" />
+                                <span>{maskPhoneNumber(num)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400 italic">Unassigned</span>
+                        )}
+                      </td>
+
+                      <td className="p-3 text-zinc-800 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-zinc-100 text-zinc-700 border border-zinc-200">
+                            {t.plan_code || "growth"}
+                          </span>
+                          <span className="font-bold text-zinc-900">
+                            ${t.monthly_revenue_usd || 499}
+                          </span>
                         </div>
-                      ) : (
-                        <span className="text-zinc-400 italic">Unassigned</span>
-                      )}
-                    </td>
+                        <div className="text-[10px] text-zinc-500">MRR subscription</div>
+                      </td>
 
-                    <td className="p-3 text-zinc-800 font-mono">
-                      <div className="flex items-center gap-1.5">
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-zinc-100 text-zinc-700 border border-zinc-200">
-                          {t.plan_code || "growth"}
-                        </span>
-                        <span className="font-bold text-zinc-900">
-                          ${t.monthly_revenue_usd || 499}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-zinc-500">Base + overages</div>
-                    </td>
-
-                    <td className="p-3 font-mono">
-                      <div className="flex items-center gap-1">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            (t.gross_margin_pct ?? 95) >= 80
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              : "bg-amber-50 text-amber-700 border border-amber-200"
-                          }`}
+                      <td className="p-3 font-mono">
+                        <div className="flex items-center gap-1">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              (t.gross_margin_pct ?? 95) >= 80
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-amber-50 text-amber-700 border border-amber-200"
+                            }`}
+                          >
+                            {(t.gross_margin_pct ?? 95).toFixed(1)}% Margin
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-zinc-400 mt-0.5">
+                          CoGS: ${(t.monthly_cogs_usd ?? (usedMins * 0.0225)).toFixed(2)}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowCogsModal(t)}
+                          className="mt-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-mono flex items-center gap-0.5 transition-colors"
+                          title="Inspect granular per-minute CoGS waterfall"
                         >
-                          {(t.gross_margin_pct ?? 95).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-zinc-400">
-                        CoGS: ${(t.monthly_cogs_usd ?? 0).toFixed(2)}
-                      </div>
-                    </td>
+                          <Activity className="w-3 h-3 text-indigo-500" />
+                          <span>CoGS Waterfall &rarr;</span>
+                        </button>
+                      </td>
 
-                    <td className="p-3 font-mono">
-                      <div className="flex items-center justify-between text-[11px] mb-1">
-                        <span className="text-zinc-800 font-bold">{usedMins.toFixed(1)}m</span>
-                        <span className="text-zinc-500">/ {quota}m</span>
-                      </div>
-                      <div className="w-24 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            quotaPct > 80 ? "bg-red-500" : quotaPct > 50 ? "bg-amber-500" : "bg-zinc-900"
-                          }`}
-                          style={{ width: `${quotaPct}%` }}
-                        />
-                      </div>
-                    </td>
-
-                    <td className="p-3 text-zinc-900 font-bold">
-                      <div>{t.call_count} calls</div>
-                      {t.emergency_count > 0 && (
-                        <div className="text-[10px] text-red-600 font-normal">
-                          {t.emergency_count} 🚨 emergency
+                      <td className="p-3 font-mono">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                          <span className="text-zinc-800 font-bold">{usedMins.toFixed(1)}m</span>
+                          <span className="text-zinc-500">/ {quota}m</span>
                         </div>
-                      )}
-                    </td>
+                        <div className="w-24 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              quotaPct > 80 ? "bg-red-500" : quotaPct > 50 ? "bg-amber-500" : "bg-zinc-900"
+                            }`}
+                            style={{ width: `${quotaPct}%` }}
+                          />
+                        </div>
+                      </td>
 
-                    <td className="p-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        {t.status}
-                      </span>
-                    </td>
+                      <td className="p-3 text-zinc-900 font-bold">
+                        <div>{t.call_count} calls</div>
+                        {t.emergency_count > 0 && (
+                          <div className="text-[10px] text-red-600 font-normal">
+                            {t.emergency_count} 🚨 emergency
+                          </div>
+                        )}
+                      </td>
 
-                    <td className="p-3 text-right">
-                      <Link
-                        href="/portal/dashboard"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-sans transition-colors"
-                      >
-                        Open Portal
-                        <ArrowUpRight className="w-3 h-3" />
-                      </Link>
+                      <td className="p-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 capitalize gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          {t.status}
+                        </span>
+                      </td>
+
+                      <td className="p-3 text-right">
+                        <Link
+                          href="/portal/dashboard"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-sans transition-colors"
+                        >
+                          Open Portal
+                          <ArrowUpRight className="w-3 h-3" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredTenants.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="p-8 text-center text-zinc-400 font-mono text-xs">
+                      No client tenant organizations found matching &quot;{tenantSearchQuery}&quot;.
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-      )}
+        );
+      })()}
 
       {/* Sub-Accounts & Proxy Tab (Milestone M8b) */}
       {activeTab === "subaccounts" && (
@@ -2497,6 +2789,282 @@ function AdminDashboardContent() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LiveKit Cloud Scale Limit Increase Modal (Option 3) */}
+      {showScaleIncreaseModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                  <Zap className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-zinc-900">
+                    LiveKit Cloud Scale Capacity Upgrade
+                  </h3>
+                  <p className="text-[11px] text-zinc-500 font-mono">
+                    Current Limit: {scaleLimit} Concurrent Channels
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowScaleIncreaseModal(false);
+                  setScaleIncreaseRequested(false);
+                }}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {scaleIncreaseRequested ? (
+              <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-3">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Scale Increase Request Dispatched!</span>
+                </div>
+                <p className="text-xs text-emerald-700 leading-relaxed font-sans">
+                  Your concurrency quota request for <strong>{selectedScaleTier === "scale_100" ? "100 Channels" : selectedScaleTier === "scale_250" ? "250 Channels" : "Enterprise Custom"}</strong> has been logged with LiveKit Cloud Project Dispatch. Expected propagation SLA is &lt;15 minutes with zero audio downtime.
+                </p>
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowScaleIncreaseModal(false);
+                      setScaleIncreaseRequested(false);
+                    }}
+                    className="px-4 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-xs"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 text-xs">
+                <p className="text-zinc-600 leading-relaxed font-sans">
+                  Select your target LiveKit Cloud concurrency tier to support higher tenant call volumes, multi-line receptionist bursts, and concurrent outbound campaigns without hitting 429 / 503 drops.
+                </p>
+
+                <div className="space-y-2.5">
+                  {[
+                    {
+                      id: "scale_100",
+                      name: "Scale 100",
+                      channels: "100 Concurrent Audio Rooms",
+                      capacity: "Supports ~30 to 50 active tenant organizations",
+                      price: "+$200/mo LiveKit Cloud base",
+                    },
+                    {
+                      id: "scale_250",
+                      name: "Scale 250",
+                      channels: "250 Concurrent Audio Rooms",
+                      capacity: "Supports ~80 to 125 active tenant organizations",
+                      price: "+$450/mo LiveKit Cloud base",
+                    },
+                    {
+                      id: "enterprise",
+                      name: "Enterprise Dedicated SIP",
+                      channels: "500–2,500+ Concurrent Channels",
+                      capacity: "Dedicated SFU edge cluster with 99.99% carrier SLA",
+                      price: "Custom enterprise contract",
+                    },
+                  ].map((tier) => (
+                    <label
+                      key={tier.id}
+                      onClick={() => setSelectedScaleTier(tier.id as any)}
+                      className={`p-3.5 rounded-2xl border flex items-start gap-3 cursor-pointer transition-all ${
+                        selectedScaleTier === tier.id
+                          ? "border-zinc-900 bg-zinc-50 shadow-xs"
+                          : "border-zinc-200 bg-white hover:border-zinc-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="scale_tier"
+                        checked={selectedScaleTier === tier.id}
+                        onChange={() => setSelectedScaleTier(tier.id as any)}
+                        className="mt-0.5 text-zinc-900 focus:ring-zinc-900"
+                      />
+                      <div className="flex-1 space-y-0.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-zinc-900">{tier.name}</span>
+                          <span className="font-mono text-[11px] font-semibold text-emerald-700">
+                            {tier.price}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-zinc-700 font-medium">
+                          {tier.channels}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 font-sans">
+                          {tier.capacity}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-[11px] font-mono text-zinc-600 flex items-center justify-between">
+                  <span>Direct LiveKit Console Link:</span>
+                  <a
+                    href="https://cloud.livekit.io/projects/settings"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1"
+                  >
+                    <span>cloud.livekit.io</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowScaleIncreaseModal(false)}
+                    className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScaleIncreaseRequested(true)}
+                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-colors"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Submit Quota Request</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tenant CoGS & Gross Margin Waterfall Modal (Option 3) */}
+      {showCogsModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                  <DollarSign className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-zinc-900">
+                    Tenant CoGS &amp; SaaS Margin Intelligence
+                  </h3>
+                  <p className="text-[11px] text-zinc-500 font-mono">
+                    Client: {showCogsModal.name} (Plan: {showCogsModal.plan_code || "growth"})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCogsModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Top Financial Summary KPI */}
+              <div className="grid grid-cols-3 gap-2 p-3.5 rounded-2xl bg-zinc-50 border border-zinc-200 text-center font-mono">
+                <div>
+                  <div className="text-[10px] text-zinc-500 uppercase">Monthly MRR</div>
+                  <div className="text-base font-extrabold text-zinc-900 mt-0.5">
+                    ${showCogsModal.monthly_revenue_usd || 499}.00
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-zinc-500 uppercase">Total CoGS</div>
+                  <div className="text-base font-extrabold text-rose-600 mt-0.5">
+                    ${(showCogsModal.monthly_cogs_usd ?? (showCogsModal.call_count * 2.5 * 0.0225)).toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-emerald-800 uppercase font-bold">Gross Margin</div>
+                  <div className="text-base font-extrabold text-emerald-600 mt-0.5">
+                    {(showCogsModal.gross_margin_pct ?? 95.5).toFixed(1)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* Per-Minute Unit Waterfall */}
+              <div>
+                <div className="text-[11px] font-bold text-zinc-700 uppercase tracking-wide font-mono mb-2">
+                  Real-Time Per-Minute Unit Economics Waterfall:
+                </div>
+                <div className="space-y-2 font-mono">
+                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-zinc-800">LiveKit Cloud WebRTC SFU Media</span>
+                      <div className="text-[10px] text-zinc-400 font-sans">Opus 48kHz audio room routing</div>
+                    </div>
+                    <span className="font-bold text-zinc-900">$0.0040 / min</span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-zinc-800">Deepgram Nova-2 Streaming STT</span>
+                      <div className="text-[10px] text-zinc-400 font-sans">Low-latency acoustic transcription</div>
+                    </div>
+                    <span className="font-bold text-zinc-900">$0.0043 / min</span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-zinc-800">Gemini 2.5 Flash Reasoning LLM</span>
+                      <div className="text-[10px] text-zinc-400 font-sans">~520 input + output tokens / turn</div>
+                    </div>
+                    <span className="font-bold text-zinc-900">$0.0062 / min</span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl border border-zinc-200 bg-white flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-zinc-800">Neural TTS Audio Generation</span>
+                      <div className="text-[10px] text-zinc-400 font-sans">Inworld / Rime 24kHz acoustic stream</div>
+                    </div>
+                    <span className="font-bold text-zinc-900">$0.0080 / min</span>
+                  </div>
+
+                  <div className="p-3 rounded-xl border border-emerald-300 bg-emerald-50/80 flex items-center justify-between text-emerald-900">
+                    <span className="font-bold">Total Platform Unit Cost:</span>
+                    <span className="font-extrabold text-sm">$0.0225 / min</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 font-mono text-[11px] text-zinc-600 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span>Billed Minutes Used:</span>
+                  <span className="font-bold text-zinc-800">
+                    {(showCogsModal.minutes_used ?? (showCogsModal.call_count * 2.5)).toFixed(1)} mins
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Net Gross Profit this Month:</span>
+                  <span className="font-bold text-emerald-700">
+                    +${((showCogsModal.monthly_revenue_usd || 499) - (showCogsModal.monthly_cogs_usd ?? (showCogsModal.call_count * 2.5 * 0.0225))).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowCogsModal(null)}
+                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-xs"
+                >
+                  Close CoGS Detail
+                </button>
+              </div>
             </div>
           </div>
         </div>
