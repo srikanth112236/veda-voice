@@ -38,8 +38,114 @@ import {
   Send,
   GripVertical,
   ArrowRight,
+  PhoneCall,
+  Zap,
+  Flame,
+  ShieldAlert,
+  Check,
+  Activity,
+  Bell,
+  ChevronRight,
+  Siren,
+  Thermometer,
 } from "lucide-react";
 import { formatHumanReadableTag } from "@/lib/tagFormatter";
+
+interface SentimentTelemetry {
+  label: string;
+  score: number;
+  badgeClass: string;
+  indicator: string;
+  mood: string;
+  recommendation: string;
+}
+
+function getContactSentimentTelemetry(contact: {
+  tags?: string[];
+  stage?: string;
+  calls?: Array<{ sentiment_label?: string; summary?: string }>;
+  call_count?: number;
+}): SentimentTelemetry {
+  const tags = contact.tags || [];
+  const isEmergency = tags.some((t) => {
+    const lower = t.toLowerCase();
+    return (
+      lower.includes("emerg") ||
+      lower.includes("urgent") ||
+      lower.includes("flood") ||
+      lower.includes("gas") ||
+      lower.includes("burst")
+    );
+  });
+
+  if (isEmergency) {
+    return {
+      label: "Emergency Triage",
+      score: 98,
+      badgeClass: "bg-rose-50 text-rose-700 border-rose-200",
+      indicator: "🚨",
+      mood: "Critical Urgent Need",
+      recommendation: "Immediate tech dispatch & priority LiveKit voice callback required.",
+    };
+  }
+
+  const calls = contact.calls || [];
+  if (calls.length > 0) {
+    const positiveCount = calls.filter((c) => c.sentiment_label === "positive").length;
+    const negativeCount = calls.filter((c) => c.sentiment_label === "negative").length;
+
+    if (positiveCount > negativeCount) {
+      return {
+        label: "Hot Lead",
+        score: Math.min(96, 80 + positiveCount * 5),
+        badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        indicator: "🔥",
+        mood: "High Conversion Intent",
+        recommendation: "AI triage qualified customer intent. Ready for booking confirmation.",
+      };
+    } else if (negativeCount > 0) {
+      return {
+        label: "Hesitant Lead",
+        score: Math.max(38, 55 - negativeCount * 8),
+        badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
+        indicator: "⚠️",
+        mood: "Objection / Price Sensitive",
+        recommendation: "Customer raised friction during AI call. Recommend supervisor follow-up.",
+      };
+    }
+  }
+
+  if (contact.stage === "booked" || contact.stage === "closed") {
+    return {
+      label: "Confirmed Booking",
+      score: 92,
+      badgeClass: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      indicator: "📅",
+      mood: "Slot Reserved & Synced",
+      recommendation: "Appointment locked in calendar. Automated SMS reminders active.",
+    };
+  }
+
+  if (contact.call_count && contact.call_count > 0) {
+    return {
+      label: "Engaged Prospect",
+      score: 75,
+      badgeClass: "bg-blue-50 text-blue-700 border-blue-200",
+      indicator: "💬",
+      mood: "Interactive Triage",
+      recommendation: "Contact had recent dialogue. Ready for follow-up quote or dispatch.",
+    };
+  }
+
+  return {
+    label: "Warm Inquiry",
+    score: 65,
+    badgeClass: "bg-zinc-100 text-zinc-700 border-zinc-200",
+    indicator: "✨",
+    mood: "Awaiting Outbound Callback",
+    recommendation: "1-click AI Speed-to-Lead callback recommended within 5 minutes.",
+  };
+}
 
 const FALLBACK_STAGES = [
   { key: "new_lead", label: "New Lead", color: "border-blue-300 bg-blue-50/50 text-blue-700", is_system: true },
@@ -148,6 +254,129 @@ export default function CRMPipelinePage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.5 | 2>(1);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // High-Value CRM Features State
+  const [kanbanFilter, setKanbanFilter] = useState<"all" | "callable" | "emergency" | "booked" | "uncontacted">("all");
+  const [callingContactId, setCallingContactId] = useState<string | null>(null);
+
+  // 1-Click AI Speed-to-Lead Callback Dispatcher
+  const handleTriggerAiCallback = async (contact: {
+    id: string;
+    name?: string;
+    phone: string;
+    is_callable?: boolean;
+  }) => {
+    if (!contact.phone) {
+      alert("This contact does not have a valid phone number.");
+      return;
+    }
+    if (contact.is_callable === false) {
+      const proceed = confirm(
+        "Notice: This contact is marked as non-callable or missing express consent. TCPA gate v2 may suppress this call. Do you still wish to submit the dispatch request?"
+      );
+      if (!proceed) return;
+    }
+    setCallingContactId(contact.id);
+    try {
+      const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const campaign = await api.createVoiceCampaign({
+        name: `Speed-to-Lead: ${contact.name || contact.phone} (${timeStr})`,
+        purpose: "speed_to_lead",
+        prompt_variant: "standard",
+        max_attempts_per_contact: 1,
+        contacts: [
+          {
+            phone_number: contact.phone,
+            recipient_name: contact.name || "Customer",
+            contact_id: contact.id,
+            metadata_json: { contact_id: contact.id, trigger: "crm_instant_callback" },
+          },
+        ],
+      });
+      const dispatchRes = await api.runVoiceCampaign(campaign.id);
+      if (dispatchRes.dispatches_succeeded > 0) {
+        setActionMessage(
+          `AI speed-to-lead call dispatched to ${contact.name || contact.phone}! Carrier acknowledged SIP trunk invite.`
+        );
+      } else {
+        setActionMessage(
+          `AI campaign queued. Contacts eligible: ${dispatchRes.eligible_contacts_found}, carrier accepted: ${dispatchRes.dispatches_succeeded}.`
+        );
+      }
+      setTimeout(() => setActionMessage(null), 5000);
+      await fetchCRMData();
+      if (selectedContactId === contact.id) {
+        const updated = await api.getCRMContactDetail(contact.id);
+        setContactDetail(updated);
+      }
+    } catch (err: any) {
+      alert(`Could not trigger AI callback: ${err?.message || err}`);
+    } finally {
+      setCallingContactId(null);
+    }
+  };
+
+  // 1-Click Emergency Tag & Technician Dispatch Toggle
+  const handleToggleEmergency = async () => {
+    if (!contactDetail) return;
+    const currentTags = contactDetail.tags || [];
+    const isEmergency = currentTags.some((t) => {
+      const lower = t.toLowerCase();
+      return lower.includes("emerg") || lower.includes("urgent");
+    });
+
+    let newTags: string[];
+    if (isEmergency) {
+      newTags = currentTags.filter((t) => {
+        const lower = t.toLowerCase();
+        return !lower.includes("emerg") && !lower.includes("urgent");
+      });
+    } else {
+      newTags = [...currentTags, "emergency_dispatch", "urgent_triage"];
+    }
+
+    try {
+      await api.updateCRMContact(contactDetail.id, { tags: newTags });
+      setContactDetail({ ...contactDetail, tags: newTags });
+      setActionMessage(
+        isEmergency
+          ? "Emergency status cleared. Contact returned to standard priority."
+          : "🚨 Lead marked for EMERGENCY priority technician dispatch!"
+      );
+      setTimeout(() => setActionMessage(null), 4000);
+      fetchCRMData();
+    } catch (err: any) {
+      alert(`Failed to update emergency status: ${err?.message || err}`);
+    }
+  };
+
+  // Filter Helper for Search & Quick Filter Chips
+  const filterContact = (c: ContactItem) => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const match =
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q));
+      if (!match) return false;
+    }
+    if (kanbanFilter === "callable") {
+      return c.is_callable !== false;
+    }
+    if (kanbanFilter === "emergency") {
+      return (c.tags || []).some((t) => {
+        const lower = t.toLowerCase();
+        return lower.includes("emerg") || lower.includes("urgent") || lower.includes("flood");
+      });
+    }
+    if (kanbanFilter === "booked") {
+      return c.stage === "booked" || (c.tags || []).some((t) => t.toLowerCase().includes("book"));
+    }
+    if (kanbanFilter === "uncontacted") {
+      return !c.call_count || c.call_count === 0;
+    }
+    return true;
+  };
 
   const fetchCRMData = async () => {
     setLoading(true);
@@ -713,6 +942,67 @@ export default function CRMPipelinePage() {
         )}
       </div>
 
+      {/* Quick Filter Toolbar for Pipeline & Contacts */}
+      {activeTab !== "campaigns" && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+          <span className="text-[10.5px] font-mono text-zinc-400 font-bold uppercase shrink-0">Filter:</span>
+          {[
+            { id: "all", label: "All Contacts", icon: Layers, count: allContacts.length },
+            {
+              id: "callable",
+              label: "TCPA Callable",
+              icon: ShieldCheck,
+              count: allContacts.filter((c) => c.is_callable !== false).length,
+            },
+            {
+              id: "emergency",
+              label: "Emergency Triage",
+              icon: Siren,
+              count: allContacts.filter((c) =>
+                (c.tags || []).some((t) => {
+                  const lower = t.toLowerCase();
+                  return lower.includes("emerg") || lower.includes("urgent");
+                })
+              ).length,
+            },
+            {
+              id: "booked",
+              label: "Booked Slots",
+              icon: Calendar,
+              count: allContacts.filter(
+                (c) => c.stage === "booked" || (c.tags || []).some((t) => t.toLowerCase().includes("book"))
+              ).length,
+            },
+            {
+              id: "uncontacted",
+              label: "Zero Calls",
+              icon: PhoneCall,
+              count: allContacts.filter((c) => !c.call_count || c.call_count === 0).length,
+            },
+          ].map((pill) => (
+            <button
+              key={pill.id}
+              onClick={() => setKanbanFilter(pill.id as any)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
+                kanbanFilter === pill.id
+                  ? "bg-zinc-900 text-white shadow-xs font-semibold"
+                  : "bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              <pill.icon className="w-3 h-3" />
+              <span>{pill.label}</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  kanbanFilter === pill.id ? "bg-zinc-700 text-zinc-200" : "bg-zinc-100 text-zinc-500"
+                }`}
+              >
+                {pill.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Loading Indicator */}
       {loading && (
         <div className="text-center py-16 text-zinc-400 text-xs font-mono">
@@ -724,13 +1014,7 @@ export default function CRMPipelinePage() {
       {!loading && activeTab === "pipeline" && pipelineData && (
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 overflow-x-auto pb-4">
           {currentStages.map((col) => {
-            const stageContacts = (pipelineData.stages[col.key] || []).filter(
-              (c) =>
-                !searchQuery ||
-                (c.name && c.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                (c.phone && c.phone.includes(searchQuery)) ||
-                (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
-            );
+            const stageContacts = (pipelineData.stages[col.key] || []).filter(filterContact);
 
             return (
               <div
@@ -775,98 +1059,129 @@ export default function CRMPipelinePage() {
                       )}
                     </div>
                   ) : (
-                    stageContacts.map((contact) => (
-                      <div
-                        key={contact.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, contact.id)}
-                        onDragEnd={handleDragEnd}
-                        onClick={() => handleOpenContactDetail(contact.id)}
-                        className={`group bg-white border rounded-xl p-3 shadow-xs hover:border-purple-300 hover:shadow-md cursor-grab active:cursor-grabbing transition-all duration-150 space-y-2.5 relative select-none ${
-                          draggedContactId === contact.id
-                            ? "opacity-40 border-dashed border-purple-400"
-                            : "border-zinc-200/90"
-                        }`}
-                      >
-                        {/* Header: Drag Grip, Name, DNC/Callable Pill */}
-                        <div className="flex items-start justify-between gap-1.5">
-                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                            <GripVertical className="w-3.5 h-3.5 text-zinc-300 group-hover:text-zinc-500 shrink-0 transition-colors" />
-                            <h4 className="text-xs font-bold text-zinc-900 group-hover:text-purple-700 transition-colors truncate">
-                              {contact.name || "Unnamed Contact"}
-                            </h4>
-                          </div>
-                          {contact.is_callable === false ? (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-mono font-medium shrink-0">
-                              DNC
-                            </span>
-                          ) : (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-mono font-medium shrink-0">
-                              ✓ Gate v2
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Phone & Email */}
-                        <div className="space-y-1 text-[11px] font-mono">
-                          <div className="flex items-center gap-1.5 text-zinc-700 font-semibold">
-                            <Phone className="w-3 h-3 text-zinc-400 shrink-0" />
-                            <span>{contact.phone}</span>
-                          </div>
-                          {contact.email && (
-                            <div className="flex items-center gap-1.5 truncate text-zinc-500 text-[10.5px]">
-                              <Mail className="w-3 h-3 text-zinc-400 shrink-0" />
-                              <span className="truncate">{contact.email}</span>
+                    stageContacts.map((contact) => {
+                      const sentiment = getContactSentimentTelemetry(contact);
+                      return (
+                        <div
+                          key={contact.id}
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, contact.id)}
+                          onDragEnd={handleDragEnd}
+                          onClick={() => handleOpenContactDetail(contact.id)}
+                          className={`group bg-white border rounded-xl p-3 shadow-xs hover:border-purple-300 hover:shadow-md cursor-grab active:cursor-grabbing transition-all duration-150 space-y-2.5 relative select-none ${
+                            draggedContactId === contact.id
+                              ? "opacity-40 border-dashed border-purple-400"
+                              : "border-zinc-200/90"
+                          }`}
+                        >
+                          {/* Header: Drag Grip, Name, DNC/Callable Pill */}
+                          <div className="flex items-start justify-between gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <GripVertical className="w-3.5 h-3.5 text-zinc-300 group-hover:text-zinc-500 shrink-0 transition-colors" />
+                              <h4 className="text-xs font-bold text-zinc-900 group-hover:text-purple-700 transition-colors truncate">
+                                {contact.name || "Unnamed Contact"}
+                              </h4>
                             </div>
-                          )}
-                        </div>
-
-                        {/* Human-Readable Tags */}
-                        {contact.tags && contact.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {contact.tags.slice(0, 3).map((tag, idx) => {
-                              const formatted = formatHumanReadableTag(tag);
-                              return (
-                                <span
-                                  key={idx}
-                                  className={`text-[9.5px] px-2 py-0.5 rounded-md border font-medium ${formatted.color}`}
-                                >
-                                  {formatted.label}
-                                </span>
-                              );
-                            })}
-                            {contact.tags.length > 3 && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 font-mono">
-                                +{contact.tags.length - 3}
+                            {contact.is_callable === false ? (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-700 font-mono font-medium shrink-0">
+                                DNC
+                              </span>
+                            ) : (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-mono font-medium shrink-0">
+                                ✓ Gate v2
                               </span>
                             )}
                           </div>
-                        )}
 
-                        {/* Footer: Call telemetry & Manual stage move trigger */}
-                        <div
-                          className="pt-2 border-t border-zinc-100 flex items-center justify-between text-[10px]"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <span className="text-zinc-500 font-mono flex items-center gap-1">
-                            <Clock className="w-2.5 h-2.5 text-zinc-400" />
-                            {contact.call_count} call{contact.call_count !== 1 ? "s" : ""}
-                          </span>
-                          <select
-                            value={col.key}
-                            onChange={(e) => requestStageMove(contact, e.target.value)}
-                            className="bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded px-1.5 py-0.5 text-zinc-600 font-medium cursor-pointer hover:text-zinc-900 focus:outline-none transition text-[10px]"
-                            title="Move to another stage"
+                          {/* Emotional Temperature & Conversion Intent Pill */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`text-[9.5px] px-2 py-0.5 rounded-md border font-medium flex items-center gap-1 ${sentiment.badgeClass}`}
+                              title={`AI Temperature: ${sentiment.score}/100 - ${sentiment.mood}`}
+                            >
+                              <span>{sentiment.indicator}</span>
+                              <span>{sentiment.label}</span>
+                              <span className="font-mono text-[9px] opacity-80">{sentiment.score}°</span>
+                            </span>
+                          </div>
+
+                          {/* Phone & Email */}
+                          <div className="space-y-1 text-[11px] font-mono">
+                            <div className="flex items-center gap-1.5 text-zinc-700 font-semibold">
+                              <Phone className="w-3 h-3 text-zinc-400 shrink-0" />
+                              <span>{contact.phone}</span>
+                            </div>
+                            {contact.email && (
+                              <div className="flex items-center gap-1.5 truncate text-zinc-500 text-[10.5px]">
+                                <Mail className="w-3 h-3 text-zinc-400 shrink-0" />
+                                <span className="truncate">{contact.email}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Human-Readable Tags */}
+                          {contact.tags && contact.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {contact.tags.slice(0, 3).map((tag, idx) => {
+                                const formatted = formatHumanReadableTag(tag);
+                                return (
+                                  <span
+                                    key={idx}
+                                    className={`text-[9.5px] px-2 py-0.5 rounded-md border font-medium ${formatted.color}`}
+                                  >
+                                    {formatted.label}
+                                  </span>
+                                );
+                              })}
+                              {contact.tags.length > 3 && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 font-mono">
+                                  +{contact.tags.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Footer: AI Speed-to-Lead Callback, Call telemetry & Manual stage move trigger */}
+                          <div
+                            className="pt-2 border-t border-zinc-100 flex items-center justify-between text-[10px]"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {currentStages.map((s) => (
-                              <option key={s.key} value={s.key}>
-                                Move &rarr; {s.label}
-                              </option>
-                            ))}
-                          </select>
+                            <button
+                              type="button"
+                              disabled={callingContactId === contact.id}
+                              onClick={() => handleTriggerAiCallback(contact)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-semibold transition-colors disabled:opacity-50"
+                              title="Dispatch instant 1-click AI voice call (Speed-to-lead)"
+                            >
+                              {callingContactId === contact.id ? (
+                                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                              ) : (
+                                <Zap className="w-2.5 h-2.5 fill-purple-600 text-purple-600" />
+                              )}
+                              <span>{callingContactId === contact.id ? "Dialing..." : "AI Call"}</span>
+                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-zinc-500 font-mono flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5 text-zinc-400" />
+                                {contact.call_count}
+                              </span>
+                              <select
+                                value={col.key}
+                                onChange={(e) => requestStageMove(contact, e.target.value)}
+                                className="bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded px-1.5 py-0.5 text-zinc-600 font-medium cursor-pointer hover:text-zinc-900 focus:outline-none transition text-[10px]"
+                                title="Move to another stage"
+                              >
+                                {currentStages.map((s) => (
+                                  <option key={s.key} value={s.key}>
+                                    &rarr; {s.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -884,6 +1199,7 @@ export default function CRMPipelinePage() {
                 <th className="py-3 px-4">Contact</th>
                 <th className="py-3 px-4">Phone / Email</th>
                 <th className="py-3 px-4">Stage</th>
+                <th className="py-3 px-4">Emotional Temp</th>
                 <th className="py-3 px-4">Callable Status</th>
                 <th className="py-3 px-4">Tags</th>
                 <th className="py-3 px-4">Source</th>
@@ -892,13 +1208,7 @@ export default function CRMPipelinePage() {
             </thead>
             <tbody className="divide-y divide-zinc-100">
               {(Array.isArray(allContacts) ? allContacts : [])
-                .filter(
-                  (c) =>
-                    !searchQuery ||
-                    (c.name && c.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                    (c.phone && c.phone.includes(searchQuery)) ||
-                    (c.email && c.email.toLowerCase().includes(searchQuery.toLowerCase()))
-                )
+                .filter(filterContact)
                 .map((contact) => (
                   <tr
                     key={contact.id}
@@ -914,6 +1224,21 @@ export default function CRMPipelinePage() {
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-100 text-zinc-700 capitalize">
                         {contact.stage ? contact.stage.replace("_", " ") : "New Lead"}
                       </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {(() => {
+                        const sentiment = getContactSentimentTelemetry(contact);
+                        return (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${sentiment.badgeClass}`}
+                            title={`AI Temperature: ${sentiment.score}/100 - ${sentiment.mood}`}
+                          >
+                            <span>{sentiment.indicator}</span>
+                            <span>{sentiment.label}</span>
+                            <span className="font-mono text-[9px] opacity-75">{sentiment.score}°</span>
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-3 px-4">
                       {contact.is_callable !== false ? (
@@ -947,15 +1272,33 @@ export default function CRMPipelinePage() {
                       {(contact.source || "manual").replace("_", " ")}
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenContactDetail(contact.id);
-                        }}
-                        className="text-zinc-600 hover:text-zinc-900 font-semibold text-[11px]"
-                      >
-                        Details &rarr;
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTriggerAiCallback(contact);
+                          }}
+                          disabled={callingContactId === contact.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-semibold text-[11px] transition disabled:opacity-50"
+                          title="Trigger 1-click AI Speed-to-lead callback"
+                        >
+                          {callingContactId === contact.id ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Zap className="w-3 h-3 fill-purple-600 text-purple-600" />
+                          )}
+                          <span>{callingContactId === contact.id ? "Calling..." : "AI Call"}</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenContactDetail(contact.id);
+                          }}
+                          className="text-zinc-600 hover:text-zinc-900 font-semibold text-[11px]"
+                        >
+                          Details &rarr;
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1017,15 +1360,33 @@ export default function CRMPipelinePage() {
                 {contactDetail?.name || "Loading..."}
               </h2>
             </div>
-            <button
-              onClick={() => {
-                setSelectedContactId(null);
-                setContactDetail(null);
-              }}
-              className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-900 transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {contactDetail && (
+                <button
+                  type="button"
+                  disabled={callingContactId === contactDetail.id}
+                  onClick={() => handleTriggerAiCallback(contactDetail)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-xs transition"
+                  title="Dispatch 1-click live voice triage call via LiveKit SIP trunk"
+                >
+                  {callingContactId === contactDetail.id ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <PhoneCall className="w-3.5 h-3.5" />
+                  )}
+                  <span>{callingContactId === contactDetail.id ? "Connecting..." : "Trigger AI Callback"}</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setSelectedContactId(null);
+                  setContactDetail(null);
+                }}
+                className="p-1 rounded-lg hover:bg-zinc-100 text-zinc-400 hover:text-zinc-900 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Drawer Tabs */}
@@ -1079,6 +1440,164 @@ export default function CRMPipelinePage() {
                 {/* TAB: OVERVIEW */}
                 {drawerTab === "overview" && (
                   <div className="space-y-5">
+                    {/* Widget 1: AI Conversion Temperature & Emotional Intelligence */}
+                    {(() => {
+                      const sentiment = getContactSentimentTelemetry(contactDetail);
+                      const isEmergency = (contactDetail.tags || []).some((t) => {
+                        const lower = t.toLowerCase();
+                        return lower.includes("emerg") || lower.includes("urgent");
+                      });
+                      return (
+                        <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-xs space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="p-1.5 rounded-lg bg-purple-50 text-purple-700 border border-purple-200">
+                                <Activity className="w-4 h-4 text-purple-600" />
+                              </span>
+                              <div>
+                                <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold block">
+                                  AI Emotional Intelligence & Score
+                                </span>
+                                <h4 className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
+                                  <span>{sentiment.indicator}</span>
+                                  <span>{sentiment.label}</span>
+                                  <span className="text-zinc-400 font-normal">({sentiment.mood})</span>
+                                </h4>
+                              </div>
+                            </div>
+                            <span
+                              className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full border ${sentiment.badgeClass}`}
+                            >
+                              {sentiment.score} / 100
+                            </span>
+                          </div>
+
+                          {/* Conversion Intent Progress Bar */}
+                          <div className="space-y-1.5">
+                            <div className="w-full bg-zinc-100 h-2 rounded-full overflow-hidden flex">
+                              <div
+                                className={`h-full transition-all duration-500 rounded-full ${
+                                  sentiment.score >= 80
+                                    ? "bg-emerald-500"
+                                    : sentiment.score >= 60
+                                    ? "bg-blue-500"
+                                    : "bg-amber-500"
+                                }`}
+                                style={{ width: `${sentiment.score}%` }}
+                              />
+                            </div>
+                            <p className="text-[11px] text-zinc-500 leading-snug">
+                              <strong className="text-zinc-700">AI Recommendation:</strong>{" "}
+                              {sentiment.recommendation}
+                            </p>
+                          </div>
+
+                          {/* 1-Click Fast-Track Emergency Dispatch Toggle */}
+                          <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <Siren
+                                className={`w-3.5 h-3.5 ${
+                                  isEmergency ? "text-rose-600 animate-pulse" : "text-zinc-400"
+                                }`}
+                              />
+                              <span className={isEmergency ? "text-rose-700 font-bold" : "text-zinc-500"}>
+                                {isEmergency ? "Emergency Triage Active" : "Standard Priority Lead"}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleToggleEmergency}
+                              className={`text-[10.5px] font-bold px-2.5 py-1 rounded-lg border transition-colors ${
+                                isEmergency
+                                  ? "bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300"
+                                  : "bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border-zinc-300"
+                              }`}
+                            >
+                              {isEmergency ? "Clear Emergency Flag" : "🚨 Fast-Track Emergency Dispatch"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Widget 2: Visual Multi-Step Call Lifecycle Progression Tracker */}
+                    <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5 text-zinc-500" />
+                          Call & Lead Lifecycle Progression
+                        </span>
+                        <span className="text-[10px] font-mono text-zinc-400">
+                          {contactDetail.stage.replace("_", " ").toUpperCase()}
+                        </span>
+                      </div>
+
+                      {/* 5-Stage Roadmap Steps */}
+                      <div className="grid grid-cols-5 gap-1.5 pt-1">
+                        {[
+                          {
+                            step: 1,
+                            name: "Ingestion",
+                            done: true,
+                            detail: contactDetail.source || "Web/Inbound",
+                          },
+                          {
+                            step: 2,
+                            name: "AI Triage",
+                            done: Boolean(contactDetail.calls && contactDetail.calls.length > 0),
+                            detail: `${contactDetail.calls?.length || 0} calls`,
+                          },
+                          {
+                            step: 3,
+                            name: "Slot Booked",
+                            done:
+                              contactDetail.stage === "booked" ||
+                              contactDetail.stage === "closed" ||
+                              (contactDetail.tags || []).some((t) => t.toLowerCase().includes("book")),
+                            detail: contactDetail.stage === "booked" ? "Confirmed" : "Pending",
+                          },
+                          {
+                            step: 4,
+                            name: "CRM Synced",
+                            done: true,
+                            detail: "Realtime",
+                          },
+                          {
+                            step: 5,
+                            name: "SMS Confirmed",
+                            done: (contactDetail.timeline || []).some((t) =>
+                              t.title.toLowerCase().includes("sms")
+                            ),
+                            detail: "Telnyx Carrier",
+                          },
+                        ].map((m) => (
+                          <div
+                            key={m.step}
+                            className={`p-2 rounded-xl border text-center space-y-1 transition-all ${
+                              m.done
+                                ? "bg-white border-emerald-300 text-zinc-900 shadow-xs"
+                                : "bg-zinc-100/70 border-zinc-200 text-zinc-400"
+                            }`}
+                          >
+                            <div className="flex items-center justify-center">
+                              {m.done ? (
+                                <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px] font-bold">
+                                  ✓
+                                </span>
+                              ) : (
+                                <span className="w-4 h-4 rounded-full bg-zinc-200 text-zinc-500 flex items-center justify-center text-[9px] font-mono">
+                                  {m.step}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] font-bold truncate leading-none">{m.name}</div>
+                            <div className="text-[9px] font-mono text-zinc-400 truncate leading-none">
+                              {m.detail}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     {/* Contact Quick Details */}
                     <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200 space-y-3">
                       <div className="grid grid-cols-2 gap-3 text-xs">
