@@ -73,8 +73,8 @@ export default function AdminInventoryPage() {
         api.getAdminTenants().catch(() => []),
         api.getSipTrunkTelemetry().catch(() => null),
       ]);
-      setNumbers(nums);
-      setTenants(tnts);
+      setNumbers(Array.isArray(nums) ? nums : []);
+      setTenants(Array.isArray(tnts) ? tnts : []);
       setTrunkTelemetry(trunk);
     } catch (err) {
       console.error("Failed to load inventory:", err);

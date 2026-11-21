@@ -76,9 +76,9 @@ export default function AdminBillingPage() {
         api.getAdminRefunds().catch(() => []),
         api.getAdminTopupOrders().catch(() => []),
       ]);
-      setSubscriptions(subsRes);
-      setRefundRequests(refundsRes);
-      setTopupOrders(topupsRes);
+      setSubscriptions(Array.isArray(subsRes) ? subsRes : []);
+      setRefundRequests(Array.isArray(refundsRes) ? refundsRes : []);
+      setTopupOrders(Array.isArray(topupsRes) ? topupsRes : []);
     } catch (err) {
       console.error("Failed to load billing records:", err);
     } finally {
@@ -179,13 +179,17 @@ export default function AdminBillingPage() {
     document.body.removeChild(link);
   };
 
-  const filteredSubscriptions = subscriptions.filter((s: any) => {
+  const subList = Array.isArray(subscriptions) ? subscriptions : [];
+  const refundList = Array.isArray(refundRequests) ? refundRequests : [];
+  const topupList = Array.isArray(topupOrders) ? topupOrders : [];
+
+  const filteredSubscriptions = subList.filter((s: any) => {
     if (!billingSearchQuery) return true;
     const q = billingSearchQuery.toLowerCase();
     return s.tenant_name?.toLowerCase().includes(q) || s.tenant_id?.toLowerCase().includes(q) || s.tier?.toLowerCase().includes(q);
   });
 
-  const filteredRefundRequests = refundRequests.filter((req: any) => {
+  const filteredRefundRequests = refundList.filter((req: any) => {
     if (!billingSearchQuery) return true;
     const q = billingSearchQuery.toLowerCase();
     return (
@@ -234,14 +238,14 @@ export default function AdminBillingPage() {
             <CreditCard className="w-4 h-4 text-purple-600" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            {subscriptions.filter((s: any) => s.status === "active").length}
+            {subList.filter((s: any) => s.status === "active").length}
             <span className="text-xs font-normal text-slate-500 font-sans ml-1.5">
-              / {subscriptions.length} accounts
+              / {subList.length} accounts
             </span>
           </div>
           <div className="text-[10px] text-slate-500 font-mono mt-1">
             Est. Monthly Recurring: $
-            {subscriptions
+            {subList
               .filter((s: any) => s.status === "active")
               .reduce((acc: number, s: any) => {
                 const pricing: Record<string, number> = {
@@ -259,7 +263,7 @@ export default function AdminBillingPage() {
             <Sparkles className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-xl font-bold font-mono text-emerald-700">
-            +{subscriptions.reduce((acc: number, s: any) => acc + (s.bonus_rollover_minutes || 0), 0).toFixed(0)}
+            +{subList.reduce((acc: number, s: any) => acc + (s.bonus_rollover_minutes || 0), 0).toFixed(0)}
             <span className="text-xs font-normal text-slate-500 font-sans ml-1">mins</span>
           </div>
           <div className="text-[10px] text-slate-500 font-mono mt-1">
@@ -273,11 +277,11 @@ export default function AdminBillingPage() {
             <Coins className="w-4 h-4 text-blue-600" />
           </div>
           <div className="text-xl font-bold font-mono text-blue-700">
-            +{subscriptions.reduce((acc: number, s: any) => acc + (s.topup_minutes_balance || 0), 0).toFixed(0)}
+            +{subList.reduce((acc: number, s: any) => acc + (s.topup_minutes_balance || 0), 0).toFixed(0)}
             <span className="text-xs font-normal text-slate-500 font-sans ml-1">mins</span>
           </div>
           <div className="text-[10px] text-slate-500 font-mono mt-1">
-            {topupOrders.length} standalone packs completed
+            {topupList.length} standalone packs completed
           </div>
         </div>
 
@@ -287,13 +291,13 @@ export default function AdminBillingPage() {
             <DollarSign className="w-4 h-4 text-amber-600" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900">
-            ${subscriptions
+            ${subList
               .filter((s: any) => s.onboarding_fee_paid)
               .reduce((acc: number, s: any) => acc + (s.onboarding_fee_usd || 0), 0)
               .toLocaleString()}
           </div>
           <div className="text-[10px] text-slate-500 font-mono mt-1">
-            Waived: {subscriptions.filter((s: any) => s.onboarding_fee_waived).length} accounts
+            Waived: {subList.filter((s: any) => s.onboarding_fee_waived).length} accounts
           </div>
         </div>
 
@@ -303,8 +307,8 @@ export default function AdminBillingPage() {
             <ShieldAlert className="w-4 h-4 text-rose-600" />
           </div>
           <div className="text-xl font-bold font-mono text-slate-900 flex items-center gap-2">
-            <span>{refundRequests.filter((r: any) => r.status === "pending").length}</span>
-            {refundRequests.filter((r: any) => r.status === "pending").length > 0 && (
+            <span>{refundList.filter((r: any) => r.status === "pending").length}</span>
+            {refundList.filter((r: any) => r.status === "pending").length > 0 && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-rose-100 text-rose-700 font-bold border border-rose-200 animate-pulse">
                 Action Required
               </span>
@@ -395,7 +399,7 @@ export default function AdminBillingPage() {
                       {sub.monthly_included_minutes} mins
                     </td>
                     <td className="p-3 text-slate-700">
-                      {sub.minutes_used_this_cycle.toFixed(1)} mins
+                      {(sub.minutes_used_this_cycle ?? 0).toFixed(1)} mins
                     </td>
                     <td className="p-3 text-emerald-700 font-semibold">
                       +{sub.bonus_rollover_minutes} mins
@@ -473,8 +477,8 @@ export default function AdminBillingPage() {
                       <div className="text-[10px] text-slate-400 font-mono">{req.tier} • ID: {req.tenant_id.slice(0, 8)}...</div>
                     </td>
                     <td className="p-3 font-mono">
-                      <div className="font-semibold text-slate-900">{req.minutes_used.toFixed(1)} / {req.cycle_included_minutes}m</div>
-                      <div className="text-[10px] text-slate-500">{req.usage_percentage.toFixed(1)}% of base allocation</div>
+                      <div className="font-semibold text-slate-900">{(req.minutes_used ?? 0).toFixed(1)} / {req.cycle_included_minutes ?? 0}m</div>
+                      <div className="text-[10px] text-slate-500">{(req.usage_percentage ?? 0).toFixed(1)}% of base allocation</div>
                     </td>
                     <td className="p-3">
                       {req.eligible_under_50pct_rule ? (
@@ -490,7 +494,7 @@ export default function AdminBillingPage() {
                       )}
                     </td>
                     <td className="p-3 font-mono font-bold text-slate-900">
-                      ${req.amount_usd.toFixed(2)}
+                      ${(req.amount_usd ?? 0).toFixed(2)}
                     </td>
                     <td className="p-3 max-w-xs text-slate-600 text-[11px] italic truncate">
                       &quot;{req.reason}&quot;
@@ -584,7 +588,7 @@ export default function AdminBillingPage() {
                     <td className="p-3 text-slate-400">ID: {ord.id.slice(0, 10)}...</td>
                     <td className="p-3 font-sans font-bold text-slate-900">{ord.pack_name}</td>
                     <td className="p-3 text-blue-700 font-bold">+{ord.minutes.toLocaleString()} mins</td>
-                    <td className="p-3 text-slate-900 font-bold">${ord.price_usd.toFixed(2)}</td>
+                    <td className="p-3 text-slate-900 font-bold">${(ord.price_usd ?? 0).toFixed(2)}</td>
                     <td className="p-3 font-sans">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                         {ord.status}
@@ -751,13 +755,13 @@ export default function AdminBillingPage() {
                 <div className="flex justify-between">
                   <span className="text-slate-500">Tier &amp; Amount:</span>
                   <span className="font-bold text-slate-900 uppercase">
-                    {refundActionModal.request.tier} (${refundActionModal.request.amount_usd.toFixed(2)})
+                    {refundActionModal.request.tier} (${(refundActionModal.request.amount_usd ?? 0).toFixed(2)})
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Usage at Request:</span>
                   <span className={`font-bold ${refundActionModal.request.eligible_under_50pct_rule ? "text-emerald-700" : "text-rose-700"}`}>
-                    {refundActionModal.request.usage_percentage.toFixed(1)}% of base allocation
+                    {(refundActionModal.request.usage_percentage ?? 0).toFixed(1)}% of base allocation
                   </span>
                 </div>
               </div>

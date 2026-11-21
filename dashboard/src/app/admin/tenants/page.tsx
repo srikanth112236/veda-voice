@@ -42,7 +42,7 @@ export default function AdminTenantsPage() {
 
   useEffect(() => {
     api.getAdminTenants()
-      .then((data) => setTenants(data))
+      .then((data) => setTenants(Array.isArray(data) ? data : []))
       .catch((err) => console.error("Failed to load tenants:", err))
       .finally(() => setLoading(false));
   }, []);
