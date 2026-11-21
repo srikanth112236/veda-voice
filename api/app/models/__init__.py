@@ -35,7 +35,7 @@ from api.app.models.lead_form import Lead, LeadForm
 from api.app.models.location import Location, UnservedTerritoryLog
 from api.app.models.outbound import ConsentRecord, OutboundDispatch, SuppressionRecord
 from api.app.models.staff import StaffMember
-from api.app.models.subscription import Coupon, Subscription, UsageRecord
+from api.app.models.subscription import Coupon, RefundRequest, Subscription, TopupOrder, UsageRecord
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 
@@ -59,6 +59,8 @@ __all__ = [
     "Subscription",
     "Coupon",
     "UsageRecord",
+    "TopupOrder",
+    "RefundRequest",
     "LeadForm",
     "Lead",
     "TenantIntegration",

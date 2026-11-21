@@ -558,12 +558,13 @@ def check_downgrade_limits(
 ) -> dict[str, Any]:
     """Pre-downgrade gate (FR-PLAN-2): list any resources exceeding the target plan limits."""
     target_plan = db.scalar(select(Plan).where(Plan.code == target_plan_code.lower()))
-    if not target_plan:
+    if not target_plan and target_plan_code.lower() not in PLAN_ENTITLEMENTS_MATRIX:
         return {"allowed": False, "reason": f"Target plan '{target_plan_code}' not found."}
 
+    target_name = target_plan.name if target_plan else target_plan_code.capitalize()
     target_entitlements = (
         dict(target_plan.entitlements)
-        if target_plan.entitlements
+        if (target_plan and target_plan.entitlements)
         else PLAN_ENTITLEMENTS_MATRIX.get(target_plan_code.lower(), {})
     )
 
@@ -586,7 +587,7 @@ def check_downgrade_limits(
                     "resource": "phone_numbers",
                     "current": active_numbers,
                     "target_max": max_numbers,
-                    "message": f"Tenant has {active_numbers} active numbers, but {target_plan.name} allows at most {max_numbers}.",
+                    "message": f"Tenant has {active_numbers} active numbers, but {target_name} allows at most {max_numbers}.",
                 }
             )
 
@@ -604,7 +605,7 @@ def check_downgrade_limits(
                     "resource": "seats",
                     "current": active_users,
                     "target_max": max_seats,
-                    "message": f"Tenant has {active_users} active users, but {target_plan.name} allows at most {max_seats}.",
+                    "message": f"Tenant has {active_users} active users, but {target_name} allows at most {max_seats}.",
                 }
             )
 
@@ -624,23 +625,47 @@ def check_downgrade_limits(
                     "resource": "locations",
                     "current": active_locations,
                     "target_max": max_locations,
-                    "message": f"Tenant has {active_locations} active branch locations, but {target_plan.name} allows at most {max_locations}.",
+                    "message": f"Tenant has {active_locations} active branch locations, but {target_name} allows at most {max_locations}.",
                 }
             )
 
-    # 4. Outbound Categories
+    # 4. Outbound Categories - check if tenant has active campaigns using incompatible categories
     target_categories = set(target_entitlements.get("outbound.categories", ["B"]))
     current_entitlements = resolve_tenant_entitlements(db, tenant_id)
     current_categories = set(current_entitlements.get("outbound.categories", ["B"]))
     incompatible_categories = current_categories - target_categories
     if incompatible_categories:
-        excess.append(
-            {
-                "resource": "outbound_categories",
-                "incompatible": list(incompatible_categories),
-                "message": f"{target_plan.name} does not allow outbound categories {list(incompatible_categories)}. Active campaigns using them must be paused.",
-            }
-        )
+        category_to_purposes: dict[str, list[str]] = {
+            "B": ["appointment_reminder", "follow_up"],
+            "C": ["callback_scheduled", "speed_to_lead", "call_triage"],
+            "D": ["reactivation"],
+        }
+        incompatible_purposes = []
+        for cat in incompatible_categories:
+            incompatible_purposes.extend(category_to_purposes.get(cat, []))
+
+        if incompatible_purposes:
+            from api.app.models.outbound import VoiceCampaign
+
+            active_incompatible = db.scalars(
+                select(VoiceCampaign).where(
+                    VoiceCampaign.tenant_id == tenant_id,
+                    VoiceCampaign.status.in_(["running", "active", "scheduled"]),
+                    VoiceCampaign.purpose.in_(incompatible_purposes),
+                )
+            ).all()
+            if active_incompatible:
+                excess.append(
+                    {
+                        "resource": "outbound_categories",
+                        "incompatible": list(incompatible_categories),
+                        "active_campaign_count": len(active_incompatible),
+                        "message": (
+                            f"{target_name} does not allow outbound categories {list(incompatible_categories)}. "
+                            f"{len(active_incompatible)} active campaign(s) using them must be paused."
+                        ),
+                    }
+                )
 
     return {
         "allowed": len(excess) == 0,

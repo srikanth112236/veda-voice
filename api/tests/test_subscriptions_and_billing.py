@@ -72,7 +72,12 @@ def test_coupon_validation_and_discount_redemption() -> None:
     assert upg_data["monthly_included_minutes"] == 1000
     assert upg_data["coupon_applied"] == "LAUNCH50"
     assert upg_data["invoice"]["discount_usd"] == 149.50
-    assert upg_data["invoice"]["total_charged_usd"] == 149.50
+    # Starter plan includes dynamic onboarding fee between $199 and $299 for first-time paid activation
+    assert (
+        upg_data["invoice"]["total_charged_usd"]
+        == 149.50 + upg_data["invoice"]["onboarding_fee_usd"]
+    )
+    assert 199.0 <= upg_data["invoice"]["onboarding_fee_usd"] <= 299.0
 
 
 def test_monthly_cycle_renewal_rollover_10_percent() -> None:
@@ -219,30 +224,30 @@ def test_one_subscription_per_month_cycle_protection_and_scheduling() -> None:
     assert same_tier_res.status_code == 400
     assert "Already actively subscribed" in same_tier_res.json()["detail"]
 
-    # 3. Selecting a different tier mid-cycle schedules it for the next renewal
-    upg_sched = client.post(
+    # 3. Selecting a lower tier (downgrade) mid-cycle schedules it for the next renewal
+    down_sched = client.post(
         "/api/v1/subscriptions/upgrade",
         headers=headers,
-        json={"tier": "pro"},
+        json={"tier": "lite"},
     )
-    assert upg_sched.status_code == 200
-    sched_data = upg_sched.json()
+    assert down_sched.status_code == 200
+    sched_data = down_sched.json()
     assert sched_data["scheduled"] is True
-    assert sched_data["pending_tier"] == "pro"
+    assert sched_data["pending_tier"] == "lite"
     assert "scheduled for your next cycle renewal" in sched_data["message"].lower()
 
     # 4. Check current subscription reflects pending tier
     cur_res = client.get("/api/v1/subscriptions/current", headers=headers)
     assert cur_res.status_code == 200
-    assert cur_res.json()["pending_tier"] == "pro"
+    assert cur_res.json()["pending_tier"] == "lite"
     assert cur_res.json()["tier"] == "starter"  # Still on current tier until renewal!
 
     # 5. Cycle renewal applies the pending tier
     renew_res = client.post("/api/v1/subscriptions/cycle-renew", headers=headers)
     assert renew_res.status_code == 200
     renew_data = renew_res.json()
-    assert renew_data["tier"] == "pro"
-    assert renew_data["monthly_included_minutes"] in (1200, 2000)
+    assert renew_data["tier"] == "lite"
+    assert renew_data["monthly_included_minutes"] in (300, 500)
 
 
 def test_admin_master_subscription_override_and_status_controls() -> None:

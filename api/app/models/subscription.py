@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.app.models.base import Base
@@ -79,6 +79,26 @@ class Subscription(Base):
     )
 
     applied_coupon_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Onboarding & Setup Fee Tracking
+    onboarding_fee_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    onboarding_fee_paid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    onboarding_fee_waived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Standalone Top-Up Minute Tracking
+    topup_minutes_balance: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
+    # Refund Request Tracking
+    refund_status: Mapped[str | None] = mapped_column(
+        String(32), default=None, nullable=True
+    )  # "none", "requested", "approved", "rejected"
+    refund_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    refund_requested_usage_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    refund_requested_amount_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    refund_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
@@ -102,7 +122,11 @@ class Subscription(Base):
         return float(
             max(
                 0.0,
-                (float(self.monthly_included_minutes) + float(self.bonus_rollover_minutes))
+                (
+                    float(self.monthly_included_minutes)
+                    + float(self.bonus_rollover_minutes)
+                    + float(self.topup_minutes_balance)
+                )
                 - float(self.used_minutes_this_cycle),
             )
         )
@@ -175,3 +199,56 @@ class UsageRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+
+
+class TopupOrder(Base):
+    """One-time minute top-up transactions charged separately from recurring subscriptions."""
+
+    __tablename__ = "topup_orders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", nullable=False
+    )  # pending, completed, failed
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", backref="topup_orders")
+
+
+class RefundRequest(Base):
+    """Formal refund exception requests evaluated against the < 50% usage gate."""
+
+    __tablename__ = "refund_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    subscription_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("subscriptions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    cycle_used_minutes: Mapped[float] = mapped_column(Float, nullable=False)
+    cycle_base_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    usage_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False)  # usage_pct < 50.0
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="pending", nullable=False
+    )  # pending, approved, rejected
+    admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", backref="refund_requests")
+    subscription: Mapped["Subscription"] = relationship("Subscription", backref="refund_requests")

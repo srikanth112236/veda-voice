@@ -1,6 +1,7 @@
 """Subscription, minute billing, rollover, and coupon management router."""
 
 import uuid
+import zlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -16,7 +17,7 @@ from api.app.models.entitlement import (
     TenantEntitlementOverride,
 )
 from api.app.models.location import Location
-from api.app.models.subscription import Coupon, Subscription
+from api.app.models.subscription import Coupon, RefundRequest, Subscription, TopupOrder
 from api.app.models.tenant import PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.services.entitlements import (
@@ -48,6 +49,39 @@ TIER_PLANS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Standalone Minute Top-Up Packs (Billed Separately from Subscriptions)
+TOPUP_PACKS: dict[str, dict[str, Any]] = {
+    "bronze": {"name": "Bronze Pack", "minutes": 250, "price_usd": 75.00, "rate_per_min": 0.30},
+    "silver": {"name": "Silver Pack", "minutes": 500, "price_usd": 140.00, "rate_per_min": 0.28},
+    "gold": {"name": "Gold Pack", "minutes": 1000, "price_usd": 250.00, "rate_per_min": 0.25},
+    "platinum": {
+        "name": "Platinum Pack",
+        "minutes": 2500,
+        "price_usd": 550.00,
+        "rate_per_min": 0.22,
+    },
+}
+
+STRICT_REFUND_POLICY_TERMS: str = (
+    "VedaVoice Strict No-Refund Policy: By default, subscriptions and recurring plan fees are non-refundable. "
+    "As an exceptional courtesy, refund reviews may only be evaluated if billable minute usage during the active "
+    "billing cycle is strictly less than 50% of the plan base allocation. Accounts with 50% or greater utilization "
+    "are strictly ineligible for any refund. One-time setup and telephony onboarding fees are strictly non-refundable."
+)
+
+
+def compute_onboarding_fee(tenant_id: str, plan_tier: str) -> float:
+    """Compute first-time onboarding fee based on plan price tier.
+    - If plan monthly price is below $399 (lite $99, starter $299): $199 - $299 dynamic fee.
+    - If plan price is $399 or higher (growth $399, pro $499, scale $999, enterprise $1999, agency $1000): $399 fixed fee.
+    """
+    plan = TIER_PLANS.get(plan_tier.lower(), {})
+    price = float(plan.get("price_usd", 299.0))
+    if price >= 399.0:
+        return 399.00
+    seed = zlib.crc32(tenant_id.encode("utf-8")) % 101  # 0 to 100
+    return float(199 + seed)
+
 
 class UpgradeSubscriptionRequest(BaseModel):
     tier: str = Field(
@@ -58,6 +92,37 @@ class UpgradeSubscriptionRequest(BaseModel):
     )
     payment_method_id: str | None = Field(
         None, description="Stripe payment method token or test card"
+    )
+    immediate_downgrade: bool = Field(
+        False,
+        description="If target is a lower tier, whether to apply resource restriction immediately",
+    )
+
+
+class RefundSubmitRequest(BaseModel):
+    reason: str = Field(
+        ..., min_length=10, description="Mandatory detailed explanation for refund exception"
+    )
+
+
+class ResolveRefundRequest(BaseModel):
+    action: str = Field(..., description="'approve' or 'reject'")
+    admin_notes: str = Field("Resolved by platform superadmin", description="Admin explanation")
+    refund_amount_usd: float | None = Field(
+        None, description="Optional custom refund amount override"
+    )
+
+
+class PurchaseTopupRequest(BaseModel):
+    pack: str = Field(..., description="Top-up pack code: bronze, silver, gold, platinum")
+    payment_method_id: str | None = Field(None, description="Stripe payment method or test card")
+
+
+class AdminOnboardingFeeRequest(BaseModel):
+    waived: bool = Field(False, description="Whether to waive the onboarding fee")
+    paid: bool | None = Field(None, description="Whether to mark the onboarding fee as paid")
+    custom_fee_usd: float | None = Field(
+        None, ge=0.0, description="Optional custom onboarding fee override"
     )
 
 
@@ -85,6 +150,7 @@ class CreateCouponRequest(BaseModel):
 class GrantMinutesRequest(BaseModel):
     bonus_minutes: float = Field(..., description="Bonus minutes to credit immediately")
     reason: str = Field("Admin courtesy credit", description="Reason for audit log")
+    credit_to: str = Field("rollover", description="'rollover' or 'topup'")
 
 
 class AdminUpdateTierRequest(BaseModel):
@@ -215,9 +281,24 @@ def get_current_subscription(
         total_limit = float(sub.trial_minutes_allocated)
         used_minutes = sub.trial_minutes_used
     else:
-        total_limit = float(sub.monthly_included_minutes) + sub.bonus_rollover_minutes
+        total_limit = (
+            float(sub.monthly_included_minutes)
+            + sub.bonus_rollover_minutes
+            + sub.topup_minutes_balance
+        )
         used_minutes = sub.used_minutes_this_cycle
         remaining_minutes = max(0.0, total_limit - used_minutes)
+
+    cycle_usage_pct = (
+        round((sub.used_minutes_this_cycle / max(1, sub.monthly_included_minutes)) * 100.0, 2)
+        if sub.tier != "trial"
+        else 0.0
+    )
+    refund_eligible = (
+        bool(sub.used_minutes_this_cycle < (0.50 * sub.monthly_included_minutes))
+        if sub.tier != "trial"
+        else False
+    )
 
     return {
         "id": sub.id,
@@ -226,6 +307,7 @@ def get_current_subscription(
         "status": sub.status,
         "monthly_included_minutes": sub.monthly_included_minutes,
         "bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+        "topup_minutes_balance": round(sub.topup_minutes_balance, 2),
         "used_minutes_this_cycle": round(used_minutes, 2),
         "total_limit_minutes": round(total_limit, 2),
         "remaining_minutes": round(remaining_minutes, 2),
@@ -250,6 +332,12 @@ def get_current_subscription(
             sub.pending_effective_at.isoformat() if sub.pending_effective_at else None
         ),
         "applied_coupon_code": sub.applied_coupon_code,
+        "onboarding_fee_usd": sub.onboarding_fee_usd,
+        "onboarding_fee_paid": sub.onboarding_fee_paid,
+        "onboarding_fee_waived": sub.onboarding_fee_waived,
+        "refund_status": sub.refund_status or "none",
+        "current_cycle_usage_pct": cycle_usage_pct,
+        "refund_eligible": refund_eligible,
         "available_plans": [
             {
                 "tier": code,
@@ -261,6 +349,224 @@ def get_current_subscription(
             }
             for code, p in TIER_PLANS.items()
         ],
+    }
+
+
+@router.get("/subscriptions/quote")
+def get_subscription_quote(
+    tier: str = Query(..., description="Target tier code"),
+    coupon_code: str | None = Query(None, description="Optional coupon code"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Get itemized price quote for plan change including first-time onboarding fees and coupons."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    tier_key = tier.lower()
+    if tier_key not in TIER_PLANS:
+        raise HTTPException(status_code=400, detail=f"Invalid tier '{tier}'.")
+
+    plan = TIER_PLANS[tier_key]
+    sub = get_or_create_subscription(db, user.tenant_id)
+
+    is_first_time = not sub.onboarding_fee_paid and not sub.onboarding_fee_waived
+    onboarding_fee = compute_onboarding_fee(user.tenant_id, tier_key) if is_first_time else 0.0
+
+    base_price = float(plan["price_usd"])
+    discount_amount = 0.0
+    coupon_bonus_minutes = 0
+    if coupon_code:
+        coupon = db.scalar(select(Coupon).where(Coupon.code == coupon_code.strip().upper()))
+        if coupon and coupon.is_active and not _is_expired(coupon.expires_at):
+            discount_amount = round(base_price * (coupon.discount_percent / 100.0), 2)
+            coupon_bonus_minutes = coupon.bonus_minutes
+
+    plan_after_discount = max(0.0, base_price - discount_amount)
+    total_due_today = plan_after_discount + onboarding_fee
+
+    trial_rollover_minutes = 0.0
+    if sub.tier == "trial":
+        trial_rollover_minutes = max(
+            0.0, float(sub.trial_minutes_allocated) - sub.trial_minutes_used
+        )
+
+    return {
+        "tier": tier_key,
+        "plan_name": plan["name"],
+        "included_minutes": plan["minutes"],
+        "base_price_usd": base_price,
+        "is_first_time_payment": is_first_time,
+        "onboarding_fee_usd": onboarding_fee,
+        "onboarding_fee_waived": sub.onboarding_fee_waived,
+        "discount_amount_usd": discount_amount,
+        "coupon_bonus_minutes": coupon_bonus_minutes,
+        "total_due_today_usd": total_due_today,
+        "recurring_monthly_usd": plan_after_discount,
+        "trial_minutes_rolled_over": trial_rollover_minutes,
+    }
+
+
+@router.get("/subscriptions/refund-eligibility")
+def get_refund_eligibility(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Evaluate tenant refund eligibility based on the strict < 50% usage gate."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    sub = get_or_create_subscription(db, user.tenant_id)
+    if sub.tier == "trial":
+        return {
+            "eligible": False,
+            "reason": "Free trial accounts have no paid subscription charges to refund.",
+            "used_minutes_this_cycle": 0.0,
+            "monthly_included_minutes": sub.trial_minutes_allocated,
+            "usage_pct": 0.0,
+            "refund_status": "none",
+            "policy_terms": STRICT_REFUND_POLICY_TERMS,
+        }
+
+    base_minutes = max(1, sub.monthly_included_minutes)
+    used_minutes = sub.used_minutes_this_cycle
+    usage_pct = round((used_minutes / base_minutes) * 100.0, 2)
+    is_eligible = bool(usage_pct < 50.0)
+
+    plan_price = float(TIER_PLANS.get(sub.tier, {}).get("price_usd", 299.0))
+    estimated_refund_usd = (
+        round(plan_price * max(0.0, (1.0 - (usage_pct / 100.0))), 2) if is_eligible else 0.0
+    )
+
+    return {
+        "eligible": is_eligible,
+        "reason": (
+            "Usage is below 50% threshold. Eligible for exception refund review."
+            if is_eligible
+            else f"Usage is {usage_pct}%, which meets or exceeds the strict 50% non-refundable threshold."
+        ),
+        "used_minutes_this_cycle": round(used_minutes, 2),
+        "monthly_included_minutes": base_minutes,
+        "usage_pct": usage_pct,
+        "estimated_refund_usd": estimated_refund_usd,
+        "refund_status": sub.refund_status or "none",
+        "policy_terms": STRICT_REFUND_POLICY_TERMS,
+    }
+
+
+@router.post("/subscriptions/request-refund")
+def request_refund(
+    req: RefundSubmitRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Submit formal refund exception request under the strict < 50% usage rule."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    sub = get_or_create_subscription(db, user.tenant_id)
+    if sub.tier == "trial":
+        raise HTTPException(
+            status_code=400, detail="Free trial accounts are not eligible for refunds."
+        )
+
+    base_minutes = max(1, sub.monthly_included_minutes)
+    used_minutes = sub.used_minutes_this_cycle
+    usage_pct = round((used_minutes / base_minutes) * 100.0, 2)
+
+    if usage_pct >= 50.0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Refund strictly prohibited: Your account has utilized {usage_pct}% of included minutes this cycle. "
+                "Per VedaVoice Terms of Service, refunds are strictly prohibited once usage reaches or exceeds 50%."
+            ),
+        )
+
+    plan_price = float(TIER_PLANS.get(sub.tier, {}).get("price_usd", 299.0))
+    estimated_refund = round(plan_price * max(0.0, (1.0 - (usage_pct / 100.0))), 2)
+
+    refund_req = RefundRequest(
+        tenant_id=user.tenant_id,
+        subscription_id=sub.id,
+        cycle_used_minutes=used_minutes,
+        cycle_base_minutes=base_minutes,
+        usage_pct=usage_pct,
+        eligible=True,
+        reason=req.reason,
+        status="pending",
+    )
+    db.add(refund_req)
+    sub.refund_status = "requested"
+    sub.refund_requested_at = datetime.now(UTC)
+    sub.refund_requested_usage_pct = usage_pct
+    sub.refund_requested_amount_usd = estimated_refund
+    sub.refund_reason = req.reason
+
+    db.commit()
+    db.refresh(refund_req)
+
+    return {
+        "success": True,
+        "request_id": refund_req.id,
+        "status": "pending",
+        "usage_pct": usage_pct,
+        "estimated_refund_usd": estimated_refund,
+        "message": (
+            "Refund exception request submitted successfully. "
+            "Our billing team will review your usage (< 50%) and respond within 1 business day."
+        ),
+    }
+
+
+@router.get("/subscriptions/topup-packs")
+def list_topup_packs() -> list[dict[str, Any]]:
+    """List available standalone minute top-up packs."""
+    return [{"code": code, **pack} for code, pack in TOPUP_PACKS.items()]
+
+
+@router.post("/subscriptions/topup")
+def purchase_topup_pack(
+    req: PurchaseTopupRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Purchase a standalone minute top-up pack charged separately from subscription."""
+    if not user.tenant_id:
+        raise HTTPException(status_code=400, detail="Tenant context required.")
+    pack_code = req.pack.lower()
+    if pack_code not in TOPUP_PACKS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid top-up pack '{req.pack}'. Choose from bronze, silver, gold, platinum.",
+        )
+
+    pack = TOPUP_PACKS[pack_code]
+    sub = get_or_create_subscription(db, user.tenant_id)
+
+    order = TopupOrder(
+        tenant_id=user.tenant_id,
+        minutes=pack["minutes"],
+        amount_usd=pack["price_usd"],
+        stripe_payment_intent_id=f"pi_mock_{uuid.uuid4().hex[:14]}",
+        status="completed",
+    )
+    db.add(order)
+
+    # Immediately credit topup balance
+    sub.topup_minutes_balance += float(pack["minutes"])
+    db.commit()
+    db.refresh(sub)
+    db.refresh(order)
+
+    return {
+        "success": True,
+        "order_id": order.id,
+        "pack": pack_code,
+        "pack_name": pack["name"],
+        "minutes_credited": pack["minutes"],
+        "amount_usd": pack["price_usd"],
+        "new_topup_balance": round(sub.topup_minutes_balance, 2),
+        "total_available_minutes": round(sub.total_available_minutes, 2),
+        "stripe_payment_intent_id": order.stripe_payment_intent_id,
+        "message": f"Successfully purchased {pack['name']}! {pack['minutes']} minutes credited immediately.",
     }
 
 
@@ -518,16 +824,22 @@ def upgrade_subscription(
             detail=f"Cannot transition to {plan['name']}: Resource limits exceeded. {excess_msgs}",
         )
 
-    # 1-Subscription-Per-Month Enforced:
-    # If tenant is already on an active paid plan (not in trial)
-    if sub.tier != "trial" and sub.status == "active":
-        if tier_key == sub.tier:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Already actively subscribed to {plan['name']}. Your plan auto-renews on {sub.cycle_end_date.strftime('%b %d, %Y')}.",
-            )
-        # Client user attempting to change tier mid-cycle:
-        if user.role != "platform_admin" and sub.is_cycle_locked:
+    # Check if already on this tier
+    if sub.tier != "trial" and sub.status == "active" and tier_key == sub.tier:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Already actively subscribed to {plan['name']}. Your plan auto-renews on {sub.cycle_end_date.strftime('%b %d, %Y')}.",
+        )
+
+    current_price = (
+        float(TIER_PLANS.get(sub.tier, {}).get("price_usd", 0.0)) if sub.tier != "trial" else 0.0
+    )
+    target_price = float(plan["price_usd"])
+
+    # DOWNGRADE PATH (Target Plan Price < Current Plan Price)
+    if sub.tier != "trial" and target_price < current_price:
+        if not req.immediate_downgrade:
+            # Scheduled downgrade at end of active paid billing period
             sub.pending_tier = tier_key
             sub.pending_effective_at = sub.cycle_end_date
             db.commit()
@@ -535,10 +847,11 @@ def upgrade_subscription(
             return {
                 "success": True,
                 "scheduled": True,
+                "instant": False,
                 "message": (
                     f"Plan change to {plan['name']} is scheduled for your next cycle renewal on "
-                    f"{sub.cycle_end_date.strftime('%b %d, %Y')}. Agency policy enforces 1 plan change per 30-day "
-                    f"billing cycle. Contact Agency Administrator for instant mid-cycle expansion."
+                    f"{sub.cycle_end_date.strftime('%b %d, %Y')}. You retain your current {sub.tier.capitalize()} "
+                    "minutes and features until then."
                 ),
                 "tier": sub.tier,
                 "pending_tier": sub.pending_tier,
@@ -552,6 +865,38 @@ def upgrade_subscription(
                 "coupon_bonus_minutes": 0,
                 "invoice": {
                     "subtotal_usd": plan["price_usd"],
+                    "onboarding_fee_usd": 0.0,
+                    "discount_usd": 0.0,
+                    "total_charged_usd": 0.0,
+                    "stripe_subscription_id": sub.stripe_subscription_id,
+                },
+                "cycle_end_date": sub.cycle_end_date.isoformat(),
+            }
+        else:
+            # Instant downgrade with immediate access restrictions
+            sub.tier = tier_key
+            sub.monthly_included_minutes = int(plan["minutes"])
+            sub.pending_tier = None
+            sub.pending_effective_at = None
+            db.commit()
+            db.refresh(sub)
+            return {
+                "success": True,
+                "scheduled": False,
+                "instant": True,
+                "message": (
+                    f"Successfully transitioned to {plan['name']}. Access and limits have been restricted "
+                    "to the new tier immediately."
+                ),
+                "tier": sub.tier,
+                "monthly_included_minutes": sub.monthly_included_minutes,
+                "bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+                "trial_minutes_rolled_over": 0.0,
+                "coupon_applied": sub.applied_coupon_code,
+                "coupon_bonus_minutes": 0,
+                "invoice": {
+                    "subtotal_usd": plan["price_usd"],
+                    "onboarding_fee_usd": 0.0,
                     "discount_usd": 0.0,
                     "total_charged_usd": 0.0,
                     "stripe_subscription_id": sub.stripe_subscription_id,
@@ -559,6 +904,7 @@ def upgrade_subscription(
                 "cycle_end_date": sub.cycle_end_date.isoformat(),
             }
 
+    # UPGRADE PATH (Instant Upgrade executes within seconds/minutes)
     # Rollover Rule 1: 100% of unused free trial credits are credited into the first subscription!
     trial_minutes_rolled_over = 0.0
     if sub.tier == "trial":
@@ -566,6 +912,14 @@ def upgrade_subscription(
             0.0, float(sub.trial_minutes_allocated) - sub.trial_minutes_used
         )
         sub.bonus_rollover_minutes += trial_minutes_rolled_over
+
+    # First-Time Onboarding Fee
+    onboarding_fee = 0.0
+    is_first_time = not sub.onboarding_fee_paid and not sub.onboarding_fee_waived
+    if is_first_time:
+        onboarding_fee = compute_onboarding_fee(user.tenant_id, tier_key)
+        sub.onboarding_fee_usd = onboarding_fee
+        sub.onboarding_fee_paid = True
 
     # Handle Coupon Code if provided
     discount_amount = 0.0
@@ -599,38 +953,46 @@ def upgrade_subscription(
         coupon.times_redeemed += 1
         db.add(coupon)
 
-    final_price_usd = max(0.0, float(plan["price_usd"]) - discount_amount)
+    final_plan_price = max(0.0, float(plan["price_usd"]) - discount_amount)
+    total_charged_usd = final_plan_price + onboarding_fee
 
-    # Update subscription record
+    # Instant upgrade updates
     sub.tier = tier_key
     sub.status = "active"
     sub.monthly_included_minutes = int(plan["minutes"])
-    sub.used_minutes_this_cycle = 0.0
-    sub.cycle_start_date = datetime.now(UTC)
-    sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
-    sub.cycle_change_locked_until = datetime.now(UTC) + timedelta(days=30)
     sub.pending_tier = None
     sub.pending_effective_at = None
     sub.auto_renew = True
     sub.stripe_customer_id = f"cus_mock_{user.tenant_id[:8]}"
     sub.stripe_subscription_id = f"sub_mock_{uuid.uuid4().hex[:12]}"
 
+    # Reset cycle if converting from trial or past expiration
+    if sub.tier == "trial" or _is_expired(sub.cycle_end_date):
+        sub.cycle_start_date = datetime.now(UTC)
+        sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+        sub.used_minutes_this_cycle = 0.0
+    sub.cycle_change_locked_until = datetime.now(UTC) + timedelta(days=30)
+
     db.commit()
     db.refresh(sub)
 
     return {
         "success": True,
-        "message": f"Successfully activated {plan['name']}!",
+        "upgraded_instantly": True,
+        "message": f"Successfully activated {plan['name']} instantly!",
         "tier": sub.tier,
         "monthly_included_minutes": sub.monthly_included_minutes,
         "bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+        "topup_minutes_balance": round(sub.topup_minutes_balance, 2),
+        "total_available_minutes": round(sub.total_available_minutes, 2),
         "trial_minutes_rolled_over": round(trial_minutes_rolled_over, 2),
         "coupon_applied": sub.applied_coupon_code,
         "coupon_bonus_minutes": coupon_bonus_minutes,
         "invoice": {
             "subtotal_usd": plan["price_usd"],
+            "onboarding_fee_usd": onboarding_fee,
             "discount_usd": discount_amount,
-            "total_charged_usd": final_price_usd,
+            "total_charged_usd": total_charged_usd,
             "stripe_subscription_id": sub.stripe_subscription_id,
         },
         "cycle_end_date": sub.cycle_end_date.isoformat(),
@@ -771,6 +1133,7 @@ def list_admin_subscriptions(
                 "status": sub.status,
                 "monthly_included_minutes": sub.monthly_included_minutes,
                 "bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
+                "topup_minutes_balance": round(sub.topup_minutes_balance, 2),
                 "used_minutes_this_cycle": round(
                     sub.trial_minutes_used if sub.tier == "trial" else sub.used_minutes_this_cycle,
                     2,
@@ -778,13 +1141,28 @@ def list_admin_subscriptions(
                 "total_limit_minutes": round(
                     float(sub.trial_minutes_allocated)
                     if sub.tier == "trial"
-                    else float(sub.monthly_included_minutes) + sub.bonus_rollover_minutes,
+                    else float(sub.monthly_included_minutes)
+                    + sub.bonus_rollover_minutes
+                    + sub.topup_minutes_balance,
                     2,
                 ),
                 "is_trial": sub.tier == "trial",
                 "trial_ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
                 "trial_expired": sub.is_trial_expired,
                 "applied_coupon_code": sub.applied_coupon_code,
+                "onboarding_fee_usd": sub.onboarding_fee_usd,
+                "onboarding_fee_paid": sub.onboarding_fee_paid,
+                "onboarding_fee_waived": sub.onboarding_fee_waived,
+                "refund_status": sub.refund_status or "none",
+                "usage_pct": (
+                    round(
+                        (sub.used_minutes_this_cycle / max(1, sub.monthly_included_minutes))
+                        * 100.0,
+                        2,
+                    )
+                    if sub.tier != "trial"
+                    else 0.0
+                ),
                 "cycle_end_date": sub.cycle_end_date.isoformat(),
                 "auto_renew": sub.auto_renew,
                 "is_cycle_locked": sub.is_cycle_locked,
@@ -900,21 +1278,35 @@ def admin_set_subscription_limits(
 @router.post("/admin/subscriptions/{tenant_id}/grant-minutes")
 def admin_grant_bonus_minutes(
     tenant_id: str,
-    req: GrantMinutesRequest,
+    req: GrantMinutesRequest | None = None,
+    minutes: float | None = Query(None),
+    reason: str | None = Query(None),
+    credit_to: str = Query("rollover"),
     db: Session = Depends(get_db),
     admin: User = Depends(require_platform_admin),
 ) -> dict[str, Any]:
-    """Agency Admin: Grant immediate bonus minutes to a tenant."""
+    """Agency Admin: Grant immediate bonus or top-up minutes to a tenant."""
     sub = get_or_create_subscription(db, tenant_id)
-    sub.bonus_rollover_minutes += float(req.bonus_minutes)
+    mins_to_grant = req.bonus_minutes if req else (minutes or 0.0)
+    grant_reason = (req.reason if req else reason) or "Admin courtesy credit"
+    target = (req.credit_to if req else credit_to) or "rollover"
+
+    if target == "topup":
+        sub.topup_minutes_balance += float(mins_to_grant)
+    else:
+        sub.bonus_rollover_minutes += float(mins_to_grant)
+
     db.commit()
     db.refresh(sub)
     return {
         "success": True,
         "tenant_id": tenant_id,
-        "granted_minutes": req.bonus_minutes,
+        "granted_minutes": mins_to_grant,
+        "credit_to": target,
         "new_bonus_rollover_minutes": round(sub.bonus_rollover_minutes, 2),
-        "reason": req.reason,
+        "new_topup_minutes_balance": round(sub.topup_minutes_balance, 2),
+        "total_available_minutes": round(sub.total_available_minutes, 2),
+        "reason": grant_reason,
     }
 
 
@@ -996,6 +1388,142 @@ def delete_admin_coupon(
     coupon.is_active = False
     db.commit()
     return {"success": True, "message": f"Coupon '{coupon.code}' deactivated."}
+
+
+@router.get("/admin/refunds")
+def list_admin_refund_requests(
+    status_filter: str | None = Query(
+        None, description="Optional status filter: pending, approved, rejected"
+    ),
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> list[dict[str, Any]]:
+    """Agency Admin: List all tenant refund exception requests and usage compliance standing."""
+    query = (
+        select(RefundRequest, Tenant.name, Subscription.tier)
+        .join(Tenant, RefundRequest.tenant_id == Tenant.id)
+        .join(Subscription, RefundRequest.subscription_id == Subscription.id)
+        .order_by(desc(RefundRequest.created_at))
+    )
+    if status_filter:
+        query = query.where(RefundRequest.status == status_filter.lower())
+    results = db.execute(query).all()
+    return [
+        {
+            "id": r[0].id,
+            "tenant_id": r[0].tenant_id,
+            "tenant_name": r[1],
+            "subscription_id": r[0].subscription_id,
+            "tier": r[2],
+            "cycle_used_minutes": r[0].cycle_used_minutes,
+            "cycle_base_minutes": r[0].cycle_base_minutes,
+            "usage_pct": r[0].usage_pct,
+            "eligible": r[0].eligible,
+            "reason": r[0].reason,
+            "status": r[0].status,
+            "admin_notes": r[0].admin_notes,
+            "resolved_by": r[0].resolved_by,
+            "resolved_at": r[0].resolved_at.isoformat() if r[0].resolved_at else None,
+            "created_at": r[0].created_at.isoformat(),
+        }
+        for r in results
+    ]
+
+
+@router.post("/admin/refunds/{request_id}/resolve")
+def resolve_admin_refund_request(
+    request_id: str,
+    req: ResolveRefundRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Agency Admin: Approve or Reject a tenant refund exception with audit trail."""
+    action = req.action.lower()
+    if action not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="Action must be 'approve' or 'reject'.")
+
+    refund_req = db.scalar(select(RefundRequest).where(RefundRequest.id == request_id))
+    if not refund_req:
+        raise HTTPException(status_code=404, detail="Refund request not found.")
+
+    sub = db.scalar(select(Subscription).where(Subscription.id == refund_req.subscription_id))
+    if not sub:
+        raise HTTPException(status_code=404, detail="Associated subscription not found.")
+
+    refund_req.status = "approved" if action == "approve" else "rejected"
+    refund_req.admin_notes = req.admin_notes
+    refund_req.resolved_by = admin.id
+    refund_req.resolved_at = datetime.now(UTC)
+
+    sub.refund_status = refund_req.status
+    if action == "approve" and req.refund_amount_usd is not None:
+        sub.refund_requested_amount_usd = req.refund_amount_usd
+
+    db.commit()
+    db.refresh(refund_req)
+    db.refresh(sub)
+
+    return {
+        "success": True,
+        "request_id": refund_req.id,
+        "status": refund_req.status,
+        "resolved_by": admin.id,
+        "message": f"Refund request successfully {refund_req.status}.",
+    }
+
+
+@router.get("/admin/topup-orders")
+def list_admin_topup_orders(
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> list[dict[str, Any]]:
+    """Agency Admin: List all minute top-up transactions across tenants."""
+    orders = db.execute(
+        select(TopupOrder, Tenant.name)
+        .join(Tenant, TopupOrder.tenant_id == Tenant.id)
+        .order_by(desc(TopupOrder.created_at))
+    ).all()
+    return [
+        {
+            "id": o[0].id,
+            "tenant_id": o[0].tenant_id,
+            "tenant_name": o[1],
+            "minutes": o[0].minutes,
+            "amount_usd": o[0].amount_usd,
+            "status": o[0].status,
+            "stripe_payment_intent_id": o[0].stripe_payment_intent_id,
+            "created_at": o[0].created_at.isoformat(),
+        }
+        for o in orders
+    ]
+
+
+@router.post("/admin/subscriptions/{tenant_id}/onboarding-fee")
+def admin_manage_onboarding_fee(
+    tenant_id: str,
+    req: AdminOnboardingFeeRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """Agency Admin: Waive or customize a tenant's one-time onboarding fee."""
+    sub = get_or_create_subscription(db, tenant_id)
+    sub.onboarding_fee_waived = req.waived
+    if req.paid is not None:
+        sub.onboarding_fee_paid = req.paid
+    if req.waived:
+        sub.onboarding_fee_paid = False
+    if req.custom_fee_usd is not None:
+        sub.onboarding_fee_usd = req.custom_fee_usd
+    db.commit()
+    db.refresh(sub)
+    return {
+        "success": True,
+        "tenant_id": tenant_id,
+        "onboarding_fee_waived": sub.onboarding_fee_waived,
+        "onboarding_fee_usd": sub.onboarding_fee_usd,
+        "onboarding_fee_paid": sub.onboarding_fee_paid,
+        "message": f"Onboarding fee {'waived' if sub.onboarding_fee_waived else 'updated'}.",
+    }
 
 
 # ================= STRIPE INTEGRATION & INVOICE MANAGEMENT =================
@@ -1122,21 +1650,29 @@ def stripe_webhook_receiver(
                 if isinstance(event_data.get("metadata"), dict)
                 else {}
             )
-            tier = meta.get("tier", "starter")
-            if tier in TIER_PLANS:
-                sub.tier = tier
-                sub.monthly_included_minutes = int(TIER_PLANS[tier]["minutes"])
-            sub.status = "active"
-            cust_id = event_data.get("customer")
-            stripe_sub_id = event_data.get("subscription")
-            if cust_id:
-                sub.stripe_customer_id = str(cust_id)
-            if stripe_sub_id:
-                sub.stripe_subscription_id = str(stripe_sub_id)
-            sub.cycle_start_date = datetime.now(UTC)
-            sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+            if meta.get("type") == "topup":
+                topup_mins = int(meta.get("topup_minutes", 0))
+                sub.topup_minutes_balance += topup_mins
+                action_taken = "topup_credited"
+            else:
+                tier = meta.get("tier", "starter")
+                if tier in TIER_PLANS:
+                    sub.tier = tier
+                    sub.monthly_included_minutes = int(TIER_PLANS[tier]["minutes"])
+                sub.status = "active"
+                if meta.get("onboarding_fee_paid"):
+                    sub.onboarding_fee_paid = True
+                    sub.onboarding_fee_usd = float(meta.get("onboarding_fee_usd", 0.0))
+                cust_id = event_data.get("customer")
+                stripe_sub_id = event_data.get("subscription")
+                if cust_id:
+                    sub.stripe_customer_id = str(cust_id)
+                if stripe_sub_id:
+                    sub.stripe_subscription_id = str(stripe_sub_id)
+                sub.cycle_start_date = datetime.now(UTC)
+                sub.cycle_end_date = datetime.now(UTC) + timedelta(days=30)
+                action_taken = "checkout_activated"
             db.commit()
-            action_taken = "checkout_activated"
 
     return {
         "received": True,

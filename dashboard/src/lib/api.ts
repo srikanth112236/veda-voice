@@ -181,6 +181,13 @@ export interface SubscriptionCurrent {
   pending_tier?: string | null;
   pending_effective_at?: string | null;
   applied_coupon_code: string | null;
+  topup_minutes_balance?: number;
+  onboarding_fee_usd?: number;
+  onboarding_fee_paid?: boolean;
+  onboarding_fee_waived?: boolean;
+  refund_status?: string | null;
+  current_cycle_usage_pct?: number;
+  refund_eligible?: boolean;
   available_plans: Array<{
     tier: string;
     name: string;
@@ -189,6 +196,95 @@ export interface SubscriptionCurrent {
     overage_usd: number;
     locations_max?: number;
   }>;
+}
+
+export interface TenantInvoiceRecord {
+  id: string;
+  invoice_number?: string;
+  amount_usd: number;
+  status: string;
+  created_at: string;
+  pdf_url?: string;
+  description?: string;
+}
+
+export interface BillingQuoteResponse {
+  tier: string;
+  plan_name: string;
+  included_minutes: number;
+  base_price_usd: number;
+  is_first_time_payment: boolean;
+  onboarding_fee_usd: number;
+  onboarding_fee_waived: boolean;
+  discount_amount_usd: number;
+  coupon_bonus_minutes: number;
+  total_due_today_usd: number;
+  recurring_monthly_usd: number;
+  trial_minutes_rolled_over: number;
+}
+
+export interface RefundEligibilityResponse {
+  eligible: boolean;
+  reason: string;
+  used_minutes_this_cycle: number;
+  monthly_included_minutes: number;
+  usage_pct: number;
+  refund_status: string;
+  estimated_refund_usd?: number;
+  policy_terms?: string;
+}
+
+export interface AdminRefundRequestRecord {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  tier: string;
+  cycle_included_minutes: number;
+  minutes_used: number;
+  usage_percentage: number;
+  eligible_under_50pct_rule: boolean;
+  amount_usd: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  decision_notes?: string;
+  admin_notes?: string;
+  created_at?: string;
+  resolved_at?: string;
+}
+
+export interface AdminTopupOrderRecord {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  pack_id: string;
+  pack_name: string;
+  minutes: number;
+  price_usd: number;
+  rate_per_min: number;
+  status: string;
+  payment_intent_id?: string;
+  created_at?: string;
+}
+
+export interface AdminSubscriptionRecord {
+  tenant_id: string;
+  tenant_name: string;
+  tier: string;
+  pending_tier?: string;
+  status: string;
+  monthly_included_minutes: number;
+  bonus_rollover_minutes: number;
+  topup_minutes_balance: number;
+  total_available_minutes: number;
+  used_minutes_this_cycle: number;
+  onboarding_fee_usd: number;
+  onboarding_fee_paid: boolean;
+  onboarding_fee_waived: boolean;
+  refund_status?: string;
+  refund_requested_usage_pct?: number;
+  refund_requested_amount_usd?: number;
+  cycle_end_date?: string;
+  is_cycle_locked?: boolean;
 }
 
 export interface LeadFormField {
@@ -937,11 +1033,44 @@ export const api = {
   // Minute-Based Stripe Subscriptions & Rollovers
   getSubscriptionCurrent: () => request<SubscriptionCurrent>("/api/v1/subscriptions/current"),
 
-  upgradeSubscription: (tier: string, coupon_code?: string) =>
+  upgradeSubscription: (tier: string, coupon_code?: string, immediate_downgrade = false) =>
     request<any>("/api/v1/subscriptions/upgrade", {
       method: "POST",
-      body: JSON.stringify({ tier, coupon_code }),
+      body: JSON.stringify({ tier, coupon_code, immediate_downgrade }),
     }),
+
+  getSubscriptionQuote: (tier: string, coupon_code?: string) =>
+    request<BillingQuoteResponse>(
+      `/api/v1/subscriptions/quote?tier=${encodeURIComponent(tier)}${
+        coupon_code ? `&coupon_code=${encodeURIComponent(coupon_code)}` : ""
+      }`
+    ),
+
+  getRefundEligibility: () =>
+    request<RefundEligibilityResponse>("/api/v1/subscriptions/refund-eligibility"),
+
+  requestRefund: (reason: string) =>
+    request<{ success: boolean; message: string; refund_status: string }>(
+      "/api/v1/subscriptions/request-refund",
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }
+    ),
+
+  getTopupPacks: () =>
+    request<Array<{ code: string; name: string; minutes: number; price_usd: number; rate_per_min: number }>>(
+      "/api/v1/subscriptions/topup-packs"
+    ),
+
+  purchaseTopupPack: (pack: string, payment_method_id?: string) =>
+    request<{ success: boolean; message: string; minutes_credited: number; new_topup_balance: number }>(
+      "/api/v1/subscriptions/topup",
+      {
+        method: "POST",
+        body: JSON.stringify({ pack, payment_method_id }),
+      }
+    ),
 
   checkSubscriptionDowngrade: (targetTier: string) =>
     request<{
@@ -977,7 +1106,7 @@ export const api = {
       method: "POST",
     }),
 
-  getTenantInvoices: () => request<any[]>("/api/v1/subscriptions/invoices"),
+  getTenantInvoices: () => request<TenantInvoiceRecord[]>("/api/v1/subscriptions/invoices"),
 
   // Multi-Tenant Lead Form Builder & Leads Inbox
   getLeadForms: () => request<LeadFormItem[]>("/api/v1/forms"),
@@ -1010,7 +1139,7 @@ export const api = {
     ),
 
   // Platform Admin Subscriptions & Coupons
-  getAdminSubscriptions: () => request<any[]>("/api/v1/admin/subscriptions"),
+  getAdminSubscriptions: () => request<AdminSubscriptionRecord[]>("/api/v1/admin/subscriptions"),
   getAdminCoupons: () => request<any[]>("/api/v1/admin/coupons"),
   createAdminCoupon: (data: {
     code: string;
@@ -1022,12 +1151,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  grantAdminMinutes: (tenantId: string, minutes: number, reason = "Promotional Bonus") =>
+  grantAdminMinutes: (
+    tenantId: string,
+    minutes: number,
+    reason = "Promotional Bonus",
+    creditTo: "rollover" | "topup" = "rollover"
+  ) =>
     request<any>(
       `/api/v1/admin/subscriptions/${tenantId}/grant-minutes?minutes=${minutes}&reason=${encodeURIComponent(
         reason
-      )}`,
-      { method: "POST" }
+      )}&credit_to=${creditTo}`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          bonus_minutes: minutes,
+          reason,
+          credit_to: creditTo,
+        }),
+      }
     ),
   updateAdminSubscriptionTier: (
     tenantId: string,
@@ -1056,6 +1197,45 @@ export const api = {
         monthly_included_minutes: monthlyIncludedMinutes,
         overage_rate_usd: overageRateUsd,
         allow_overage: allowOverage,
+      }),
+    }),
+  getAdminRefunds: () => request<AdminRefundRequestRecord[]>("/api/v1/admin/refunds"),
+  resolveAdminRefund: (
+    requestId: string,
+    action: "approve" | "reject",
+    notes?: string,
+    refundAmountUsd?: number
+  ) =>
+    request<{ success: boolean; request_id: string; status: string; message: string }>(
+      `/api/v1/admin/refunds/${requestId}/resolve`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action,
+          admin_notes:
+            notes || (action === "approve" ? "Approved by platform superadmin" : "Rejected by platform superadmin"),
+          refund_amount_usd: refundAmountUsd,
+        }),
+      }
+    ),
+  getAdminTopupOrders: () => request<AdminTopupOrderRecord[]>("/api/v1/admin/topup-orders"),
+  updateAdminOnboardingFee: (
+    tenantId: string,
+    data: { action?: string; waived?: boolean; paid?: boolean; custom_fee_usd?: number; fee_usd?: number }
+  ) =>
+    request<{
+      success: boolean;
+      tenant_id: string;
+      onboarding_fee_waived: boolean;
+      onboarding_fee_usd: number;
+      onboarding_fee_paid: boolean;
+      message: string;
+    }>(`/api/v1/admin/subscriptions/${tenantId}/onboarding-fee`, {
+      method: "POST",
+      body: JSON.stringify({
+        waived: !!data.waived,
+        paid: data.paid,
+        custom_fee_usd: data.custom_fee_usd ?? data.fee_usd,
       }),
     }),
 

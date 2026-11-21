@@ -1,7 +1,13 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { api, SubscriptionCurrent } from "@/lib/api";
+import {
+  api,
+  SubscriptionCurrent,
+  TenantInvoiceRecord,
+  BillingQuoteResponse,
+  RefundEligibilityResponse,
+} from "@/lib/api";
 import {
   CreditCard,
   Zap,
@@ -10,23 +16,34 @@ import {
   Gift,
   RefreshCw,
   Sparkles,
-  ArrowRight,
   ShieldCheck,
   Clock,
   Tag,
   Check,
-  Flame,
   Layers,
   X,
   Lock,
   ExternalLink,
   Receipt,
   Download,
+  HelpCircle,
+  TrendingDown,
+  Coins,
+  ShieldAlert,
 } from "lucide-react";
+
+interface TopupPackItem {
+  code: string;
+  name: string;
+  minutes: number;
+  price_usd: number;
+  rate_per_min: number;
+}
 
 export default function BillingPage() {
   const [sub, setSub] = useState<SubscriptionCurrent | null>(null);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<TenantInvoiceRecord[]>([]);
+  const [topupPacks, setTopupPacks] = useState<TopupPackItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState<string>("starter");
   const [couponCode, setCouponCode] = useState("");
@@ -44,8 +61,27 @@ export default function BillingPage() {
   const [billingMode, setBillingMode] = useState<"minute" | "second">("minute");
   const [togglingMode, setTogglingMode] = useState(false);
 
-  // Stripe Checkout Test Mode state
+  // Quote State
+  const [quote, setQuote] = useState<BillingQuoteResponse | null>(null);
+  const [loadingQuote, setLoadingQuote] = useState(false);
+
+  // Modals State
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [showDowngradeModal, setShowDowngradeModal] = useState(false);
+  const [immediateDowngrade, setImmediateDowngrade] = useState(false);
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundEligibility, setRefundEligibility] = useState<RefundEligibilityResponse | null>(null);
+  const [loadingRefundElig, setLoadingRefundElig] = useState(false);
+  const [refundReason, setRefundReason] = useState("");
+  const [submittingRefund, setSubmittingRefund] = useState(false);
+  const [refundMsg, setRefundMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Standalone Top-Up Modal
+  const [showTopupModal, setShowTopupModal] = useState<TopupPackItem | null>(null);
+  const [purchasingTopup, setPurchasingTopup] = useState(false);
+  const [topupSuccessMsg, setTopupSuccessMsg] = useState<string | null>(null);
+
+  // Stripe Checkout Test Mode state
   const [testCardType, setTestCardType] = useState<"success" | "decline">("success");
   const [authStep, setAuthStep] = useState<string>("");
   const [cardData, setCardData] = useState({
@@ -53,7 +89,7 @@ export default function BillingPage() {
     expiry: "12/28",
     cvc: "888",
     zip: "78701",
-    name: "Apex Plumbing & Heating",
+    name: "Apex Trade Services LLC",
   });
   const [openingPortal, setOpeningPortal] = useState(false);
 
@@ -65,7 +101,7 @@ export default function BillingPage() {
         expiry: "12/28",
         cvc: "888",
         zip: "78701",
-        name: "Apex Plumbing & Heating",
+        name: "Apex Trade Services LLC",
       });
     } else {
       setCardData({
@@ -73,7 +109,7 @@ export default function BillingPage() {
         expiry: "12/28",
         cvc: "002",
         zip: "90210",
-        name: "Apex Plumbing & Heating",
+        name: "Apex Trade Services LLC",
       });
     }
   };
@@ -83,10 +119,12 @@ export default function BillingPage() {
     Promise.all([
       api.getSubscriptionCurrent(),
       api.getTenantInvoices().catch(() => []),
+      api.getTopupPacks().catch(() => []),
     ])
-      .then(([subRes, invRes]) => {
+      .then(([subRes, invRes, packsRes]) => {
         setSub(subRes);
         setInvoices(invRes);
+        setTopupPacks(packsRes);
         if (subRes.tier !== "trial") {
           setSelectedTier(subRes.tier);
         }
@@ -98,9 +136,23 @@ export default function BillingPage() {
       .finally(() => setLoading(false));
   };
 
+  const fetchQuote = async (tier: string, code?: string) => {
+    try {
+      setLoadingQuote(true);
+      const res = await api.getSubscriptionQuote(tier, code);
+      setQuote(res);
+    } catch (err) {
+      console.error("Failed to fetch quote:", err);
+    } finally {
+      setLoadingQuote(false);
+    }
+  };
+
   const handleSelectTier = async (tier: string) => {
     setSelectedTier(tier);
     setDowngradeWarning(null);
+    fetchQuote(tier, validatedCoupon?.code);
+
     if (sub && sub.tier !== "trial" && tier !== sub.tier) {
       try {
         const check = await api.checkSubscriptionDowngrade(tier);
@@ -120,8 +172,8 @@ export default function BillingPage() {
       await api.updateBillingMode(mode);
       setBillingMode(mode);
       loadSubscription();
-    } catch (err: any) {
-      alert(err.message || "Failed to update billing precision mode");
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to update billing precision mode");
     } finally {
       setTogglingMode(false);
     }
@@ -131,6 +183,12 @@ export default function BillingPage() {
     loadSubscription();
   }, []);
 
+  useEffect(() => {
+    if (selectedTier) {
+      fetchQuote(selectedTier, validatedCoupon?.code);
+    }
+  }, [selectedTier, validatedCoupon]);
+
   const handleValidateCoupon = async () => {
     if (!couponCode.trim()) return;
     setValidatingCoupon(true);
@@ -139,6 +197,7 @@ export default function BillingPage() {
     try {
       const res = await api.validateCoupon(couponCode.trim());
       setValidatedCoupon(res);
+      fetchQuote(selectedTier, res.code);
     } catch (err: unknown) {
       setCouponError(err instanceof Error ? err.message : "Invalid or expired coupon code");
     } finally {
@@ -154,29 +213,86 @@ export default function BillingPage() {
 
     setUpgrading(true);
     setUpgradeSuccess(null);
-    setAuthStep("Contacting Stripe Test Gateway...");
+    setAuthStep("Contacting Stripe Payment Gateway...");
 
     setTimeout(async () => {
-      setAuthStep("Simulating 3D Secure authorization...");
+      setAuthStep("Instant Authorization confirmed! Provisioning telephony minute capacity (< 2 min SLA)...");
       try {
         const res = await api.upgradeSubscription(
           selectedTier,
-          validatedCoupon?.code || undefined
+          validatedCoupon?.code || undefined,
+          immediateDowngrade
         );
-        setAuthStep("Payment Intent Authorized!");
+        setAuthStep("LiveKit Acoustic Persona Channels Initialized!");
         setTimeout(() => {
           setUpgradeSuccess(res.message);
           setShowCheckoutModal(false);
+          setShowDowngradeModal(false);
           setAuthStep("");
           setUpgrading(false);
           loadSubscription();
-        }, 700);
+        }, 600);
       } catch (err: unknown) {
         setAuthStep("");
         setUpgrading(false);
         alert(err instanceof Error ? err.message : "Failed to activate subscription.");
       }
-    }, 800);
+    }, 700);
+  };
+
+  const handleOpenRefundModal = async () => {
+    setShowRefundModal(true);
+    setRefundMsg(null);
+    setLoadingRefundElig(true);
+    try {
+      const res = await api.getRefundEligibility();
+      setRefundEligibility(res);
+    } catch (err) {
+      console.error("Failed to load refund eligibility", err);
+    } finally {
+      setLoadingRefundElig(false);
+    }
+  };
+
+  const handleSubmitRefund = async () => {
+    if (refundReason.trim().length < 10) {
+      alert("Please enter a detailed explanation (at least 10 characters).");
+      return;
+    }
+    setSubmittingRefund(true);
+    setRefundMsg(null);
+    try {
+      const res = await api.requestRefund(refundReason.trim());
+      setRefundMsg({ type: "success", text: res.message });
+      loadSubscription();
+      setTimeout(() => setShowRefundModal(false), 2500);
+    } catch (err: unknown) {
+      setRefundMsg({
+        type: "error",
+        text: err instanceof Error ? err.message : "Refund request failed.",
+      });
+    } finally {
+      setSubmittingRefund(false);
+    }
+  };
+
+  const handlePurchaseTopup = async () => {
+    if (!showTopupModal) return;
+    setPurchasingTopup(true);
+    setTopupSuccessMsg(null);
+    try {
+      const res = await api.purchaseTopupPack(showTopupModal.code);
+      setTopupSuccessMsg(res.message);
+      setTimeout(() => {
+        setShowTopupModal(null);
+        setTopupSuccessMsg(null);
+        loadSubscription();
+      }, 1500);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Top-up purchase failed.");
+    } finally {
+      setPurchasingTopup(false);
+    }
   };
 
   const handleOpenCustomerPortal = async () => {
@@ -193,15 +309,147 @@ export default function BillingPage() {
 
   if (loading || !sub) {
     return (
-      <div className="p-8 text-xs font-mono text-zinc-500 bg-white rounded-2xl border border-zinc-200 text-center">
-        Loading minute subscription and rollover telemetry...
+      <div className="p-12 text-xs font-mono text-zinc-500 bg-white rounded-2xl border border-zinc-200 text-center">
+        Loading minute subscription, rollover telemetry, and rate limits...
       </div>
     );
   }
 
   const used = sub.is_trial ? sub.trial_minutes_used : sub.used_minutes_this_cycle;
-  const total = sub.is_trial ? sub.trial_minutes_allocated : sub.monthly_included_minutes + sub.bonus_rollover_minutes;
+  const total = sub.is_trial
+    ? sub.trial_minutes_allocated
+    : sub.monthly_included_minutes + sub.bonus_rollover_minutes + (sub.topup_minutes_balance || 0);
   const pct = Math.min(100, Math.round((used / (total || 1)) * 100));
+
+  const allPlansCatalog = [
+    {
+      id: "lite",
+      name: "Lite",
+      minutes: 300,
+      price: 99,
+      overage: 0.4,
+      concurrency: "2 Concurrent Calls",
+      branches: "Single Branch Location",
+      desc: "Perfect for solo contractors, after-hours overflow, and emergency weekend answering.",
+      features: [
+        "300 Voice Minutes Included",
+        "1 Dedicated Carrier Phone Line",
+        "1 Location Profile",
+        "100% Free Trial Rollover",
+        "10% Monthly Unused Rollover",
+        "$0.40/min Overage Rate",
+      ],
+    },
+    {
+      id: "starter",
+      name: "Starter",
+      minutes: 1000,
+      price: 299,
+      overage: 0.35,
+      concurrency: "3 Concurrent Calls",
+      branches: "Single Branch Location",
+      desc: "Ideal for residential trade professionals (plumbers, roofers, HVAC, electricians).",
+      features: [
+        "1,000 Voice Minutes Included",
+        "1 Carrier Phone Line",
+        "1 Location & Calendar Booking",
+        "100% Free Trial Rollover Guarantee",
+        "10% Monthly Unused Rollover",
+        "$0.35/min Overage Rate",
+      ],
+    },
+    {
+      id: "growth",
+      name: "Growth",
+      minutes: 1500,
+      price: 399,
+      overage: 0.35,
+      concurrency: "4 Concurrent Calls",
+      branches: "Up to 2 Branches",
+      desc: "Engineered for active trade shops managing dispatch and multiple service vans.",
+      features: [
+        "1,500 Voice Minutes Included",
+        "Up to 2 Carrier Phone Lines",
+        "2 Branch Locations Included",
+        "Warm & Cold Transfer Routing",
+        "10% Monthly Unused Rollover",
+        "$0.35/min Overage Rate",
+      ],
+    },
+    {
+      id: "pro",
+      name: "Professional",
+      minutes: 2000,
+      price: 499,
+      overage: 0.35,
+      badge: "Most Popular",
+      concurrency: "5 Concurrent Calls",
+      branches: "Up to 5 Branches",
+      desc: "High-performance reception for dental clinics, law practices, and regional trades.",
+      features: [
+        "2,000 Voice Minutes Included",
+        "Up to 5 Carrier Phone Lines",
+        "Multi-Staff Round-Robin Booking",
+        "External CRM & Webhook Sync",
+        "10% Monthly Unused Rollover",
+        "$0.35/min Overage Rate",
+      ],
+    },
+    {
+      id: "scale",
+      name: "Scale (Multi-Branch)",
+      minutes: 4000,
+      price: 999,
+      overage: 0.3,
+      concurrency: "10 Concurrent Calls",
+      branches: "Up to 25 Branches",
+      desc: "Multi-branch franchises and regional automotive service centers.",
+      features: [
+        "4,000 Voice Minutes Included",
+        "Up to 20 Carrier Lines",
+        "Up to 25 Branch Locations",
+        "Postal Code Geofence Routing",
+        "Location QA Scorecards",
+        "$0.30/min Overage Rate",
+      ],
+    },
+    {
+      id: "enterprise",
+      name: "Enterprise Scale",
+      minutes: 10000,
+      price: 1999,
+      overage: 0.2,
+      concurrency: "25 Concurrent Calls",
+      branches: "Unlimited Branches",
+      desc: "24/7 mission-critical hospital networks, emergency dispatch, and property management.",
+      features: [
+        "10,000 Voice Minutes Included",
+        "Unlimited Carrier Lines",
+        "Unlimited Branch Locations",
+        "Dedicated 99.99% Telephony SLA",
+        "White-label Branding & SSO",
+        "$0.20/min Overage Rate",
+      ],
+    },
+    {
+      id: "agency",
+      name: "Agency Wholesale",
+      minutes: 5000,
+      price: 1000,
+      overage: 0.25,
+      concurrency: "15 Concurrent Calls",
+      branches: "Unlimited Sub-Accounts",
+      desc: "Wholesale telephony pool designed for digital agencies reselling voice automation.",
+      features: [
+        "5,000 Shared Voice Minutes",
+        "Unlimited Sub-Tenant Accounts",
+        "Agency Portal & Client Re-billing",
+        "Custom Acoustic Prompt Studio",
+        "10% Monthly Unused Rollover",
+        "$0.25/min Overage Rate",
+      ],
+    },
+  ];
 
   const planPrices: Record<string, number> = {
     lite: 99,
@@ -212,42 +460,33 @@ export default function BillingPage() {
     enterprise: 1999,
     agency: 1000,
   };
-  const planMinutes: Record<string, number> = {
-    lite: 300,
-    starter: 1000,
-    growth: 1500,
-    pro: 2000,
-    scale: 4000,
-    enterprise: 10000,
-    agency: 5000,
-  };
-  const basePrice = planPrices[selectedTier] || 299;
-  const discountAmt = validatedCoupon ? Math.round(basePrice * (validatedCoupon.discount_percent / 100)) : 0;
-  const finalPrice = Math.max(0, basePrice - discountAmt);
+
+  const currentPlanPrice = planPrices[sub.tier] || 0;
+  const targetPlanPrice = planPrices[selectedTier] || 299;
+  const isDowngrade = sub.tier !== "trial" && targetPlanPrice < currentPlanPrice;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-semibold mb-2">
+          <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-zinc-100 border border-zinc-200 text-zinc-800 text-xs font-mono font-semibold mb-2">
             <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" />
-            LiveKit Minute Allocation Engine
+            LiveKit Telephony Allocation &amp; Rollover Engine
           </div>
           <h1 className="text-xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-indigo-600" />
-            Minute Subscriptions, Free Trials &amp; Rollover Engine
+            Minute Billing, Rollover Engine &amp; Plan Management
           </h1>
           <p className="text-xs text-zinc-500 mt-1">
-            Track real-time LiveKit telephony minutes, rollover bonus credits, and upgrade plan tiers.
+            Real-time telephony usage, instant plan upgrades (&lt; 2 min activation), rollover guarantees, and separate minute top-ups.
           </p>
         </div>
 
-        {/* Automated Renewal & Customer Portal Action */}
         <div className="flex items-center gap-2.5">
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-100 border border-zinc-200 text-[11px] text-zinc-700 font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Auto-Renews: {new Date(sub.cycle_end_date).toLocaleDateString()}</span>
+            <span>Cycle End: {new Date(sub.cycle_end_date).toLocaleDateString()}</span>
           </div>
 
           {!sub.is_trial && (
@@ -255,7 +494,7 @@ export default function BillingPage() {
               type="button"
               onClick={handleOpenCustomerPortal}
               disabled={openingPortal}
-              className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+              className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-all"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Stripe Customer Portal
@@ -276,9 +515,9 @@ export default function BillingPage() {
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-amber-600 shrink-0" />
             <span>
-              <strong>Scheduled Tier Upgrade:</strong> Your plan will automatically transition to{" "}
+              <strong>Scheduled Tier Downgrade:</strong> Your plan will automatically transition to{" "}
               <strong className="uppercase font-mono">{sub.pending_tier}</strong> on your next cycle renewal date (
-              {new Date(sub.cycle_end_date).toLocaleDateString()}). Auto-renews monthly via Stripe.
+              {new Date(sub.cycle_end_date).toLocaleDateString()}). You keep your current benefits until then.
             </span>
           </div>
           <span className="text-[10px] font-mono bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-semibold uppercase">
@@ -287,31 +526,55 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* TOP: ACTIVE PLAN & MINUTE USAGE TELEMETRY */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-6">
+      {sub.refund_status && sub.refund_status !== "none" && (
+        <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 flex items-center justify-between font-medium">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span>
+              <strong>Refund Exception Request:</strong> Current status:{" "}
+              <strong className="uppercase font-mono">{sub.refund_status}</strong>. Evaluated under the strict &lt; 50% cycle utilization gate.
+            </span>
+          </div>
+          <span className="text-[10px] font-mono bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded-full font-semibold uppercase">
+            {sub.refund_status}
+          </span>
+        </div>
+      )}
+
+      {/* SECTION 1: TELEMETRY & ROLLOVER ENGINE */}
+      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-base font-bold text-zinc-900 capitalize">
-                {sub.tier === "trial" ? "14-Day Free Trial" : `${sub.tier} Minute Plan`}
+                {sub.tier === "trial" ? "14-Day Free Trial" : `${sub.tier} Voice Plan`}
               </span>
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
-                sub.status === "active"
-                  ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
-                  : "bg-indigo-100 text-indigo-800 border border-indigo-200"
-              }`}>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
+                  sub.status === "active"
+                    ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                    : "bg-indigo-100 text-indigo-800 border border-indigo-200"
+                }`}
+              >
                 {sub.status}
               </span>
+              {sub.onboarding_fee_paid && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-700 border border-zinc-200">
+                  Setup Fee Paid
+                </span>
+              )}
             </div>
             <div className="text-xs text-zinc-500">
               {sub.is_trial
-                ? `100 complimentary trial minutes included • 100% of unused trial credits roll into your first subscription!`
-                : `${sub.monthly_included_minutes.toLocaleString()} included monthly minutes + ${sub.bonus_rollover_minutes.toLocaleString()} rollover bonus minutes.`}
+                ? "100 free trial minutes included • 100% of unused trial credits roll directly into your first paid month!"
+                : `${sub.monthly_included_minutes.toLocaleString()} monthly base minutes + ${sub.bonus_rollover_minutes.toLocaleString()} rollover bonus minutes${
+                    sub.topup_minutes_balance ? ` + ${sub.topup_minutes_balance.toLocaleString()} top-up minutes` : ""
+                  }.`}
             </div>
           </div>
 
           <div className="text-right">
-            <span className="text-2xl font-extrabold font-mono text-zinc-900">
+            <span className="text-3xl font-extrabold font-mono text-zinc-900">
               {sub.remaining_minutes.toLocaleString()}
             </span>
             <span className="text-xs text-zinc-500 block font-medium">Minutes Remaining</span>
@@ -325,7 +588,7 @@ export default function BillingPage() {
               Used: <strong className="text-zinc-900">{used} min</strong>
             </span>
             <span className="text-zinc-600">
-              Limit: <strong className="text-zinc-900">{total} min</strong>
+              Total Limit: <strong className="text-zinc-900">{total} min</strong>
             </span>
           </div>
           <div className="h-3 w-full rounded-full bg-zinc-100 overflow-hidden p-0.5 border border-zinc-200">
@@ -337,29 +600,29 @@ export default function BillingPage() {
             />
           </div>
           <div className="flex items-center justify-between text-[11px] text-zinc-500 font-mono">
-            <span>{pct}% Quota Utilized</span>
+            <span>{pct}% Quota Utilized This Cycle</span>
             <span>Overage Rate: ${sub.overage_rate_usd.toFixed(2)} / extra minute</span>
           </div>
         </div>
 
         {/* Rollover Badges */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          <div className="p-3.5 rounded-xl bg-indigo-50/50 border border-indigo-100 space-y-1">
-            <div className="flex items-center gap-1.5 font-bold text-xs text-indigo-900">
-              <Gift className="w-3.5 h-3.5 text-indigo-600" />
+          <div className="p-4 rounded-xl bg-indigo-50/60 border border-indigo-100 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-xs text-indigo-950">
+              <Gift className="w-4 h-4 text-indigo-600 shrink-0" />
               100% Free Trial Rollover Guarantee
             </div>
-            <p className="text-[11px] text-indigo-700 leading-snug">
-              Every unused minute from your 14-day free trial is credited directly into your first paid month.
+            <p className="text-xs text-indigo-800 leading-relaxed">
+              Every unused minute from your 14-day free trial is credited directly into your first paid month upon plan activation.
             </p>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-emerald-50/50 border border-emerald-100 space-y-1">
-            <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-900">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+          <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-100 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-950">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
               10% Monthly Complimentary Rollover
             </div>
-            <p className="text-[11px] text-emerald-700 leading-snug">
+            <p className="text-xs text-emerald-800 leading-relaxed">
               Every month, 10% of remaining unused base minutes automatically roll over into your next cycle as bonus credits.
             </p>
           </div>
@@ -397,100 +660,88 @@ export default function BillingPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-zinc-600 font-mono">
-            <Layers className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Branch Plan Tier:</span>
-            <span className="font-semibold text-zinc-900">
-              {sub.tier === "scale" ? "Up to 25 Branches" : sub.tier === "enterprise" || sub.tier === "agency" ? "Unlimited Branches" : "Single Branch Location"}
-            </span>
+          <div className="flex items-center gap-3">
+            {!sub.is_trial && (
+              <button
+                type="button"
+                onClick={handleOpenRefundModal}
+                className="text-xs text-zinc-500 hover:text-zinc-800 underline font-medium"
+              >
+                Refund Policy &amp; Exception Request
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* PLAN TIERS SELECTION MATRIX */}
+      {/* SECTION 2: STANDALONE MINUTE TOP-UP STORE */}
+      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-4">
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+          <div>
+            <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+              <Coins className="w-4 h-4 text-amber-500" />
+              Standalone Minute Top-Up Packs (Separate One-Time Charges)
+            </h3>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Need extra minutes without upgrading your recurring monthly plan? Add on-demand minutes that never expire.
+            </p>
+          </div>
+          {sub.topup_minutes_balance !== undefined && sub.topup_minutes_balance > 0 && (
+            <div className="px-3 py-1 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-mono text-xs font-bold">
+              Active Top-Up Balance: {sub.topup_minutes_balance} min
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {topupPacks.map((pack) => (
+            <div
+              key={pack.code}
+              className="p-4 rounded-xl border border-zinc-200 hover:border-zinc-400 bg-zinc-50/50 hover:bg-zinc-50 transition-all flex flex-col justify-between space-y-3"
+            >
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-zinc-900">{pack.name}</span>
+                  <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                    +{pack.minutes.toLocaleString()} min
+                  </span>
+                </div>
+                <div className="text-lg font-extrabold font-mono text-zinc-900 mt-2">
+                  ${pack.price_usd.toFixed(2)}
+                </div>
+                <div className="text-[11px] text-zinc-500 font-mono">
+                  ${pack.rate_per_min.toFixed(2)} / minute &bull; Never expires
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTopupModal(pack)}
+                className="w-full py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all"
+              >
+                Buy Top-Up Pack
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* SECTION 3: COMPLETE 7-TIER PLAN LADDER SHOWCASE */}
       <div className="space-y-4">
         <div>
           <h2 className="text-base font-bold text-zinc-900">
-            Select Your Business Minute Tier
+            Select Your Business Telephony Minute Tier
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Choose your monthly volume tier. All plans include 14+ LiveKit acoustic personas, STIR/SHAKEN Level A carrier lines, and zero minute leakage.
+            Choose your monthly volume tier. Upgrades activate instantly (&lt; 2 min SLA). First-time subscriptions include one-time telephony onboarding setup.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            {
-              id: "starter",
-              name: "Starter",
-              minutes: 1000,
-              price: 299,
-              overage: 0.35,
-              branches: "Single Branch Location",
-              desc: "Ideal for local plumbing, electrical, and single-location trade contractors.",
-              features: [
-                "1,000 LiveKit voice minutes",
-                "1 Dedicated carrier phone number",
-                "1 Branch location included",
-                "100% Free trial rollover credit",
-                "10% Monthly cycle rollover",
-                "$0.35/min overage cap",
-              ],
-            },
-            {
-              id: "pro",
-              name: "Professional",
-              minutes: 2000,
-              price: 499,
-              overage: 0.35,
-              badge: "Most Popular",
-              branches: "Single Branch (Multi-Staff)",
-              desc: "Engineered for busy dental practices, clinics, and multi-truck HVAC trades.",
-              features: [
-                "2,000 LiveKit voice minutes",
-                "Up to 5 Dedicated phone numbers",
-                "Multi-staff round-robin calendar",
-                "Warm & cold transfer routing",
-                "10% Monthly cycle rollover",
-                "$0.35/min overage cap",
-              ],
-            },
-            {
-              id: "scale",
-              name: "Scale (Multi-Branch)",
-              minutes: 4000,
-              price: 999,
-              overage: 0.30,
-              branches: "Up to 25 Branches",
-              desc: "Designed for expanding multi-location service franchises and regional dealerships.",
-              features: [
-                "4,000 LiveKit voice minutes",
-                "Up to 20 Carrier phone numbers",
-                "Up to 25 Branch Locations",
-                "Location postal code territory routing",
-                "Per-location analytics & QA breakdown",
-                "$0.30/min overage cap",
-              ],
-            },
-            {
-              id: "enterprise",
-              name: "Enterprise Scale",
-              minutes: 10000,
-              price: 1999,
-              overage: 0.20,
-              branches: "Unlimited Branches",
-              desc: "High-volume 24/7 answering with unlimited branch locations and custom SLA.",
-              features: [
-                "10,000 LiveKit voice minutes",
-                "Unlimited phone lines & trunks",
-                "Unlimited Branch Locations",
-                "Dedicated 99.99% telephony SLA",
-                "White-label branding & SSO",
-                "$0.20/min overage cap",
-              ],
-            },
-          ].map((plan) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {allPlansCatalog.map((plan) => {
             const isSelected = selectedTier === plan.id;
+            const isCurrent = sub.tier === plan.id;
+
             return (
               <div
                 key={plan.id}
@@ -498,7 +749,9 @@ export default function BillingPage() {
                 className={`p-6 rounded-2xl border text-left cursor-pointer transition-all space-y-4 relative flex flex-col justify-between ${
                   isSelected
                     ? "border-zinc-900 bg-white ring-2 ring-zinc-900 shadow-md"
-                    : "border-zinc-200 bg-white hover:border-zinc-400 hover:shadow-sm"
+                    : isCurrent
+                    ? "border-emerald-500 bg-emerald-50/20 shadow-xs"
+                    : "border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-xs"
                 }`}
               >
                 {plan.badge && (
@@ -510,7 +763,7 @@ export default function BillingPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-sm text-zinc-900">{plan.name}</span>
-                    <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg">
+                    <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg">
                       {plan.minutes.toLocaleString()} min
                     </span>
                   </div>
@@ -520,12 +773,15 @@ export default function BillingPage() {
                     <span className="text-xs text-zinc-500 font-medium">/ month</span>
                   </div>
 
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-100 text-[11px] font-mono text-zinc-700">
-                    <Layers className="w-3 h-3 text-indigo-600" />
-                    <span>{plan.branches}</span>
+                  <div className="flex flex-col gap-1 text-[11px] font-mono text-zinc-600">
+                    <div className="inline-flex items-center gap-1.5">
+                      <Layers className="w-3 h-3 text-indigo-600" />
+                      <span>{plan.branches}</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">{plan.concurrency}</div>
                   </div>
 
-                  <p className="text-xs text-zinc-500 leading-relaxed">{plan.desc}</p>
+                  <p className="text-xs text-zinc-500 leading-relaxed pt-1">{plan.desc}</p>
                 </div>
 
                 <div className="space-y-2 pt-4 border-t border-zinc-100">
@@ -547,10 +803,12 @@ export default function BillingPage() {
                     className={`w-full py-2 rounded-xl text-center text-xs font-bold transition-all ${
                       isSelected
                         ? "bg-zinc-900 text-white"
-                        : "bg-zinc-100 text-zinc-700 group-hover:bg-zinc-200"
+                        : isCurrent
+                        ? "bg-emerald-600 text-white"
+                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
                     }`}
                   >
-                    {isSelected ? "✓ Selected Tier" : "Select Tier"}
+                    {isCurrent ? "Current Plan" : isSelected ? "✓ Selected Tier" : "Select Tier"}
                   </div>
                 </div>
               </div>
@@ -559,15 +817,15 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {/* COUPON REDEMPTION & CHECKOUT SUMMARY */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-5">
+      {/* SECTION 4: COUPON & ORDER ACTION BAR */}
+      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-5">
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
             <Tag className="w-4 h-4 text-indigo-600" />
-            Redeem Agency Coupon Code
+            Apply Promotional / Founder Coupon Code
           </h3>
           <p className="text-xs text-zinc-500">
-            Have a promotional code or founder invite? Apply below for instant invoice discounts and complimentary bonus minutes.
+            Have a promotional code? Apply below for recurring invoice discounts and complimentary bonus minutes.
           </p>
         </div>
 
@@ -576,14 +834,14 @@ export default function BillingPage() {
             type="text"
             value={couponCode}
             onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-            placeholder="e.g. LAUNCH50 or VEDA100"
-            className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-zinc-300 text-xs font-mono font-bold text-zinc-900 focus:outline-none focus:border-zinc-900 uppercase"
+            placeholder="e.g. LAUNCH50 or FOUNDER100"
+            className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-zinc-300 text-xs font-mono font-bold text-zinc-900 focus:outline-hidden focus:border-zinc-900 uppercase"
           />
           <button
             type="button"
             disabled={validatingCoupon}
             onClick={handleValidateCoupon}
-            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
+            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all disabled:opacity-50"
           >
             {validatingCoupon ? "Validating..." : "Apply Coupon"}
           </button>
@@ -596,7 +854,7 @@ export default function BillingPage() {
               <span>Coupon <strong>{validatedCoupon.code}</strong> Active!</span>
             </div>
             <span>
-              {validatedCoupon.discount_percent > 0 && `${validatedCoupon.discount_percent}% Discount `}
+              {validatedCoupon.discount_percent > 0 && `${validatedCoupon.discount_percent}% Off `}
               {validatedCoupon.bonus_minutes > 0 && `+${validatedCoupon.bonus_minutes} Bonus Minutes`}
             </span>
           </div>
@@ -608,12 +866,11 @@ export default function BillingPage() {
           </div>
         )}
 
-        {/* Downgrade Limit Warning */}
         {downgradeWarning && (
           <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-950 flex items-start gap-2.5 font-medium max-w-2xl">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <strong className="block font-bold text-amber-900">Downgrade Resource Limit Guard:</strong>
+              <strong className="block font-bold text-amber-900">Pre-Downgrade Resource Limit Guard:</strong>
               <p className="text-[11px] leading-relaxed text-amber-800">{downgradeWarning}</p>
               <p className="text-[10px] text-amber-700 italic">
                 Please deactivate excess phone numbers or branch locations before transitioning to this plan.
@@ -622,63 +879,64 @@ export default function BillingPage() {
           </div>
         )}
 
-        {/* Upgrade Action Button */}
-        <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-0.5">
+        {/* Action Button Section */}
+        <div className="pt-4 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
             <span className="text-xs font-bold text-zinc-900">
               {sub.is_trial
                 ? `Activate ${selectedTier.toUpperCase()} Plan`
                 : selectedTier === sub.tier
-                ? `Currently on ${selectedTier.toUpperCase()} Plan`
-                : `Transition to ${selectedTier.toUpperCase()} Plan`}
+                ? `Active on ${selectedTier.toUpperCase()} Plan`
+                : isDowngrade
+                ? `Downgrade to ${selectedTier.toUpperCase()} Plan`
+                : `Instant Upgrade to ${selectedTier.toUpperCase()} Plan`}
             </span>
             <div className="text-[11px] text-zinc-500">
-              {sub.is_trial ? (
-                `$${finalPrice}/mo ${discountAmt > 0 ? `(Saved $${discountAmt} with coupon)` : ""} • 100% of unused trial credits will roll into your first month!`
-              ) : selectedTier === sub.tier ? (
-                `Plan is active and auto-renews on ${new Date(sub.cycle_end_date).toLocaleDateString()} via Stripe ($${finalPrice}/mo).`
+              {quote ? (
+                <span>
+                  Due Today: <strong>${quote.total_due_today_usd.toFixed(2)}</strong>{" "}
+                  {quote.onboarding_fee_usd > 0 && `(includes $${quote.onboarding_fee_usd} one-time setup fee)`} •{" "}
+                  Auto-renews monthly at ${quote.recurring_monthly_usd.toFixed(2)}/mo
+                </span>
               ) : (
-                `1 Plan per 30-day Cycle enforced. Schedule for ${new Date(sub.cycle_end_date).toLocaleDateString()} renewal or contact admin for immediate mid-cycle expansion.`
+                "Select a plan to view itemized pricing."
               )}
             </div>
           </div>
 
-          {sub.is_trial ? (
-            <button
-              type="button"
-              disabled={Boolean(downgradeWarning)}
-              onClick={() => setShowCheckoutModal(true)}
-              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CreditCard className="w-4 h-4" />
-              Proceed to Stripe Checkout (${finalPrice}/mo)
-            </button>
-          ) : selectedTier === sub.tier ? (
-            <div className="px-5 py-2.5 rounded-xl bg-zinc-100 text-zinc-600 text-xs font-semibold flex items-center gap-2 border border-zinc-200">
-              <Check className="w-4 h-4 text-emerald-600" />
-              Active Plan (Auto-Renews)
-            </div>
-          ) : sub.pending_tier === selectedTier ? (
-            <div className="px-5 py-2.5 rounded-xl bg-amber-50 text-amber-800 text-xs font-semibold flex items-center gap-2 border border-amber-200">
-              <Clock className="w-4 h-4 text-amber-600" />
-              Upgrade Queued for Next Cycle
-            </div>
-          ) : (
-            <button
-              type="button"
-              disabled={Boolean(downgradeWarning)}
-              onClick={() => setShowCheckoutModal(true)}
-              className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Clock className="w-4 h-4 text-amber-400" />
-              Schedule Plan Change (${finalPrice}/mo)
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {selectedTier === sub.tier ? (
+              <div className="px-5 py-2.5 rounded-xl bg-zinc-100 text-zinc-600 text-xs font-semibold flex items-center gap-2 border border-zinc-200">
+                <Check className="w-4 h-4 text-emerald-600" />
+                Active Plan (Auto-Renews)
+              </div>
+            ) : isDowngrade ? (
+              <button
+                type="button"
+                disabled={Boolean(downgradeWarning)}
+                onClick={() => setShowDowngradeModal(true)}
+                className="px-6 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
+              >
+                <TrendingDown className="w-4 h-4" />
+                Configure Downgrade
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={Boolean(downgradeWarning) || loadingQuote}
+                onClick={() => setShowCheckoutModal(true)}
+                className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
+              >
+                <Zap className="w-4 h-4 text-amber-400" />
+                {sub.is_trial ? "Activate Plan & Rollover Trial" : "Instant Upgrade (< 2 min)"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* INVOICES & PAYMENT HISTORY */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-4">
+      {/* SECTION 5: INVOICE HISTORY */}
+      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
           <div className="flex items-center gap-2">
             <Receipt className="w-4 h-4 text-zinc-700" />
@@ -693,7 +951,7 @@ export default function BillingPage() {
 
         {invoices.length === 0 ? (
           <div className="p-6 text-center text-xs text-zinc-500 font-mono">
-            No paid invoices generated yet. Your account is currently on trial or pending first renewal.
+            No paid invoices generated yet. Your account is currently on trial or awaiting first monthly cycle statement.
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-zinc-200">
@@ -740,24 +998,20 @@ export default function BillingPage() {
         )}
       </div>
 
-      {/* STRIPE CHECKOUT TEST MODE MODAL */}
-      {showCheckoutModal && (
+      {/* MODAL 1: CHECKOUT & INSTANT UPGRADE MODAL */}
+      {showCheckoutModal && quote && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white border border-zinc-200 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-5 shadow-2xl">
-            {/* Stripe Test Mode Banner Header */}
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-[#635BFF] flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                  S
+                <div className="w-8 h-8 rounded-xl bg-zinc-900 flex items-center justify-center text-white font-bold text-sm">
+                  <CreditCard className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-sm text-zinc-900">Stripe Checkout</h3>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                      TEST MODE
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-zinc-500">LiveKit Minute Subscription Gateway</div>
+                  <h3 className="font-bold text-sm text-zinc-900">
+                    {sub.is_trial ? "Activate Subscription" : "Instant Plan Upgrade"}
+                  </h3>
+                  <div className="text-[11px] text-zinc-500">&lt; 2 Minute LiveKit Acoustic Provisioning</div>
                 </div>
               </div>
               <button
@@ -772,7 +1026,7 @@ export default function BillingPage() {
               </button>
             </div>
 
-            {/* Test Card Quick Selectors */}
+            {/* Test Card Quick Selector */}
             <div className="space-y-1.5">
               <span className="text-[11px] font-bold text-zinc-700 block">Stripe Test Card Presets:</span>
               <div className="grid grid-cols-2 gap-2">
@@ -810,119 +1064,73 @@ export default function BillingPage() {
               </div>
             </div>
 
-            {/* Order Summary */}
+            {/* Itemized Order Summary */}
             <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-2 text-xs font-mono">
               <div className="flex justify-between text-zinc-600">
                 <span>Selected Plan:</span>
-                <span className="font-bold text-zinc-900 uppercase">{selectedTier} ({(planMinutes[selectedTier] || 1000).toLocaleString()} min/mo)</span>
+                <span className="font-bold text-zinc-900 uppercase">
+                  {quote.plan_name} ({quote.included_minutes.toLocaleString()} min/mo)
+                </span>
               </div>
               <div className="flex justify-between text-zinc-600">
-                <span>Base Subscription:</span>
-                <span>${basePrice}.00</span>
+                <span>Monthly Base Subscription:</span>
+                <span>${quote.base_price_usd.toFixed(2)}</span>
               </div>
-              {discountAmt > 0 && (
-                <div className="flex justify-between text-emerald-600 font-bold">
-                  <span>Coupon Discount ({validatedCoupon?.discount_percent}%):</span>
-                  <span>-${discountAmt}.00</span>
+
+              {quote.onboarding_fee_usd > 0 && (
+                <div className="flex justify-between text-indigo-700 font-semibold">
+                  <span>
+                    One-Time Telephony Onboarding Fee:
+                    <span className="block text-[10px] text-indigo-500 font-sans font-normal">
+                      {quote.base_price_usd < 399 ? "Dynamic $199–$299 tier" : "$399 fixed enterprise setup"}
+                    </span>
+                  </span>
+                  <span>+${quote.onboarding_fee_usd.toFixed(2)}</span>
                 </div>
               )}
+
+              {quote.discount_amount_usd > 0 && (
+                <div className="flex justify-between text-emerald-600 font-bold">
+                  <span>Coupon Discount:</span>
+                  <span>-${quote.discount_amount_usd.toFixed(2)}</span>
+                </div>
+              )}
+
               <div className="pt-2 border-t border-zinc-200 flex justify-between text-sm font-bold text-zinc-900">
                 <span>Due Today:</span>
-                <span className="text-emerald-700">${finalPrice}.00 USD</span>
+                <span className="text-emerald-700">${quote.total_due_today_usd.toFixed(2)} USD</span>
+              </div>
+              <div className="text-[10px] text-zinc-400 font-sans">
+                *Subsequent auto-renewals will be ${quote.recurring_monthly_usd.toFixed(2)}/mo. Onboarding fee is only charged once.
               </div>
             </div>
 
-            {/* Rollover Guarantee Banner */}
-            <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900 flex items-start gap-2">
-              <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-              <span>
-                <strong>100% Free Trial Credits Rolled Over:</strong> Any unused minutes from your free trial will be immediately credited as bonus minutes!
-              </span>
-            </div>
-
-            {/* Interactive Stripe Card Form */}
-            <div className="space-y-3 text-xs">
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700">Cardholder Name</label>
-                <input
-                  type="text"
-                  value={cardData.name}
-                  onChange={(e) => setCardData({ ...cardData, name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
-                />
+            {quote.trial_minutes_rolled_over > 0 && (
+              <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-xs text-indigo-900 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>100% Free Trial Rollover Guarantee:</strong> {quote.trial_minutes_rolled_over.toFixed(1)} unused trial minutes will be credited directly as bonus minutes today!
+                </span>
               </div>
+            )}
 
-              <div className="space-y-1">
-                <label className="font-semibold text-zinc-700 flex items-center justify-between">
-                  <span>Card Number</span>
-                  <span className="text-[10px] font-mono text-zinc-400">TEST MODE ENCRYPTED</span>
-                </label>
-                <div className="relative">
-                  <CreditCard className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={cardData.number}
-                    onChange={(e) => setCardData({ ...cardData, number: e.target.value })}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 focus:outline-none focus:border-zinc-900 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <label className="font-semibold text-zinc-700">Expires</label>
-                  <input
-                    type="text"
-                    value={cardData.expiry}
-                    onChange={(e) => setCardData({ ...cardData, expiry: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-center font-mono focus:outline-none focus:border-zinc-900"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-semibold text-zinc-700">CVC</label>
-                  <input
-                    type="text"
-                    value={cardData.cvc}
-                    onChange={(e) => setCardData({ ...cardData, cvc: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-center font-mono focus:outline-none focus:border-zinc-900"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-semibold text-zinc-700">ZIP</label>
-                  <input
-                    type="text"
-                    value={cardData.zip}
-                    onChange={(e) => setCardData({ ...cardData, zip: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-300 bg-white text-zinc-900 text-center font-mono focus:outline-none focus:border-zinc-900"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Auth Step Feedback */}
             {authStep && (
               <div className={`p-3 rounded-xl text-xs font-mono font-medium flex items-center gap-2 ${
                 authStep.includes("Decline")
                   ? "bg-red-50 text-red-800 border border-red-200"
-                  : authStep.includes("Authorized")
+                  : authStep.includes("Initialized")
                   ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
                   : "bg-indigo-50 text-indigo-800 border border-indigo-200"
               }`}>
                 {upgrading && <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />}
-                {authStep.includes("Decline") && <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-red-600" />}
-                {authStep.includes("Authorized") && <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />}
                 <span>{authStep}</span>
               </div>
             )}
 
-            {/* Actions */}
             <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-2.5">
               <button
                 type="button"
-                onClick={() => {
-                  setShowCheckoutModal(false);
-                  setAuthStep("");
-                }}
+                onClick={() => setShowCheckoutModal(false)}
                 className="px-4 py-2.5 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
               >
                 Cancel
@@ -931,10 +1139,255 @@ export default function BillingPage() {
                 type="button"
                 disabled={upgrading}
                 onClick={handleUpgrade}
-                className="px-6 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5349e4] text-white text-xs font-bold flex items-center gap-2 shadow-md shadow-[#635BFF]/20 transition-all disabled:opacity-50"
+                className="px-6 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center gap-2 shadow-xs transition-all disabled:opacity-50"
               >
-                <Lock className="w-3.5 h-3.5" />
-                {upgrading ? "Processing..." : `Pay $${finalPrice}.00 USD (Test Mode)`}
+                <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                {upgrading ? "Processing..." : `Confirm & Pay $${quote.total_due_today_usd.toFixed(2)} USD`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: DOWNGRADE OPTIONS & FEATURE RESTRICTION MODAL */}
+      {showDowngradeModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2 text-amber-700">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                <h3 className="font-bold text-sm text-zinc-900">Plan Downgrade Confirmation</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDowngradeModal(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              You are transitioning from <strong>{sub.tier.toUpperCase()}</strong> to <strong>{selectedTier.toUpperCase()}</strong>.
+              Downgrading reduces your monthly included minutes and restricts multi-location or advanced calendar features.
+            </p>
+
+            <div className="space-y-2 border border-zinc-200 p-4 rounded-xl bg-zinc-50 text-xs">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="downgrade_type"
+                  checked={!immediateDowngrade}
+                  onChange={() => setImmediateDowngrade(false)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <span className="font-bold text-zinc-900 block">Schedule at End of Billing Cycle (Recommended)</span>
+                  <span className="text-[11px] text-zinc-500">
+                    Keep your current plan limits until {new Date(sub.cycle_end_date).toLocaleDateString()}. Transition occurs automatically upon renewal.
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 cursor-pointer pt-2 border-t border-zinc-200">
+                <input
+                  type="radio"
+                  name="downgrade_type"
+                  checked={immediateDowngrade}
+                  onChange={() => setImmediateDowngrade(true)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <span className="font-bold text-zinc-900 block">Instant Downgrade (Immediate Restriction)</span>
+                  <span className="text-[11px] text-zinc-500">
+                    Applies target tier limits immediately. Excess numbers or seats must be deactivated. Non-refundable.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowDowngradeModal(false)}
+                className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleUpgrade}
+                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold"
+              >
+                Confirm Downgrade
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: STRICT REFUND POLICY & REQUEST MODAL */}
+      {showRefundModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                <h3 className="font-bold text-sm text-zinc-900">VedaVoice Refund Terms &amp; Exception Review</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRefundModal(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {loadingRefundElig ? (
+              <div className="py-6 text-center text-xs text-zinc-500 font-mono">
+                Calculating current cycle usage telemetry...
+              </div>
+            ) : refundEligibility ? (
+              <div className="space-y-3 text-xs">
+                {/* Strict 50% Gate Card */}
+                <div
+                  className={`p-4 rounded-xl border flex items-start gap-3 ${
+                    refundEligibility.eligible
+                      ? "bg-emerald-50/70 border-emerald-200 text-emerald-950"
+                      : "bg-red-50/70 border-red-200 text-red-950"
+                  }`}
+                >
+                  {refundEligibility.eligible ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <ShieldAlert className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="space-y-1">
+                    <span className="font-bold block">
+                      {refundEligibility.eligible
+                        ? "Eligible for Exception Review (< 50% Usage)"
+                        : "Strictly Ineligible: Non-Refundable (≥ 50% Usage)"}
+                    </span>
+                    <p className="text-[11px] leading-relaxed">
+                      Current cycle usage is <strong>{refundEligibility.usage_pct}%</strong> (
+                      {refundEligibility.used_minutes_this_cycle} of {refundEligibility.monthly_included_minutes} mins).
+                    </p>
+                    <p className="text-[10px] opacity-80">
+                      {refundEligibility.reason}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-[11px] text-zinc-600 leading-relaxed font-sans">
+                  <strong>Policy Terms:</strong> {refundEligibility.policy_terms}
+                </div>
+
+                {refundEligibility.eligible && (
+                  <div className="space-y-2 pt-2">
+                    <label className="font-semibold text-zinc-700 block">
+                      Reason for Exception Request (Audited by SuperAdmin):
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={refundReason}
+                      onChange={(e) => setRefundReason(e.target.value)}
+                      placeholder="Please provide specific details regarding this refund exception..."
+                      className="w-full p-2.5 rounded-xl border border-zinc-300 text-xs text-zinc-900 focus:border-zinc-900 focus:outline-hidden"
+                    />
+                  </div>
+                )}
+
+                {refundMsg && (
+                  <div
+                    className={`p-3 rounded-xl text-xs font-medium ${
+                      refundMsg.type === "success"
+                        ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                        : "bg-red-50 text-red-800 border border-red-200"
+                    }`}
+                  >
+                    {refundMsg.text}
+                  </div>
+                )}
+
+                <div className="pt-2 flex items-center justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowRefundModal(false)}
+                    className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+                  >
+                    Close
+                  </button>
+                  {refundEligibility.eligible && (
+                    <button
+                      type="button"
+                      disabled={submittingRefund}
+                      onClick={handleSubmitRefund}
+                      className="px-5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      {submittingRefund ? "Submitting..." : "Submit Exception Request"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: STANDALONE TOP-UP PURCHASE MODAL */}
+      {showTopupModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <Coins className="w-5 h-5 text-amber-500" />
+                <h3 className="font-bold text-sm text-zinc-900">Purchase Minute Top-Up</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTopupModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-amber-50/50 border border-amber-200 space-y-1 text-xs">
+              <div className="flex justify-between font-bold text-zinc-900">
+                <span>{showTopupModal.name}</span>
+                <span className="font-mono">+{showTopupModal.minutes.toLocaleString()} minutes</span>
+              </div>
+              <div className="flex justify-between text-zinc-600 font-mono">
+                <span>Price:</span>
+                <span className="text-zinc-900 font-bold">${showTopupModal.price_usd.toFixed(2)} USD</span>
+              </div>
+              <p className="text-[11px] text-amber-800 pt-1">
+                Billed independently. Top-up minutes never expire and do not reset your monthly subscription date.
+              </p>
+            </div>
+
+            {topupSuccessMsg && (
+              <div className="p-3 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-medium">
+                {topupSuccessMsg}
+              </div>
+            )}
+
+            <div className="pt-2 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowTopupModal(null)}
+                className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={purchasingTopup}
+                onClick={handlePurchaseTopup}
+                className="px-5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold disabled:opacity-50"
+              >
+                {purchasingTopup ? "Processing..." : `Pay $${showTopupModal.price_usd.toFixed(2)} USD`}
               </button>
             </div>
           </div>

@@ -12,6 +12,9 @@ import {
   AgencySubAccount,
   AgencyAuditLog,
   TelnyxNumberItem,
+  AdminRefundRequestRecord,
+  AdminTopupOrderRecord,
+  AdminSubscriptionRecord,
 } from "@/lib/api";
 import { InfoTrigger } from "@/context/info-modal-context";
 import {
@@ -57,6 +60,12 @@ import {
   Sparkles,
   ChevronRight,
   Info,
+  RotateCcw,
+  Receipt,
+  Coins,
+  AlertCircle,
+  XCircle,
+  Download,
 } from "lucide-react";
 
 function AdminDashboardContent() {
@@ -66,7 +75,7 @@ function AdminDashboardContent() {
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
   const [numbers, setNumbers] = useState<PhoneNumberRecord[]>([]);
   const [trunkTelemetry, setTrunkTelemetry] = useState<SipTrunkTelemetry | null>(null);
-  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [subscriptions, setSubscriptions] = useState<AdminSubscriptionRecord[]>([]);
   const [coupons, setCoupons] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [maskPii, setMaskPii] = useState(true);
@@ -158,6 +167,26 @@ function AdminDashboardContent() {
   const [tenantSearchQuery, setTenantSearchQuery] = useState("");
   const [tenantPlanFilter, setTenantPlanFilter] = useState<string>("all");
 
+  // Platform Admin Refunds, Top-Ups & Onboarding Fees (Billing Polish)
+  const [refundRequests, setRefundRequests] = useState<AdminRefundRequestRecord[]>([]);
+  const [topupOrders, setTopupOrders] = useState<AdminTopupOrderRecord[]>([]);
+  const [refundActionModal, setRefundActionModal] = useState<{ request: AdminRefundRequestRecord; action: "approve" | "reject" } | null>(null);
+  const [refundNotes, setRefundNotes] = useState("");
+  const [resolvingRefund, setResolvingRefund] = useState(false);
+  const [onboardingFeeModal, setOnboardingFeeModal] = useState<{
+    tenant_id: string;
+    org_name: string;
+    current_fee: number;
+    paid: boolean;
+    waived: boolean;
+  } | null>(null);
+  const [updatingFee, setUpdatingFee] = useState(false);
+  const [feeActionSelect, setFeeActionSelect] = useState<"waive" | "set_paid" | "charge">("waive");
+  const [customFeeUsd, setCustomFeeUsd] = useState<number>(299);
+  const [grantCreditTo, setGrantCreditTo] = useState<"rollover" | "topup">("rollover");
+  const [billingSubTab, setBillingSubTab] = useState<"all" | "subscriptions" | "refunds" | "topups" | "fees">("all");
+  const [billingSearchQuery, setBillingSearchQuery] = useState("");
+
   const handleSearchTelnyxNumbers = async () => {
     setSearchingTelnyx(true);
     setTelnyxSuccessMsg(null);
@@ -204,8 +233,10 @@ function AdminDashboardContent() {
       api.getAdminCoupons().catch(() => []),
       api.getAgencySubAccounts().catch(() => []),
       api.getAgencyAuditLogs({ limit: 100 }).catch(() => ({ total: 0, items: [] })),
+      api.getAdminRefunds().catch(() => []),
+      api.getAdminTopupOrders().catch(() => []),
     ])
-      .then(([statsRes, tenantsRes, numbersRes, trunkRes, subsRes, couponsRes, subAccountsRes, auditRes]) => {
+      .then(([statsRes, tenantsRes, numbersRes, trunkRes, subsRes, couponsRes, subAccountsRes, auditRes, refundsRes, topupsRes]) => {
         setStats(statsRes);
         setTenants(tenantsRes);
         setNumbers(numbersRes);
@@ -215,6 +246,8 @@ function AdminDashboardContent() {
         setSubAccounts(subAccountsRes as any);
         setAuditLogs(auditRes.items as any);
         setAuditTotal(auditRes.total);
+        setRefundRequests(refundsRes);
+        setTopupOrders(topupsRes);
       })
       .catch((err) => console.error("Failed to load admin data:", err))
       .finally(() => {
@@ -317,8 +350,8 @@ function AdminDashboardContent() {
       setNewCouponData({ code: "", discount_percent: 20, bonus_minutes: 100, max_redemptions: 50 });
       const refreshedCoupons = await api.getAdminCoupons();
       setCoupons(refreshedCoupons);
-    } catch (err: any) {
-      setCouponError(err.message || "Failed to create coupon code");
+    } catch (err: unknown) {
+      setCouponError(err instanceof Error ? err.message : "Failed to create coupon code");
     } finally {
       setCreatingCoupon(false);
     }
@@ -327,7 +360,7 @@ function AdminDashboardContent() {
   const handleGrantBonusMinutes = async (tenantId: string) => {
     setGrantingMinutes(true);
     try {
-      await api.grantAdminMinutes(tenantId, grantMinutesVal, grantReason);
+      await api.grantAdminMinutes(tenantId, grantMinutesVal, grantReason, grantCreditTo);
       setShowGrantModal(null);
       const [refreshedSubs, refreshedTenants] = await Promise.all([
         api.getAdminSubscriptions(),
@@ -375,6 +408,130 @@ function AdminDashboardContent() {
     } finally {
       setUpdatingSub(false);
     }
+  };
+
+  const handleResolveRefund = async () => {
+    if (!refundActionModal) return;
+    setResolvingRefund(true);
+    try {
+      await api.resolveAdminRefund(refundActionModal.request.id, refundActionModal.action, refundNotes);
+      setRefundActionModal(null);
+      setRefundNotes("");
+      const [refreshedRefunds, refreshedSubs] = await Promise.all([
+        api.getAdminRefunds().catch(() => []),
+        api.getAdminSubscriptions().catch(() => []),
+      ]);
+      setRefundRequests(refreshedRefunds);
+      setSubscriptions(refreshedSubs);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to resolve refund request");
+    } finally {
+      setResolvingRefund(false);
+    }
+  };
+
+  const handleUpdateOnboardingFee = async () => {
+    if (!onboardingFeeModal) return;
+    setUpdatingFee(true);
+    try {
+      await api.updateAdminOnboardingFee(onboardingFeeModal.tenant_id, {
+        action: feeActionSelect,
+        waived: feeActionSelect === "waive",
+        paid: feeActionSelect === "set_paid",
+        custom_fee_usd: feeActionSelect === "charge" ? customFeeUsd : undefined,
+      });
+      setOnboardingFeeModal(null);
+      const refreshedSubs = await api.getAdminSubscriptions().catch(() => []);
+      setSubscriptions(refreshedSubs);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to update onboarding fee");
+    } finally {
+      setUpdatingFee(false);
+    }
+  };
+
+  const exportSubscriptionsCsv = () => {
+    const headers = [
+      "Organization",
+      "Tenant ID",
+      "Tier",
+      "Status",
+      "Base Minutes",
+      "Rollover Minutes",
+      "TopUp Minutes",
+      "Total Minutes",
+      "Used Minutes",
+      "Setup Fee USD",
+      "Setup Fee Status",
+      "Refund Status",
+    ];
+    const rows = subscriptions.map((s: any) => [
+      `"${s.tenant_name}"`,
+      s.tenant_id,
+      s.tier,
+      s.status,
+      s.monthly_included_minutes,
+      s.bonus_rollover_minutes,
+      s.topup_minutes_balance || 0,
+      s.total_available_minutes,
+      s.used_minutes_this_cycle,
+      s.onboarding_fee_usd || 0,
+      s.onboarding_fee_waived ? "waived" : s.onboarding_fee_paid ? "paid" : "due",
+      s.refund_status || "none",
+    ]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((r: any) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute(
+      "download",
+      `vedavoice_subscriptions_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportTopupOrdersCsv = () => {
+    const headers = [
+      "Order ID",
+      "Date",
+      "Organization",
+      "Tenant ID",
+      "Pack Name",
+      "Minutes",
+      "Price USD",
+      "Rate Per Min",
+      "Status",
+      "Payment Reference",
+    ];
+    const rows = topupOrders.map((o: any) => [
+      o.id,
+      o.created_at || "",
+      `"${o.tenant_name}"`,
+      o.tenant_id,
+      `"${o.pack_name}"`,
+      o.minutes,
+      o.price_usd,
+      o.rate_per_min,
+      o.status,
+      o.payment_intent_id || "",
+    ]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((r: any) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute(
+      "download",
+      `vedavoice_topup_orders_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   useEffect(() => {
@@ -728,6 +885,11 @@ function AdminDashboardContent() {
           <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-zinc-200 text-zinc-700">
             {subscriptions.length}
           </span>
+          {refundRequests.filter((r: any) => r.status === "pending").length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-red-100 text-red-700 font-bold border border-red-300">
+              {refundRequests.filter((r: any) => r.status === "pending").length} refund
+            </span>
+          )}
         </button>
 
         <button
@@ -1772,119 +1934,686 @@ function AdminDashboardContent() {
       </div>
       )}
 
-      {/* SECTION 4A: Tenant Minute Subscriptions Overview (Full Width) */}
+      {/* SECTION 4A: Tenant Minute Subscriptions & Billing Command Center (Full Width) */}
       {activeTab === "billing" && (
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-          <div className="flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-indigo-600" />
-            <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
-              Tenant Minute Subscriptions &amp; Rollovers
-            </h2>
+      <div className="space-y-6">
+        {/* Billing Overview KPI Deck */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
+            <div className="flex items-center justify-between text-zinc-500 mb-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Active Subs &amp; MRR</span>
+              <CreditCard className="w-4 h-4 text-indigo-600" />
+            </div>
+            <div className="text-xl font-bold font-mono text-zinc-900">
+              {subscriptions.filter((s: any) => s.status === "active").length}
+              <span className="text-xs font-normal text-zinc-500 font-sans ml-1.5">
+                / {subscriptions.length} accounts
+              </span>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-mono mt-1">
+              Est. Monthly Recurring: $
+              {subscriptions
+                .filter((s: any) => s.status === "active")
+                .reduce((acc: number, s: any) => {
+                  const pricing: Record<string, number> = {
+                    lite: 99, starter: 299, growth: 399, pro: 499, scale: 999, enterprise: 1999, agency: 2499,
+                  };
+                  return acc + (pricing[s.tier?.toLowerCase()] || 299);
+                }, 0)
+                .toLocaleString()}
+            </div>
           </div>
-          <span className="text-xs text-zinc-500 font-mono">
-            $0.20/min overage &bull; 10% monthly complimentary rollover
-          </span>
-        </div>
 
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
-              <tr>
-                <th className="p-3">Organization</th>
-                <th className="p-3">Current Plan</th>
-                <th className="p-3">Included Minutes</th>
-                <th className="p-3">Bonus / Rollover</th>
-                <th className="p-3">Used Minutes</th>
-                <th className="p-3">Unit CoGS &amp; Margin</th>
-                <th className="p-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {subscriptions.map((sub: any) => {
-                const tierPricing: Record<string, number> = { lite: 99, starter: 299, growth: 399, pro: 499, scale: 999 };
-                const rev = tierPricing[sub.tier?.toLowerCase()] || 499;
-                const cogs = (sub.used_minutes_this_cycle || 0) * 0.0225;
-                const margin = rev > 0 ? Math.max(0, Math.round(((rev - cogs) / rev) * 1000) / 10) : 95.5;
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
+            <div className="flex items-center justify-between text-zinc-500 mb-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Rollover Guarantee</span>
+              <Sparkles className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="text-xl font-bold font-mono text-emerald-700">
+              +{subscriptions.reduce((acc: number, s: any) => acc + (s.bonus_rollover_minutes || 0), 0).toFixed(0)}
+              <span className="text-xs font-normal text-zinc-500 font-sans ml-1">mins</span>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-mono mt-1">
+              100% trial + 10% monthly compliment
+            </div>
+          </div>
 
-                return (
-                <tr key={sub.tenant_id} className="hover:bg-zinc-50/80 transition-colors">
-                  <td className="p-3">
-                    <div className="font-semibold text-zinc-900">{sub.tenant_name}</div>
-                    <div className="text-[10px] text-zinc-500 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-1">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
-                        {sub.tier}
-                      </span>
-                      {sub.status === "active" && (
-                        <span className="text-[10px] text-emerald-600 font-medium">● Active</span>
-                      )}
-                      {sub.status === "suspended" && (
-                        <span className="text-[10px] text-red-600 font-medium">● Suspended</span>
-                      )}
-                    </div>
-                    {sub.pending_tier && (
-                      <div className="text-[10px] text-amber-700 font-mono mt-1 font-semibold flex items-center gap-1">
-                        <span>⏳ Queued:</span>
-                        <span className="uppercase">{sub.pending_tier}</span>
-                      </div>
-                    )}
-                    {sub.is_cycle_locked && (
-                      <div className="text-[9px] text-zinc-400 font-mono">
-                        Auto-renews: {sub.cycle_end_date ? new Date(sub.cycle_end_date).toLocaleDateString() : "30d"}
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-3 font-mono font-bold text-zinc-800">
-                    {sub.monthly_included_minutes.toLocaleString()} mins
-                  </td>
-                  <td className="p-3 font-mono">
-                    <span className="text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                      +{sub.bonus_rollover_minutes.toFixed(1)} mins
-                    </span>
-                  </td>
-                  <td className="p-3 font-mono text-zinc-600">
-                    {sub.used_minutes_this_cycle.toFixed(1)} mins
-                  </td>
-                  <td className="p-3 font-mono">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      {margin.toFixed(1)}% Margin
-                    </span>
-                    <div className="text-[10px] text-zinc-400 font-sans mt-0.5">
-                      CoGS: ${cogs.toFixed(2)} &bull; MRR: ${rev}
-                    </div>
-                  </td>
-                  <td className="p-3 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => openManageSubModal(sub)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold mr-1.5 shadow-sm transition-all"
-                    >
-                      Manage Plan
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowGrantModal(sub.tenant_id)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-medium transition-colors"
-                    >
-                      <Gift className="w-3 h-3 text-indigo-600" />
-                      Grant Bonus
-                    </button>
-                  </td>
-                </tr>
-              )})}
-              {subscriptions.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="p-6 text-center text-zinc-500 font-mono text-xs">
-                    No active tenant subscriptions.
-                  </td>
-                </tr>
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
+            <div className="flex items-center justify-between text-zinc-500 mb-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Top-Up Minute Pool</span>
+              <Coins className="w-4 h-4 text-blue-600" />
+            </div>
+            <div className="text-xl font-bold font-mono text-blue-700">
+              +{subscriptions.reduce((acc: number, s: any) => acc + (s.topup_minutes_balance || 0), 0).toFixed(0)}
+              <span className="text-xs font-normal text-zinc-500 font-sans ml-1">mins</span>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-mono mt-1">
+              {topupOrders.length} standalone packs completed
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
+            <div className="flex items-center justify-between text-zinc-500 mb-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Setup Fees Collected</span>
+              <DollarSign className="w-4 h-4 text-amber-600" />
+            </div>
+            <div className="text-xl font-bold font-mono text-zinc-900">
+              ${subscriptions
+                .filter((s: any) => s.onboarding_fee_paid)
+                .reduce((acc: number, s: any) => acc + (s.onboarding_fee_usd || 0), 0)
+                .toLocaleString()}
+            </div>
+            <div className="text-[10px] text-zinc-500 font-mono mt-1">
+              Waived: {subscriptions.filter((s: any) => s.onboarding_fee_waived).length} accounts
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
+            <div className="flex items-center justify-between text-zinc-500 mb-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">Strict Refund Queue</span>
+              <ShieldAlert className="w-4 h-4 text-red-600" />
+            </div>
+            <div className="text-xl font-bold font-mono text-zinc-900 flex items-center gap-2">
+              <span>{refundRequests.filter((r: any) => r.status === "pending").length}</span>
+              {refundRequests.filter((r: any) => r.status === "pending").length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-red-100 text-red-700 font-bold border border-red-200 animate-pulse">
+                  Action Required
+                </span>
               )}
-            </tbody>
-          </table>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-mono mt-1">
+              &lt;50% usage gate strictly enforced
+            </div>
+          </div>
         </div>
+
+        {/* Sub-navigation Controls & Search Bar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-zinc-200 shadow-2xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+            <button
+              type="button"
+              onClick={() => setBillingSubTab("all")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                billingSubTab === "all"
+                  ? "bg-zinc-900 text-white shadow-xs"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
+              }`}
+            >
+              All Views
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingSubTab("subscriptions")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                billingSubTab === "subscriptions"
+                  ? "bg-zinc-900 text-white shadow-xs"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
+              }`}
+            >
+              Subscriptions ({subscriptions.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingSubTab("refunds")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                billingSubTab === "refunds"
+                  ? "bg-zinc-900 text-white shadow-xs"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
+              }`}
+            >
+              <span>Strict Refund Queue ({refundRequests.length})</span>
+              {refundRequests.filter((r: any) => r.status === "pending").length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingSubTab("topups")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                billingSubTab === "topups"
+                  ? "bg-zinc-900 text-white shadow-xs"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
+              }`}
+            >
+              Top-Up Ledger ({topupOrders.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingSubTab("fees")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                billingSubTab === "fees"
+                  ? "bg-zinc-900 text-white shadow-xs"
+                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
+              }`}
+            >
+              Setup Fees ({subscriptions.filter((s: any) => s.onboarding_fee_paid).length} Paid)
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 sm:w-64">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Search tenant, ID, tier..."
+                value={billingSearchQuery}
+                onChange={(e) => setBillingSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={exportSubscriptionsCsv}
+              title="Export Subscriptions as CSV"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold transition-all whitespace-nowrap shadow-2xs"
+            >
+              <Download className="w-3.5 h-3.5 text-zinc-600" />
+              <span>Export Subs</span>
+            </button>
+            <button
+              type="button"
+              onClick={exportTopupOrdersCsv}
+              title="Export Top-Up Ledger as CSV"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold transition-all whitespace-nowrap shadow-2xs"
+            >
+              <Download className="w-3.5 h-3.5 text-zinc-600" />
+              <span>Export Top-Ups</span>
+            </button>
+          </div>
+        </div>
+
+        {/* SECTION 4A-1: Tenant Subscriptions Table */}
+        {(billingSubTab === "all" || billingSubTab === "subscriptions" || billingSubTab === "fees") && (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+            <div className="flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-indigo-600" />
+              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+                Tenant Minute Subscriptions &amp; Rollovers
+              </h2>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-zinc-500 font-mono">
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Instant Upgrade Active
+              </span>
+              <span>&bull;</span>
+              <span>10% Monthly Complimentary Rollover</span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+                <tr>
+                  <th className="p-3">Organization</th>
+                  <th className="p-3">Current Plan</th>
+                  <th className="p-3">Minute Pools</th>
+                  <th className="p-3">Total Active</th>
+                  <th className="p-3">Usage This Cycle</th>
+                  <th className="p-3">Onboarding Fee</th>
+                  <th className="p-3">Refund Status</th>
+                  <th className="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {subscriptions
+                  .filter((sub: any) => {
+                    if (billingSubTab === "fees" && !sub.onboarding_fee_usd && !sub.onboarding_fee_waived) return false;
+                    if (!billingSearchQuery) return true;
+                    const q = billingSearchQuery.toLowerCase();
+                    return (
+                      sub.tenant_name?.toLowerCase().includes(q) ||
+                      sub.tenant_id?.toLowerCase().includes(q) ||
+                      sub.tier?.toLowerCase().includes(q) ||
+                      sub.status?.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((sub: any) => {
+                  const totalPool =
+                    (sub.monthly_included_minutes || 0) +
+                    (sub.bonus_rollover_minutes || 0) +
+                    (sub.topup_minutes_balance || 0);
+                  const usagePct =
+                    totalPool > 0
+                      ? Math.min(100, ((sub.used_minutes_this_cycle || 0) / totalPool) * 100)
+                      : 0;
+
+                  return (
+                    <tr key={sub.tenant_id} className="hover:bg-zinc-50/80 transition-colors">
+                      <td className="p-3">
+                        <div className="font-semibold text-zinc-900">{sub.tenant_name}</div>
+                        <div className="text-[10px] text-zinc-400 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
+                      </td>
+                      <td className="p-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-zinc-100 text-zinc-800 border border-zinc-200">
+                            {sub.tier}
+                          </span>
+                          {sub.status === "active" && (
+                            <span className="text-[10px] text-emerald-600 font-semibold">● Active</span>
+                          )}
+                          {sub.status === "suspended" && (
+                            <span className="text-[10px] text-red-600 font-semibold">● Suspended</span>
+                          )}
+                          {sub.status === "trialing" && (
+                            <span className="text-[10px] text-amber-600 font-semibold">● Trial</span>
+                          )}
+                        </div>
+                        {sub.pending_tier && (
+                          <div className="text-[10px] text-amber-700 font-mono mt-1 font-semibold flex items-center gap-1">
+                            <span>⏳ Queued:</span>
+                            <span className="uppercase">{sub.pending_tier}</span>
+                          </div>
+                        )}
+                        <div className="text-[9px] text-zinc-400 font-mono mt-0.5">
+                          Renews: {sub.cycle_end_date ? new Date(sub.cycle_end_date).toLocaleDateString() : "30d"}
+                        </div>
+                      </td>
+                      <td className="p-3 font-mono space-y-0.5">
+                        <div className="text-zinc-800 font-semibold">
+                          {sub.monthly_included_minutes.toLocaleString()} base
+                        </div>
+                        <div className="text-[10px] text-emerald-700 font-semibold">
+                          +{sub.bonus_rollover_minutes.toFixed(1)} roll
+                        </div>
+                        {sub.topup_minutes_balance > 0 && (
+                          <div className="text-[10px] text-blue-700 font-semibold">
+                            +{sub.topup_minutes_balance.toFixed(1)} top-up
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 font-mono">
+                        <span className="text-sm font-bold text-zinc-900">
+                          {totalPool.toLocaleString()}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 font-normal ml-0.5">mins</span>
+                      </td>
+                      <td className="p-3 font-mono">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                          <span className="text-zinc-800 font-semibold">
+                            {sub.used_minutes_this_cycle.toFixed(1)} mins
+                          </span>
+                          <span className="text-zinc-500 text-[10px]">
+                            {usagePct.toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="w-24 h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              usagePct > 80 ? "bg-amber-500" : usagePct > 50 ? "bg-blue-500" : "bg-emerald-500"
+                            }`}
+                            style={{ width: `${usagePct}%` }}
+                          />
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        {sub.onboarding_fee_waived ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOnboardingFeeModal({
+                                tenant_id: sub.tenant_id,
+                                org_name: sub.tenant_name,
+                                current_fee: sub.onboarding_fee_usd || 199,
+                                paid: false,
+                                waived: true,
+                              })
+                            }
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-zinc-100 text-zinc-600 border border-zinc-200 hover:border-zinc-300"
+                          >
+                            Waived ($0)
+                          </button>
+                        ) : sub.onboarding_fee_paid ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOnboardingFeeModal({
+                                tenant_id: sub.tenant_id,
+                                org_name: sub.tenant_name,
+                                current_fee: sub.onboarding_fee_usd || 199,
+                                paid: true,
+                                waived: false,
+                              })
+                            }
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:border-emerald-300"
+                          >
+                            Paid (${sub.onboarding_fee_usd})
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOnboardingFeeModal({
+                                tenant_id: sub.tenant_id,
+                                org_name: sub.tenant_name,
+                                current_fee: sub.onboarding_fee_usd || 199,
+                                paid: false,
+                                waived: false,
+                              })
+                            }
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:border-amber-300"
+                          >
+                            Due: ${sub.onboarding_fee_usd || 199}
+                          </button>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {sub.refund_status === "requested" ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            Review ({sub.refund_requested_usage_pct?.toFixed(0)}%)
+                          </span>
+                        ) : sub.refund_status === "approved" ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Approved
+                          </span>
+                        ) : sub.refund_status === "rejected" ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                            <X className="w-3 h-3 text-zinc-500" />
+                            Denied
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-zinc-400 font-mono">None</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right whitespace-nowrap space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openManageSubModal(sub)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all"
+                        >
+                          Manage Plan
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOnboardingFeeModal({
+                              tenant_id: sub.tenant_id,
+                              org_name: sub.tenant_name,
+                              current_fee: sub.onboarding_fee_usd || 199,
+                              paid: sub.onboarding_fee_paid || false,
+                              waived: sub.onboarding_fee_waived || false,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-medium transition-colors"
+                        >
+                          <Receipt className="w-3 h-3 text-zinc-500" />
+                          Fee
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowGrantModal(sub.tenant_id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-800 text-xs font-medium transition-colors"
+                        >
+                          <Gift className="w-3 h-3 text-indigo-600" />
+                          Grant
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {subscriptions.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="p-6 text-center text-zinc-500 font-mono text-xs">
+                      No active tenant subscriptions found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )}
+
+        {/* SECTION 4A-2: SuperAdmin Strict Refund Exception Review Queue */}
+        {(billingSubTab === "all" || billingSubTab === "refunds") && (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-600" />
+              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+                Strict Refund Review Queue (&lt; 50% Usage Gate)
+              </h2>
+            </div>
+            <span className="text-xs text-zinc-500 font-mono">
+              Baseline: Strictly No Refunds &bull; Exception Gate: Under 50% Usage
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+                <tr>
+                  <th className="p-3">Organization &amp; Plan</th>
+                  <th className="p-3">Cycle Usage at Request</th>
+                  <th className="p-3">Strict Policy Gate Check</th>
+                  <th className="p-3">Requested Amount</th>
+                  <th className="p-3">Client Reason</th>
+                  <th className="p-3">Status &amp; Notes</th>
+                  <th className="p-3 text-right">Review Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {refundRequests
+                  .filter((req: any) => {
+                    if (!billingSearchQuery) return true;
+                    const q = billingSearchQuery.toLowerCase();
+                    return (
+                      req.tenant_name?.toLowerCase().includes(q) ||
+                      req.tenant_id?.toLowerCase().includes(q) ||
+                      req.tier?.toLowerCase().includes(q) ||
+                      req.status?.toLowerCase().includes(q) ||
+                      req.reason?.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((req: any) => (
+                  <tr key={req.id} className="hover:bg-zinc-50/80 transition-colors">
+                    <td className="p-3">
+                      <div className="font-semibold text-zinc-900">{req.tenant_name}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold uppercase bg-zinc-100 text-zinc-700 border border-zinc-200">
+                          {req.tier}
+                        </span>
+                        <span className="text-[10px] text-zinc-400 font-mono">
+                          ID: {req.tenant_id.slice(0, 8)}...
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-3 font-mono">
+                      <div className="text-zinc-900 font-semibold">
+                        {req.minutes_used.toFixed(1)} / {req.cycle_included_minutes} mins
+                      </div>
+                      <div className="text-[10px] text-zinc-500">
+                        {req.usage_percentage.toFixed(1)}% of base allocation
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      {req.eligible_under_50pct_rule ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          Eligible (&lt;50% usage)
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-red-50 text-red-700 border border-red-200">
+                          <X className="w-3 h-3 text-red-600" />
+                          Ineligible (&ge;50% - Policy Deny)
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 font-mono font-bold text-zinc-900">
+                      ${req.amount_usd.toFixed(2)}
+                    </td>
+                    <td className="p-3 max-w-xs text-zinc-600 text-[11px] italic truncate">
+                      &quot;{req.reason}&quot;
+                    </td>
+                    <td className="p-3">
+                      {req.status === "pending" && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          Pending Review
+                        </span>
+                      )}
+                      {req.status === "approved" && (
+                        <div className="space-y-0.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Approved
+                          </span>
+                          {req.decision_notes && (
+                            <div className="text-[10px] text-zinc-500 font-mono truncate max-w-xs">
+                              {req.decision_notes}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {req.status === "rejected" && (
+                        <div className="space-y-0.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                            Rejected
+                          </span>
+                          {req.decision_notes && (
+                            <div className="text-[10px] text-zinc-500 font-mono truncate max-w-xs">
+                              {req.decision_notes}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 text-right whitespace-nowrap">
+                      {req.status === "pending" ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRefundActionModal({ request: req, action: "approve" })
+                            }
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                          >
+                            <Check className="w-3 h-3" />
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setRefundActionModal({ request: req, action: "reject" })
+                            }
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold shadow-xs transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-zinc-400 font-mono">
+                          Resolved {req.resolved_at ? new Date(req.resolved_at).toLocaleDateString() : ""}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {refundRequests.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-zinc-400 font-mono text-xs">
+                      No refund requests have been submitted.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )}
+
+        {/* SECTION 4A-3: Standalone Top-Up Minutes Orders Ledger */}
+        {(billingSubTab === "all" || billingSubTab === "topups") && (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5 space-y-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-blue-600" />
+              <h2 className="text-sm font-bold text-zinc-900 font-mono uppercase tracking-wide">
+                Standalone Top-Up Minutes Orders Ledger
+              </h2>
+            </div>
+            <span className="text-xs text-zinc-500 font-mono">
+              Independent transactions &bull; Never resets monthly cycle renewal
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+                <tr>
+                  <th className="p-3">Order ID &amp; Date</th>
+                  <th className="p-3">Organization</th>
+                  <th className="p-3">Pack &amp; Minutes Added</th>
+                  <th className="p-3">Rate &amp; Total</th>
+                  <th className="p-3">Payment Status</th>
+                  <th className="p-3 text-right">Payment Reference</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {topupOrders
+                  .filter((ord: any) => {
+                    if (!billingSearchQuery) return true;
+                    const q = billingSearchQuery.toLowerCase();
+                    return (
+                      ord.tenant_name?.toLowerCase().includes(q) ||
+                      ord.tenant_id?.toLowerCase().includes(q) ||
+                      ord.pack_name?.toLowerCase().includes(q) ||
+                      ord.status?.toLowerCase().includes(q) ||
+                      ord.payment_intent_id?.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((ord: any) => (
+                  <tr key={ord.id} className="hover:bg-zinc-50/80 transition-colors">
+                    <td className="p-3">
+                      <div className="font-mono font-bold text-zinc-900">{ord.id.slice(0, 8)}...</div>
+                      <div className="text-[10px] text-zinc-400 font-mono">
+                        {ord.created_at ? new Date(ord.created_at).toLocaleString() : "Recently"}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="font-semibold text-zinc-900">{ord.tenant_name}</div>
+                      <div className="text-[10px] text-zinc-400 font-mono">ID: {ord.tenant_id.slice(0, 8)}...</div>
+                    </td>
+                    <td className="p-3">
+                      <span className="font-semibold text-zinc-900">{ord.pack_name}</span>
+                      <div className="text-[11px] font-mono text-emerald-700 font-bold">
+                        +{ord.minutes.toLocaleString()} bonus mins
+                      </div>
+                    </td>
+                    <td className="p-3 font-mono">
+                      <div className="font-bold text-zinc-900">${ord.price_usd.toFixed(2)}</div>
+                      <div className="text-[10px] text-zinc-500">${ord.rate_per_min}/min</div>
+                    </td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        {ord.status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right font-mono text-[11px] text-zinc-500">
+                      {ord.payment_intent_id ? (
+                        <span className="bg-zinc-100 px-2 py-0.5 rounded-md text-[10px]">
+                          {ord.payment_intent_id}
+                        </span>
+                      ) : (
+                        "test_ref_sim"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {topupOrders.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-zinc-400 font-mono text-xs">
+                      No standalone minute top-up orders recorded yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )}
       </div>
       )}
 
@@ -1964,11 +2693,41 @@ function AdminDashboardContent() {
 
             <div className="space-y-3 text-xs">
               <div className="space-y-1">
-                <label className="font-medium text-zinc-700">Bonus Minutes to Grant</label>
+                <label className="font-semibold text-zinc-700">Credit Destination Pool</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGrantCreditTo("rollover")}
+                    className={`p-2 rounded-xl border text-center font-medium transition-all ${
+                      grantCreditTo === "rollover"
+                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    <div className="font-bold text-[11px]">Rollover Bonus</div>
+                    <div className="text-[9px] opacity-80">10% rollover pool</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGrantCreditTo("topup")}
+                    className={`p-2 rounded-xl border text-center font-medium transition-all ${
+                      grantCreditTo === "topup"
+                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    <div className="font-bold text-[11px]">Top-Up Balance</div>
+                    <div className="text-[9px] opacity-80">Permanent validity</div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-medium text-zinc-700">Minutes to Grant</label>
                 <input
                   type="number"
                   min="10"
-                  max="5000"
+                  max="10000"
                   step="10"
                   value={grantMinutesVal}
                   onChange={(e) => setGrantMinutesVal(Number(e.target.value))}
@@ -2041,9 +2800,13 @@ function AdminDashboardContent() {
                   className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-medium focus:outline-none focus:border-zinc-900"
                 >
                   <option value="trial">Free Trial (100 Mins / 14 Days)</option>
+                  <option value="lite">Lite Plan (300 Mins - $99/mo)</option>
                   <option value="starter">Starter Plan (1,000 Mins - $299/mo)</option>
-                  <option value="pro">Professional Plan (1,200 Mins - $399/mo)</option>
-                  <option value="enterprise">Enterprise Scale Plan (1,500 Mins - $499/mo)</option>
+                  <option value="growth">Growth Plan (2,500 Mins - $399/mo)</option>
+                  <option value="pro">Pro Plan (5,000 Mins - $499/mo)</option>
+                  <option value="scale">Scale Plan (12,000 Mins - $999/mo)</option>
+                  <option value="enterprise">Enterprise Plan (30,000 Mins - $1,999/mo)</option>
+                  <option value="agency">Agency Partner Plan (50,000 Mins - $2,499/mo)</option>
                 </select>
               </div>
 
@@ -2101,6 +2864,240 @@ function AdminDashboardContent() {
                   className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5"
                 >
                   {updatingSub ? "Saving Changes..." : "Apply Plan Update"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SuperAdmin Refund Review & Resolution Modal */}
+      {refundActionModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <ShieldAlert
+                  className={`w-4 h-4 ${
+                    refundActionModal.action === "approve" ? "text-emerald-600" : "text-red-600"
+                  }`}
+                />
+                <h3 className="font-bold text-sm text-zinc-900 font-mono uppercase">
+                  {refundActionModal.action === "approve" ? "Approve Refund Exception" : "Reject Refund Request"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRefundActionModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1.5 font-mono">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Organization:</span>
+                  <span className="font-bold text-zinc-900">{refundActionModal.request.tenant_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Tier &amp; Amount:</span>
+                  <span className="font-bold text-zinc-900 uppercase">
+                    {refundActionModal.request.tier} (${refundActionModal.request.amount_usd.toFixed(2)})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Usage at Request:</span>
+                  <span
+                    className={`font-bold ${
+                      refundActionModal.request.eligible_under_50pct_rule
+                        ? "text-emerald-700"
+                        : "text-red-700"
+                    }`}
+                  >
+                    {refundActionModal.request.usage_percentage.toFixed(1)}% of base allocation
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-zinc-200">
+                  <span className="text-zinc-500">Strict 50% Gate:</span>
+                  {refundActionModal.request.eligible_under_50pct_rule ? (
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600" /> Eligible (&lt;50%)
+                    </span>
+                  ) : (
+                    <span className="text-red-700 font-bold flex items-center gap-1">
+                      <X className="w-3 h-3 text-red-600" /> Ineligible (&ge;50% usage)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {!refundActionModal.request.eligible_under_50pct_rule && refundActionModal.action === "approve" && (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>SuperAdmin Policy Override:</strong> This tenant used &ge; 50% of their base cycle. Approving this refund will bypass the standard strict policy and be permanently audited.
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="font-semibold text-zinc-700">Client Reason</label>
+                <div className="p-2.5 rounded-xl bg-zinc-100/60 text-zinc-700 italic border border-zinc-200 text-[11px]">
+                  &quot;{refundActionModal.request.reason}&quot;
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-zinc-700">SuperAdmin Decision Notes</label>
+                <textarea
+                  rows={3}
+                  value={refundNotes}
+                  onChange={(e) => setRefundNotes(e.target.value)}
+                  placeholder={
+                    refundActionModal.action === "approve"
+                      ? "Approved exception per customer service escalation (<50% usage verified)..."
+                      : "Rejected per strict terms of service (>50% usage consumed or ineligible tier)..."
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 focus:outline-none focus:border-zinc-900 text-xs"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setRefundActionModal(null)}
+                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={resolvingRefund}
+                  onClick={handleResolveRefund}
+                  className={`px-4 py-2 rounded-xl text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 ${
+                    refundActionModal.action === "approve"
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-red-600 hover:bg-red-700"
+                  }`}
+                >
+                  {resolvingRefund
+                    ? "Processing..."
+                    : refundActionModal.action === "approve"
+                    ? "Confirm Refund Approval"
+                    : "Confirm Refund Rejection"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SuperAdmin Onboarding Fee Control Modal */}
+      {onboardingFeeModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-zinc-200 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-amber-600" />
+                <h3 className="font-bold text-sm text-zinc-900 font-mono uppercase">
+                  Setup Fee Telemetry &amp; Controls
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOnboardingFeeModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1 font-mono">
+                <div className="text-zinc-900 font-bold">{onboardingFeeModal.org_name}</div>
+                <div className="text-[10px] text-zinc-500">ID: {onboardingFeeModal.tenant_id}</div>
+                <div className="flex justify-between pt-1 border-t border-zinc-200">
+                  <span className="text-zinc-500">Current Status:</span>
+                  <span className="font-bold text-zinc-800">
+                    {onboardingFeeModal.waived
+                      ? "Waived ($0)"
+                      : onboardingFeeModal.paid
+                      ? `Paid ($${onboardingFeeModal.current_fee})`
+                      : `Due ($${onboardingFeeModal.current_fee})`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="font-semibold text-zinc-700">Choose Action</label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setFeeActionSelect("waive")}
+                    className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
+                      feeActionSelect === "waive"
+                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Waive ($0)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeeActionSelect("set_paid")}
+                    className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
+                      feeActionSelect === "set_paid"
+                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Mark Paid
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFeeActionSelect("charge")}
+                    className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
+                      feeActionSelect === "charge"
+                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Custom Fee
+                  </button>
+                </div>
+              </div>
+
+              {feeActionSelect === "charge" && (
+                <div className="space-y-1">
+                  <label className="font-semibold text-zinc-700">Fee Amount (USD)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="1000"
+                    value={customFeeUsd}
+                    onChange={(e) => setCustomFeeUsd(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-900"
+                  />
+                </div>
+              )}
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  onClick={() => setOnboardingFeeModal(null)}
+                  className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white text-zinc-700 text-xs font-medium hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={updatingFee}
+                  onClick={handleUpdateOnboardingFee}
+                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5"
+                >
+                  {updatingFee ? "Updating..." : "Save Fee Status"}
                 </button>
               </div>
             </div>
