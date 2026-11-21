@@ -16,6 +16,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -352,6 +353,24 @@ def test_tenant_integrations_rest_api(integration_tenant: dict[str, Any]) -> Non
     )
     assert hook_res.status_code == 201
     webhook_id = hook_res.json()["id"]
+
+    # 3b. Test Fire Webhook Dispatch
+    with patch("api.app.routers.integrations.deliver_webhook_event") as mock_deliver:
+        mock_deliver.return_value = {
+            "status": "delivered",
+            "status_code": 200,
+            "event": "test.ping",
+        }
+        test_hook_res = client.post(
+            f"/api/v1/integrations/webhooks/{webhook_id}/test",
+            headers=headers,
+        )
+        assert test_hook_res.status_code == 200
+        test_data = test_hook_res.json()
+        assert test_data["success"] is True
+        assert test_data["delivery_result"]["status"] == "delivered"
+        assert test_data["delivery_result"]["status_code"] == 200
+        mock_deliver.assert_called_once()
 
     # 4. List all integrations
     list_res = client.get("/api/v1/integrations", headers=headers)

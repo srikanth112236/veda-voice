@@ -1304,6 +1304,19 @@ export const api = {
       method: "DELETE",
     }),
 
+  testWebhook: (webhookId: string) =>
+    request<{
+      success: boolean;
+      delivery_result: {
+        status: string;
+        status_code?: number;
+        error?: string;
+        event: string;
+      };
+    }>(`/api/v1/integrations/webhooks/${webhookId}/test`, {
+      method: "POST",
+    }),
+
   uploadLeadsCSV: (csvText: string, autoDial = false) =>
     request<CSVUploadResult>(`/api/v1/leads/csv-upload?auto_dial=${autoDial}`, {
       method: "POST",
