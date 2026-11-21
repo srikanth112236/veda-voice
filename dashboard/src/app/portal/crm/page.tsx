@@ -50,6 +50,8 @@ import {
   Thermometer,
 } from "lucide-react";
 import { formatHumanReadableTag } from "@/lib/tagFormatter";
+import { PaginationBar } from "@/components/ui/pagination";
+import { EmptyLeadsIllustration } from "@/components/ui/illustrations";
 
 interface SentimentTelemetry {
   label: string;
@@ -165,6 +167,8 @@ export default function CRMPipelinePage() {
   const [duplicates, setDuplicates] = useState<DuplicateContactGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [contactPage, setContactPage] = useState(1);
+  const [contactPageSize, setContactPageSize] = useState(10);
 
   // Drawer & Contact Detail State
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
@@ -781,7 +785,7 @@ export default function CRMPipelinePage() {
           </button>
           <button
             onClick={() => setShowAddContactModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-white shadow-xs transition"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-2xs transition active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" />
             + Add Contact
@@ -900,8 +904,8 @@ export default function CRMPipelinePage() {
             onClick={() => setActiveTab("pipeline")}
             className={`pb-3 text-xs font-bold transition-colors border-b-2 ${
               activeTab === "pipeline"
-                ? "border-zinc-900 text-zinc-900"
-                : "border-transparent text-zinc-500 hover:text-zinc-700"
+                ? "border-indigo-600 text-indigo-700 font-bold"
+                : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
             Visual Kanban Board
@@ -910,8 +914,8 @@ export default function CRMPipelinePage() {
             onClick={() => setActiveTab("contacts")}
             className={`pb-3 text-xs font-bold transition-colors border-b-2 ${
               activeTab === "contacts"
-                ? "border-zinc-900 text-zinc-900"
-                : "border-transparent text-zinc-500 hover:text-zinc-700"
+                ? "border-indigo-600 text-indigo-700 font-bold"
+                : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
             All Contacts ({Array.isArray(allContacts) ? allContacts.length : 0})
@@ -920,8 +924,8 @@ export default function CRMPipelinePage() {
             onClick={() => setActiveTab("campaigns")}
             className={`pb-3 text-xs font-bold transition-colors border-b-2 ${
               activeTab === "campaigns"
-                ? "border-zinc-900 text-zinc-900"
-                : "border-transparent text-zinc-500 hover:text-zinc-700"
+                ? "border-indigo-600 text-indigo-700 font-bold"
+                : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
             Email Campaigns ({Array.isArray(campaigns) ? campaigns.length : 0})
@@ -985,15 +989,15 @@ export default function CRMPipelinePage() {
               onClick={() => setKanbanFilter(pill.id as any)}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
                 kanbanFilter === pill.id
-                  ? "bg-zinc-900 text-white shadow-xs font-semibold"
-                  : "bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+                  ? "bg-indigo-50 border border-indigo-200 text-indigo-700 shadow-2xs font-bold"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
               }`}
             >
               <pill.icon className="w-3 h-3" />
               <span>{pill.label}</span>
               <span
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  kanbanFilter === pill.id ? "bg-zinc-700 text-zinc-200" : "bg-zinc-100 text-zinc-500"
+                  kanbanFilter === pill.id ? "bg-indigo-100 text-indigo-800 font-bold" : "bg-slate-100 text-slate-500"
                 }`}
               >
                 {pill.count}
@@ -1191,121 +1195,151 @@ export default function CRMPipelinePage() {
       )}
 
       {/* TAB 2: ALL CONTACTS TABLE */}
-      {!loading && activeTab === "contacts" && (
-        <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-xs">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-medium">
-                <th className="py-3 px-4">Contact</th>
-                <th className="py-3 px-4">Phone / Email</th>
-                <th className="py-3 px-4">Stage</th>
-                <th className="py-3 px-4">Emotional Temp</th>
-                <th className="py-3 px-4">Callable Status</th>
-                <th className="py-3 px-4">Tags</th>
-                <th className="py-3 px-4">Source</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {(Array.isArray(allContacts) ? allContacts : [])
-                .filter(filterContact)
-                .map((contact) => (
-                  <tr
-                    key={contact.id}
-                    onClick={() => handleOpenContactDetail(contact.id)}
-                    className="hover:bg-zinc-50/80 cursor-pointer transition"
-                  >
-                    <td className="py-3 px-4 font-bold text-zinc-900">{contact.name}</td>
-                    <td className="py-3 px-4">
-                      <div className="font-mono text-zinc-800">{contact.phone}</div>
-                      {contact.email && <div className="text-[11px] text-zinc-400">{contact.email}</div>}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-100 text-zinc-700 capitalize">
-                        {contact.stage ? contact.stage.replace("_", " ") : "New Lead"}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      {(() => {
-                        const sentiment = getContactSentimentTelemetry(contact);
-                        return (
-                          <span
-                            className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${sentiment.badgeClass}`}
-                            title={`AI Temperature: ${sentiment.score}/100 - ${sentiment.mood}`}
-                          >
-                            <span>{sentiment.indicator}</span>
-                            <span>{sentiment.label}</span>
-                            <span className="font-mono text-[9px] opacity-75">{sentiment.score}°</span>
-                          </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="py-3 px-4">
-                      {contact.is_callable !== false ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          Callable
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-medium">
-                          <AlertCircle className="w-3 h-3 text-rose-600" />
-                          Non-Callable
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex flex-wrap gap-1">
-                        {(contact.tags || []).map((t, i) => {
-                          const formatted = formatHumanReadableTag(t);
-                          return (
-                            <span
-                              key={i}
-                              className={`text-[9.5px] px-2 py-0.5 rounded-md border font-medium ${formatted.color}`}
-                            >
-                              {formatted.label}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-[10px] uppercase text-zinc-500">
-                      {(contact.source || "manual").replace("_", " ")}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTriggerAiCallback(contact);
-                          }}
-                          disabled={callingContactId === contact.id}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-semibold text-[11px] transition disabled:opacity-50"
-                          title="Trigger 1-click AI Speed-to-lead callback"
-                        >
-                          {callingContactId === contact.id ? (
-                            <RefreshCw className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Zap className="w-3 h-3 fill-purple-600 text-purple-600" />
-                          )}
-                          <span>{callingContactId === contact.id ? "Calling..." : "AI Call"}</span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenContactDetail(contact.id);
-                          }}
-                          className="text-zinc-600 hover:text-zinc-900 font-semibold text-[11px]"
-                        >
-                          Details &rarr;
-                        </button>
+      {!loading && activeTab === "contacts" && (() => {
+        const filteredContacts = (Array.isArray(allContacts) ? allContacts : []).filter(filterContact);
+        const paginatedContacts = filteredContacts.slice(
+          (contactPage - 1) * contactPageSize,
+          contactPage * contactPageSize
+        );
+
+        return (
+          <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold font-mono text-[10px] uppercase">
+                  <th className="py-3 px-4">Contact</th>
+                  <th className="py-3 px-4">Phone / Email</th>
+                  <th className="py-3 px-4">Stage</th>
+                  <th className="py-3 px-4">Emotional Temp</th>
+                  <th className="py-3 px-4">Callable Status</th>
+                  <th className="py-3 px-4">Tags</th>
+                  <th className="py-3 px-4">Source</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredContacts.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center space-y-3">
+                        <EmptyLeadsIllustration className="w-16 h-16" />
+                        <p className="text-xs font-semibold text-slate-600">No contacts matching your search or filters.</p>
                       </div>
                     </td>
                   </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                ) : (
+                  paginatedContacts.map((contact) => (
+                    <tr
+                      key={contact.id}
+                      onClick={() => handleOpenContactDetail(contact.id)}
+                      className="hover:bg-slate-50/80 cursor-pointer transition"
+                    >
+                      <td className="py-3 px-4 font-bold text-slate-900">{contact.name}</td>
+                      <td className="py-3 px-4">
+                        <div className="font-mono text-slate-800">{contact.phone}</div>
+                        {contact.email && <div className="text-[11px] text-slate-400">{contact.email}</div>}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 capitalize">
+                          {contact.stage ? contact.stage.replace("_", " ") : "New Lead"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {(() => {
+                          const sentiment = getContactSentimentTelemetry(contact);
+                          return (
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${sentiment.badgeClass}`}
+                              title={`AI Temperature: ${sentiment.score}/100 - ${sentiment.mood}`}
+                            >
+                              <span>{sentiment.indicator}</span>
+                              <span>{sentiment.label}</span>
+                              <span className="font-mono text-[9px] opacity-75">{sentiment.score}°</span>
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-3 px-4">
+                        {contact.is_callable !== false ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Callable
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-medium">
+                            <AlertCircle className="w-3 h-3 text-rose-600" />
+                            Non-Callable
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-wrap gap-1">
+                          {(contact.tags || []).map((t, i) => {
+                            const formatted = formatHumanReadableTag(t);
+                            return (
+                              <span
+                                key={i}
+                                className={`text-[9.5px] px-2 py-0.5 rounded-md border font-medium ${formatted.color}`}
+                              >
+                                {formatted.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[10px] uppercase text-slate-500">
+                        {(contact.source || "manual").replace("_", " ")}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTriggerAiCallback(contact);
+                            }}
+                            disabled={callingContactId === contact.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-semibold text-[11px] transition disabled:opacity-50"
+                            title="Trigger 1-click AI Speed-to-lead callback"
+                          >
+                            {callingContactId === contact.id ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Zap className="w-3 h-3 fill-indigo-600 text-indigo-600" />
+                            )}
+                            <span>{callingContactId === contact.id ? "Calling..." : "AI Call"}</span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenContactDetail(contact.id);
+                            }}
+                            className="text-slate-600 hover:text-indigo-600 font-semibold text-[11px]"
+                          >
+                            Details &rarr;
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+            {filteredContacts.length > 0 && (
+              <div className="p-4 border-t border-slate-100 bg-slate-50/50">
+                <PaginationBar
+                  currentPage={contactPage}
+                  totalItems={filteredContacts.length}
+                  pageSize={contactPageSize}
+                  onPageChange={setContactPage}
+                  onPageSizeChange={setContactPageSize}
+                  pageSizeOptions={[10, 25, 50]}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* TAB 3: EMAIL CAMPAIGNS */}
       {!loading && activeTab === "campaigns" && (
@@ -1335,7 +1369,7 @@ export default function CRMPipelinePage() {
                   </span>
                   <button
                     onClick={() => handleSendBroadcast(camp.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 text-white rounded-xl text-xs font-semibold hover:bg-zinc-800 transition shadow-xs"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
                   >
                     <Mail className="w-3.5 h-3.5" />
                     Send Broadcast
@@ -1801,7 +1835,7 @@ export default function CRMPipelinePage() {
                             <div className="flex items-center justify-between p-2 rounded-lg bg-zinc-100">
                               <button
                                 onClick={() => toggleAudio(call.recording_url!)}
-                                className="flex items-center gap-1.5 px-3 py-1 bg-zinc-900 text-white rounded text-xs font-semibold shadow-xs hover:bg-zinc-800 transition"
+                                className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 text-white rounded text-xs font-semibold shadow-2xs hover:bg-indigo-700 transition"
                               >
                                 {playingAudioUrl === call.recording_url && isPlaying ? (
                                   <>
@@ -2136,7 +2170,7 @@ export default function CRMPipelinePage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-3.5 py-1.5 bg-zinc-900 text-white font-bold rounded-lg hover:bg-zinc-800"
+                  className="px-3.5 py-1.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition shadow-2xs"
                 >
                   Add Stage
                 </button>
@@ -2243,7 +2277,7 @@ export default function CRMPipelinePage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800"
+                  className="px-4 py-1.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-2xs"
                 >
                   Save Value
                 </button>
@@ -2365,7 +2399,7 @@ export default function CRMPipelinePage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition shadow-xs"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
                 >
                   Save Contact
                 </button>
@@ -2449,7 +2483,7 @@ export default function CRMPipelinePage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition shadow-xs"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
                 >
                   Create Sequence
                 </button>

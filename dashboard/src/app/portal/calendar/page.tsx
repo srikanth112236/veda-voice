@@ -621,7 +621,7 @@ export default function StaffAndDispatchPage() {
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-zinc-900 text-white rounded-lg text-xs font-semibold hover:bg-zinc-800 transition shadow-xs"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
           >
             <Users className="w-4 h-4" />
             Add {semantics.staffSingular}
@@ -722,7 +722,7 @@ export default function StaffAndDispatchPage() {
               type="button"
               disabled={savingSettings}
               onClick={() => handleSaveCalendarSettings()}
-              className="px-3.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition shadow-xs flex items-center gap-1.5"
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition shadow-2xs flex items-center gap-1.5 active:scale-[0.98]"
             >
               {savingSettings ? (
                 <>
@@ -866,8 +866,8 @@ export default function StaffAndDispatchPage() {
                   }}
                   className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
                     calendarBufferMode === "after"
-                      ? "bg-zinc-900 text-white"
-                      : "text-zinc-600 hover:bg-zinc-200"
+                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                      : "text-slate-600 hover:bg-slate-200"
                   }`}
                 >
                   After Visit
@@ -880,8 +880,8 @@ export default function StaffAndDispatchPage() {
                   }}
                   className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
                     calendarBufferMode === "both"
-                      ? "bg-zinc-900 text-white"
-                      : "text-zinc-600 hover:bg-zinc-200"
+                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                      : "text-slate-600 hover:bg-slate-200"
                   }`}
                 >
                   Before &amp; After
@@ -1189,8 +1189,8 @@ export default function StaffAndDispatchPage() {
                   onClick={() => setBookingStatusFilter(st)}
                   className={`px-3 py-1 rounded-lg capitalize transition text-xs font-semibold ${
                     bookingStatusFilter === st
-                      ? "bg-zinc-900 text-white"
-                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
                   {st}
@@ -1344,7 +1344,7 @@ export default function StaffAndDispatchPage() {
               </p>
               <button
                 onClick={() => setShowAddModal(true)}
-                className="px-3 py-1.5 bg-zinc-900 text-white rounded-lg text-xs font-semibold"
+                className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
               >
                 Add Your First {semantics.staffSingular}
               </button>
@@ -1501,7 +1501,7 @@ export default function StaffAndDispatchPage() {
                 <button
                   type="submit"
                   disabled={simulating}
-                  className="w-full py-2 bg-zinc-900 text-white rounded-lg text-xs font-semibold hover:bg-zinc-800 transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  className="w-full py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.98]"
                 >
                   {simulating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                   {semantics.simulatorActionLabel}
@@ -1766,7 +1766,7 @@ export default function StaffAndDispatchPage() {
                   <button
                     type="submit"
                     disabled={savingCalendly}
-                    className="px-3.5 py-2 text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg transition disabled:opacity-50"
+                    className="px-3.5 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition disabled:opacity-50 shadow-2xs active:scale-[0.98]"
                   >
                     {savingCalendly ? "Saving..." : "Save Link"}
                   </button>
@@ -2135,7 +2135,7 @@ export default function StaffAndDispatchPage() {
               <button
                 type="button"
                 onClick={() => setSelectedBooking(null)}
-                className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-bold transition shadow-xs"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-[0.98]"
               >
                 Close Drawer
               </button>
@@ -2240,8 +2240,8 @@ export default function StaffAndDispatchPage() {
                     onClick={() => setIsManualArrivalWindow(false)}
                     className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition ${
                       !isManualArrivalWindow
-                        ? "bg-zinc-900 text-white shadow-xs"
-                        : "text-zinc-600 hover:bg-zinc-200"
+                        ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                        : "text-slate-600 hover:bg-slate-200"
                     }`}
                   >
                     Exact Time
@@ -2570,7 +2570,7 @@ export default function StaffAndDispatchPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-1.5 text-xs bg-zinc-900 text-white rounded-lg font-semibold hover:bg-zinc-800 disabled:opacity-50"
+                  className="px-4 py-2 text-xs bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition shadow-2xs active:scale-[0.98]"
                 >
                   {submitting ? "Saving..." : `Save ${semantics.staffSingular}`}
                 </button>

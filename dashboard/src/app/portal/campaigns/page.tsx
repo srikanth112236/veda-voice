@@ -37,6 +37,8 @@ import {
   HelpCircle,
   Check,
 } from "lucide-react";
+import { PaginationBar } from "@/components/ui/pagination";
+import { ComplianceShieldIllustration } from "@/components/ui/illustrations";
 
 export default function VoiceCampaignsPage() {
   const [campaigns, setCampaigns] = useState<VoiceCampaignSummary[]>([]);
@@ -44,6 +46,10 @@ export default function VoiceCampaignsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPurpose, setFilterPurpose] = useState<string>("all");
+
+  // Pagination State
+  const [campPage, setCampPage] = useState(1);
+  const [campPageSize, setCampPageSize] = useState(10);
 
   // Selection & Detail Drawer
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
@@ -415,7 +421,7 @@ export default function VoiceCampaignsPage() {
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 active:scale-[0.98] transition-all shadow-sm"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:scale-[0.98] transition-all shadow-2xs"
           >
             <Plus className="w-4 h-4" />
             Create Campaign
@@ -556,16 +562,16 @@ export default function VoiceCampaignsPage() {
           </div>
         ) : filteredCampaigns.length === 0 ? (
           <div className="p-16 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto text-zinc-400 mb-3">
-              <Radio className="w-6 h-6" />
+            <div className="flex justify-center mb-4">
+              <ComplianceShieldIllustration className="w-16 h-16" />
             </div>
-            <h3 className="text-sm font-bold text-zinc-900">No campaigns found</h3>
-            <p className="mt-1 text-xs text-zinc-500 max-w-sm mx-auto">
+            <h3 className="text-sm font-bold text-slate-900">No campaigns found</h3>
+            <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
               Create your first voice campaign to automate customer appointment reminders or sub-2s speed-to-lead triage.
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 transition-colors"
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-2xs"
             >
               <Plus className="w-3.5 h-3.5" />
               New Campaign
@@ -574,7 +580,7 @@ export default function VoiceCampaignsPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50/70 border-b border-zinc-200 text-zinc-500 uppercase tracking-wider font-semibold text-[10px]">
+              <thead className="bg-slate-50/70 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
                 <tr>
                   <th className="px-5 py-3.5">Campaign Name</th>
                   <th className="px-4 py-3.5">Purpose</th>
@@ -585,8 +591,10 @@ export default function VoiceCampaignsPage() {
                   <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-100 text-zinc-700">
-                {filteredCampaigns.map((camp) => {
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {filteredCampaigns
+                  .slice((campPage - 1) * campPageSize, campPage * campPageSize)
+                  .map((camp) => {
                   const purposeMeta = formatPurpose(camp.purpose);
                   const progressPct =
                     camp.total_contacts > 0
@@ -707,6 +715,19 @@ export default function VoiceCampaignsPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {filteredCampaigns.length > 0 && (
+          <div className="p-4 border-t border-slate-100 bg-slate-50/50">
+            <PaginationBar
+              currentPage={campPage}
+              totalItems={filteredCampaigns.length}
+              pageSize={campPageSize}
+              onPageChange={setCampPage}
+              onPageSizeChange={setCampPageSize}
+              pageSizeOptions={[5, 10, 20]}
+            />
           </div>
         )}
       </div>
@@ -1064,7 +1085,7 @@ export default function VoiceCampaignsPage() {
                 <button
                   type="submit"
                   disabled={formSubmitting}
-                  className="px-5 py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 disabled:opacity-50 transition-all flex items-center gap-2 active:scale-[0.98]"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center gap-2 active:scale-[0.98] shadow-2xs"
                 >
                   {formSubmitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   Create Campaign
