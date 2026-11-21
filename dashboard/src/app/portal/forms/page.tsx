@@ -529,7 +529,7 @@ export default function LeadFormBuilderPage() {
 
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-mono text-slate-500">
-                            {new Date(lead.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            {lead.created_at ? new Date(lead.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
                           </span>
                           <select
                             value={lead.status}

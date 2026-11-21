@@ -1065,8 +1065,8 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
           </div>
 
           {/* Phonetic Rules Table */}
-          <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden shadow-xs">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-xs">
+            <table className="w-full text-left text-xs border-collapse min-w-[640px]">
               <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono uppercase text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Original Written Term</th>
@@ -1313,8 +1313,8 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
               </button>
             </div>
 
-            <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
-              <table className="w-full text-left text-xs">
+            <div className="rounded-2xl border border-slate-200 bg-white overflow-x-auto shadow-2xs">
+              <table className="w-full text-left text-xs min-w-[640px]">
                 <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono text-[11px] uppercase">
                   <tr>
                     <th className="p-3">Document</th>
