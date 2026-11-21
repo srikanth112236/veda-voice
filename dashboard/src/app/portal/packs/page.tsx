@@ -804,7 +804,7 @@ export default function IndustryPacksPage() {
                     <FileCode className="h-3.5 w-3.5" />
                     Specialized Agent System Prompt
                   </h4>
-                  <pre className="max-h-48 overflow-y-auto rounded-lg bg-zinc-900 p-3 font-mono text-[11px] text-zinc-200 whitespace-pre-wrap">
+                  <pre className="max-h-48 overflow-y-auto rounded-lg bg-indigo-600 p-3 font-mono text-[11px] text-zinc-200 whitespace-pre-wrap">
                     {packDetail.prompt_base || packDetail.system_prompt_template || "Blueprint prompt not configured."}
                   </pre>
                 </div>

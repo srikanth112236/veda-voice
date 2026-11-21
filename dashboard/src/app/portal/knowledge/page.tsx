@@ -973,7 +973,7 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
                 <button
                   type="button"
                   onClick={handleAddGuardrail}
-                  className="px-3 py-2 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800"
+                  className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
                 >
                   Add Rule
                 </button>
@@ -1742,7 +1742,7 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
               <button
                 type="button"
                 onClick={() => setSelectedDoc(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-zinc-900 text-white hover:bg-zinc-800"
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
               >
                 Close
               </button>

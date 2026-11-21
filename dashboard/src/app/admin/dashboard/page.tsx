@@ -668,7 +668,7 @@ function AdminDashboardContent() {
 
           <Link
             href="/onboarding"
-            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
+            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
           >
             <Plus className="w-4 h-4" />
             Onboard New Client
@@ -722,7 +722,7 @@ function AdminDashboardContent() {
             <button
               type="button"
               onClick={() => setShowScaleIncreaseModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
             >
               <Zap className="w-3.5 h-3.5 text-amber-400" />
               <span>Request Scale Increase</span>
@@ -1025,7 +1025,7 @@ function AdminDashboardContent() {
                     onClick={() => setSimulatedConcurrencyLoad(null)}
                     className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
                       simulatedConcurrencyLoad === null
-                        ? "bg-zinc-900 text-white font-bold"
+                        ? "bg-indigo-600 text-white font-bold"
                         : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"
                     }`}
                   >
@@ -1396,7 +1396,7 @@ function AdminDashboardContent() {
             <button
               type="button"
               onClick={() => setShowProvisionModal(true)}
-              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Provision Carrier Line</span>
@@ -1453,7 +1453,7 @@ function AdminDashboardContent() {
               onClick={() => setNumberFilter(tab.id as "all" | "active" | "pool")}
               className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors ${
                 numberFilter === tab.id
-                  ? "bg-zinc-900 text-white shadow-sm"
+                  ? "bg-indigo-600 text-white shadow-sm"
                   : "text-zinc-600 hover:bg-zinc-100"
               }`}
             >
@@ -1539,7 +1539,7 @@ function AdminDashboardContent() {
                               setShowAttachModal(num);
                               setTargetTenantId(tenants[0]?.id || "");
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-sans transition-colors shadow-sm"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-sans transition-colors shadow-sm"
                           >
                             <Link2 className="w-3 h-3" />
                             Attach to Tenant
@@ -1662,7 +1662,7 @@ function AdminDashboardContent() {
                   <button
                     type="submit"
                     disabled={provisioningNumber}
-                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs transition-colors shadow-sm"
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors shadow-sm"
                   >
                     {provisioningNumber ? "Provisioning..." : "Provision & Bind Trunk"}
                   </button>
@@ -1722,7 +1722,7 @@ function AdminDashboardContent() {
                   <button
                     type="button"
                     onClick={() => handleAttachNumber(showAttachModal.id)}
-                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm"
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm"
                   >
                     Attach Number
                   </button>
@@ -1894,7 +1894,7 @@ function AdminDashboardContent() {
                           type="button"
                           disabled={orderingTelnyxNumber === num.phone_number}
                           onClick={() => handleOrderTelnyxNumber(num)}
-                          className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors disabled:opacity-50"
+                          className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-colors disabled:opacity-50"
                         >
                           {orderingTelnyxNumber === num.phone_number ? (
                             <>
@@ -2035,7 +2035,7 @@ function AdminDashboardContent() {
               onClick={() => setBillingSubTab("all")}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 billingSubTab === "all"
-                  ? "bg-zinc-900 text-white shadow-xs"
+                  ? "bg-indigo-600 text-white shadow-xs"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
               }`}
             >
@@ -2046,7 +2046,7 @@ function AdminDashboardContent() {
               onClick={() => setBillingSubTab("subscriptions")}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 billingSubTab === "subscriptions"
-                  ? "bg-zinc-900 text-white shadow-xs"
+                  ? "bg-indigo-600 text-white shadow-xs"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
               }`}
             >
@@ -2057,7 +2057,7 @@ function AdminDashboardContent() {
               onClick={() => setBillingSubTab("refunds")}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 billingSubTab === "refunds"
-                  ? "bg-zinc-900 text-white shadow-xs"
+                  ? "bg-indigo-600 text-white shadow-xs"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
               }`}
             >
@@ -2071,7 +2071,7 @@ function AdminDashboardContent() {
               onClick={() => setBillingSubTab("topups")}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 billingSubTab === "topups"
-                  ? "bg-zinc-900 text-white shadow-xs"
+                  ? "bg-indigo-600 text-white shadow-xs"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
               }`}
             >
@@ -2082,7 +2082,7 @@ function AdminDashboardContent() {
               onClick={() => setBillingSubTab("fees")}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 billingSubTab === "fees"
-                  ? "bg-zinc-900 text-white shadow-xs"
+                  ? "bg-indigo-600 text-white shadow-xs"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70"
               }`}
             >
@@ -2321,7 +2321,7 @@ function AdminDashboardContent() {
                         <button
                           type="button"
                           onClick={() => openManageSubModal(sub)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition-all"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all"
                         >
                           Manage Plan
                         </button>
@@ -2630,7 +2630,7 @@ function AdminDashboardContent() {
           <button
             type="button"
             onClick={() => setShowCouponModal(true)}
-            className="px-3.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+            className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
           >
             <Plus className="w-3.5 h-3.5" />
             Create Promo Code
@@ -2700,7 +2700,7 @@ function AdminDashboardContent() {
                     onClick={() => setGrantCreditTo("rollover")}
                     className={`p-2 rounded-xl border text-center font-medium transition-all ${
                       grantCreditTo === "rollover"
-                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
                         : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
                     }`}
                   >
@@ -2712,7 +2712,7 @@ function AdminDashboardContent() {
                     onClick={() => setGrantCreditTo("topup")}
                     className={`p-2 rounded-xl border text-center font-medium transition-all ${
                       grantCreditTo === "topup"
-                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
                         : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
                     }`}
                   >
@@ -2758,7 +2758,7 @@ function AdminDashboardContent() {
                   type="button"
                   disabled={grantingMinutes}
                   onClick={() => handleGrantBonusMinutes(showGrantModal)}
-                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm"
                 >
                   {grantingMinutes ? "Granting..." : "Grant Minutes"}
                 </button>
@@ -2861,7 +2861,7 @@ function AdminDashboardContent() {
                   type="button"
                   disabled={updatingSub}
                   onClick={handleUpdateTenantSubscription}
-                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5"
                 >
                   {updatingSub ? "Saving Changes..." : "Apply Plan Update"}
                 </button>
@@ -3038,7 +3038,7 @@ function AdminDashboardContent() {
                     onClick={() => setFeeActionSelect("waive")}
                     className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
                       feeActionSelect === "waive"
-                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
                         : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
                     }`}
                   >
@@ -3049,7 +3049,7 @@ function AdminDashboardContent() {
                     onClick={() => setFeeActionSelect("set_paid")}
                     className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
                       feeActionSelect === "set_paid"
-                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
                         : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
                     }`}
                   >
@@ -3060,7 +3060,7 @@ function AdminDashboardContent() {
                     onClick={() => setFeeActionSelect("charge")}
                     className={`py-2 px-1 rounded-xl text-center font-medium border text-[11px] transition-all ${
                       feeActionSelect === "charge"
-                        ? "bg-zinc-900 text-white border-zinc-900 shadow-xs"
+                        ? "bg-indigo-600 text-white border-zinc-900 shadow-xs"
                         : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
                     }`}
                   >
@@ -3095,7 +3095,7 @@ function AdminDashboardContent() {
                   type="button"
                   disabled={updatingFee}
                   onClick={handleUpdateOnboardingFee}
-                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5"
                 >
                   {updatingFee ? "Updating..." : "Save Fee Status"}
                 </button>
@@ -3198,7 +3198,7 @@ function AdminDashboardContent() {
                 <button
                   type="submit"
                   disabled={creatingCoupon}
-                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm"
                 >
                   {creatingCoupon ? "Creating..." : "Save Coupon"}
                 </button>
@@ -3294,7 +3294,7 @@ function AdminDashboardContent() {
                   onClick={() => setTenantPlanFilter(p.id)}
                   className={`px-2.5 py-1 rounded-lg text-xs transition-colors shrink-0 ${
                     tenantPlanFilter === p.id
-                      ? "bg-zinc-900 text-white font-bold shadow-xs"
+                      ? "bg-indigo-600 text-white font-bold shadow-xs"
                       : "bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-100"
                   }`}
                 >
@@ -3398,7 +3398,7 @@ function AdminDashboardContent() {
                         <div className="w-24 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
                           <div
                             className={`h-full rounded-full ${
-                              quotaPct > 80 ? "bg-red-500" : quotaPct > 50 ? "bg-amber-500" : "bg-zinc-900"
+                              quotaPct > 80 ? "bg-red-500" : quotaPct > 50 ? "bg-amber-500" : "bg-indigo-600"
                             }`}
                             style={{ width: `${quotaPct}%` }}
                           />
@@ -3772,7 +3772,7 @@ function AdminDashboardContent() {
 
               <div>
                 <div className="font-semibold text-zinc-700 mb-1">Payload Details:</div>
-                <pre className="p-3 bg-zinc-900 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto">
+                <pre className="p-3 bg-indigo-600 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto">
                   {JSON.stringify(selectedAuditLog.details, null, 2)}
                 </pre>
               </div>
@@ -3782,7 +3782,7 @@ function AdminDashboardContent() {
               <button
                 type="button"
                 onClick={() => setSelectedAuditLog(null)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-zinc-900 text-white hover:bg-zinc-800"
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
               >
                 Close
               </button>
@@ -3931,7 +3931,7 @@ function AdminDashboardContent() {
                   <button
                     type="button"
                     onClick={() => setScaleIncreaseRequested(true)}
-                    className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-colors"
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm flex items-center gap-1.5 transition-colors"
                   >
                     <Zap className="w-3.5 h-3.5 text-amber-400" />
                     <span>Submit Quota Request</span>
@@ -4057,7 +4057,7 @@ function AdminDashboardContent() {
                 <button
                   type="button"
                   onClick={() => setShowCogsModal(null)}
-                  className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-xs shadow-xs"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs"
                 >
                   Close CoGS Detail
                 </button>

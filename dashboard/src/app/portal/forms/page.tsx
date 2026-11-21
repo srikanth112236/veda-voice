@@ -222,7 +222,7 @@ export default function LeadFormBuilderPage() {
         <button
           type="button"
           onClick={() => setShowBuilder(!showBuilder)}
-          className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all self-start sm:self-auto"
+          className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
           {showBuilder ? "Close Builder" : "Create New Lead Form"}
@@ -363,7 +363,7 @@ export default function LeadFormBuilderPage() {
             </button>
             <button
               type="submit"
-              className="px-6 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-sm"
+              className="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm"
             >
               Save &amp; Publish Form
             </button>

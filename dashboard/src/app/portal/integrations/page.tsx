@@ -421,7 +421,7 @@ export default function IntegrationsPage() {
           <button
             type="button"
             onClick={() => setActiveModal("webhook")}
-            className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
+            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
           >
             <Plus className="w-4 h-4" />
             Add Outbound Webhook
@@ -630,7 +630,7 @@ export default function IntegrationsPage() {
 
                 <a
                   href="/portal/calendar"
-                  className="w-full py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs"
+                  className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs"
                 >
                   <span>Manage Google Calendar</span>
                   <ExternalLink className="w-3.5 h-3.5" />
@@ -994,7 +994,7 @@ export default function IntegrationsPage() {
                           setSelectedProvider("servicetitan");
                           setActiveModal("crm");
                         }}
-                        className="w-full py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition shadow-xs"
+                        className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs"
                       >
                         Connect ServiceTitan
                       </button>
@@ -1045,7 +1045,7 @@ export default function IntegrationsPage() {
                           setSelectedProvider("jobber");
                           setActiveModal("crm");
                         }}
-                        className="w-full py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition shadow-xs"
+                        className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs"
                       >
                         Connect Jobber
                       </button>
@@ -1096,7 +1096,7 @@ export default function IntegrationsPage() {
                           setSelectedProvider("housecall_pro");
                           setActiveModal("crm");
                         }}
-                        className="w-full py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold transition shadow-xs"
+                        className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs"
                       >
                         Connect Housecall Pro
                       </button>
@@ -1238,7 +1238,7 @@ export default function IntegrationsPage() {
                 <summary className="cursor-pointer font-semibold text-indigo-600 hover:underline">
                   View Google Apps Script Snippet
                 </summary>
-                <pre className="mt-2 p-2.5 bg-zinc-900 text-zinc-100 rounded-xl text-[10px] font-mono overflow-x-auto">
+                <pre className="mt-2 p-2.5 bg-indigo-600 text-zinc-100 rounded-xl text-[10px] font-mono overflow-x-auto">
 {`function onEdit(e) {
   var sheet = e.source.getActiveSheet();
   var row = e.range.getRow();
@@ -1414,7 +1414,7 @@ export default function IntegrationsPage() {
                 <button
                   type="submit"
                   disabled={uploadingCSV || !csvContent.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-zinc-900 text-white font-bold text-xs hover:bg-zinc-800 disabled:opacity-50 transition shadow-xs flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs flex items-center gap-2"
                 >
                   {uploadingCSV ? (
                     <>
@@ -1475,7 +1475,7 @@ export default function IntegrationsPage() {
               </div>
               <button
                 onClick={() => setActiveModal("webhook")}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 transition shadow-xs"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition shadow-xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add Webhook
@@ -1582,7 +1582,7 @@ export default function IntegrationsPage() {
                   type="button"
                   onClick={handleProcessOutbox}
                   disabled={processingOutbox}
-                  className="px-3.5 py-2 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 disabled:opacity-50 transition shadow-xs flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs flex items-center gap-1.5"
                 >
                   <Zap className={`w-3.5 h-3.5 ${processingOutbox ? "animate-spin text-amber-400" : "text-amber-300"}`} />
                   Process Queue Now
@@ -1917,7 +1917,7 @@ export default function IntegrationsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition shadow-xs"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-xs"
                 >
                   Save &amp; Connect
                 </button>
@@ -1988,7 +1988,7 @@ export default function IntegrationsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-zinc-900 text-white rounded-xl font-bold hover:bg-zinc-800 transition shadow-xs"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-xs"
                 >
                   Subscribe Webhook
                 </button>
@@ -2052,7 +2052,7 @@ export default function IntegrationsPage() {
                 <span className="text-zinc-500 text-[10px] font-bold block mb-1">
                   PAYLOAD DISPATCH SPECIFICATION:
                 </span>
-                <pre className="p-3 bg-zinc-900 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto max-h-48">
+                <pre className="p-3 bg-indigo-600 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto max-h-48">
 {JSON.stringify(
   {
     event: `${selectedOutboxJob.entity}.${selectedOutboxJob.op}`,
@@ -2086,7 +2086,7 @@ export default function IntegrationsPage() {
               <button
                 type="button"
                 onClick={() => setSelectedOutboxJob(null)}
-                className="px-4 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs"
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs"
               >
                 Close Payload
               </button>
