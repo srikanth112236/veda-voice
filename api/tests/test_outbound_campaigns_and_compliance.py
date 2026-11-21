@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from agent.config import TenantConfig
 from agent.prompts import build_outbound_system_prompt
@@ -62,7 +63,10 @@ def _seed_test_tenant_and_caller(db):
     db.add(tenant)
     db.flush()
 
-    caller_phone = f"+1512{uuid.uuid4().int % 9000000 + 1000000}"
+    while True:
+        caller_phone = f"+1984{uuid.uuid4().int % 9000000 + 1000000}"
+        if not db.scalar(select(PhoneNumber).where(PhoneNumber.e164 == caller_phone)):
+            break
     phone = PhoneNumber(
         tenant_id=tenant.id,
         e164=caller_phone,

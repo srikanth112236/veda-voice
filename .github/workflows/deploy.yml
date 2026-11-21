@@ -43,6 +43,7 @@ jobs:
           pip install -r api/requirements.txt
           pip install -r api/requirements-dev.txt
           pip install -r agent/requirements.txt
+          pip install -r agent/requirements-dev.txt
 
       - name: Run Core Test Suite
         env:
