@@ -42,6 +42,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r api/requirements.txt
           pip install -r api/requirements-dev.txt
+          pip install -r agent/requirements.txt
 
       - name: Run Core Test Suite
         env:
