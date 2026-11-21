@@ -42,10 +42,17 @@ interface TopupPackItem {
   rate_per_min: number;
 }
 
+const DEFAULT_TOPUP_PACKS: TopupPackItem[] = [
+  { code: "topup_500", name: "Bronze Top-Up Pack", minutes: 500, price_usd: 125.0, rate_per_min: 0.25 },
+  { code: "topup_1000", name: "Silver Top-Up Pack", minutes: 1000, price_usd: 220.0, rate_per_min: 0.22 },
+  { code: "topup_2500", name: "Gold Top-Up Pack", minutes: 2500, price_usd: 500.0, rate_per_min: 0.20 },
+  { code: "topup_5000", name: "Platinum Top-Up Pack", minutes: 5000, price_usd: 900.0, rate_per_min: 0.18 },
+];
+
 export default function BillingPage() {
   const [sub, setSub] = useState<SubscriptionCurrent | null>(null);
   const [invoices, setInvoices] = useState<TenantInvoiceRecord[]>([]);
-  const [topupPacks, setTopupPacks] = useState<TopupPackItem[]>([]);
+  const [topupPacks, setTopupPacks] = useState<TopupPackItem[]>(DEFAULT_TOPUP_PACKS);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState<string>("starter");
   const [couponCode, setCouponCode] = useState("");
@@ -130,7 +137,7 @@ export default function BillingPage() {
       .then(([subRes, invRes, packsRes]) => {
         setSub(subRes);
         setInvoices(invRes);
-        setTopupPacks(packsRes);
+        setTopupPacks(packsRes && packsRes.length > 0 ? packsRes : DEFAULT_TOPUP_PACKS);
         if (subRes.tier !== "trial") {
           setSelectedTier(subRes.tier);
           fetchQuote(subRes.tier);
