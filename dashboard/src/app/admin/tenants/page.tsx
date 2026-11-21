@@ -48,6 +48,7 @@ export default function AdminTenantsPage() {
   }, []);
 
   const maskPhoneNumber = (num: string) => {
+    if (!num) return "";
     if (!maskPii) return num;
     if (num.length > 7) {
       return num.slice(0, num.length - 4).replace(/\d/g, "*") + num.slice(-4);
@@ -200,7 +201,7 @@ export default function AdminTenantsPage() {
                 <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="p-3 font-sans">
                     <div className="font-semibold text-slate-900">{t.name}</div>
-                    <div className="text-[10px] font-mono text-slate-400">ID: {t.id.slice(0, 8)}...</div>
+                    <div className="text-[10px] font-mono text-slate-400">ID: {t.id ? t.id.slice(0, 8) + "..." : "N/A"}</div>
                   </td>
 
                   <td className="p-3 text-slate-600 text-[11px] font-sans">

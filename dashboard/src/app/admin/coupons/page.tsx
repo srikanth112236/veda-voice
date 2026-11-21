@@ -233,7 +233,7 @@ export default function AdminCouponsPage() {
                 >
                   {tenants.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.name} (ID: {t.id.slice(0, 8)}...)
+                      {t.name} (ID: {t.id ? t.id.slice(0, 8) + "..." : "N/A"})
                     </option>
                   ))}
                 </select>

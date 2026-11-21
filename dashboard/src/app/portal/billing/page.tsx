@@ -829,7 +829,7 @@ export default function BillingPage() {
               <div
                 key={plan.id}
                 onClick={() => handleSelectTier(plan.id)}
-                className={`p-6 rounded-2xl border text-left cursor-pointer transition-all space-y-4 relative flex flex-col justify-between ${
+                className={`p-6 rounded-2xl border text-left cursor-pointer transition-all space-y-4 flex flex-col justify-between ${
                   isSelected
                     ? "border-indigo-600 bg-white ring-2 ring-indigo-500/20 shadow-md"
                     : isCurrent
@@ -837,18 +837,19 @@ export default function BillingPage() {
                     : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs"
                 }`}
               >
-                {plan.badge && (
-                  <span className="absolute -top-3 right-6 px-3 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider shadow-2xs">
-                    {plan.badge}
-                  </span>
-                )}
-
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm text-zinc-900">{plan.name}</span>
-                    <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg">
-                      {plan.minutes.toLocaleString()} min
-                    </span>
+                    <span className="font-bold text-sm text-slate-900">{plan.name}</span>
+                    <div className="flex items-center gap-1.5">
+                      {plan.badge && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-bold uppercase tracking-wider">
+                          {plan.badge}
+                        </span>
+                      )}
+                      <span className="text-xs font-mono font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
+                        {plan.minutes.toLocaleString()} min
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-baseline gap-1">

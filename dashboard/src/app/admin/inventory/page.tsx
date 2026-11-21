@@ -88,6 +88,7 @@ export default function AdminInventoryPage() {
   }, []);
 
   const maskPhoneNumber = (num: string) => {
+    if (!num) return "";
     if (!maskPii) return num;
     if (num.length > 7) {
       return num.slice(0, num.length - 4).replace(/\d/g, "*") + num.slice(-4);
@@ -520,7 +521,7 @@ export default function AdminInventoryPage() {
                 <option value="">(Hold in Unassigned Agency Pool)</option>
                 {tenants.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.name} (ID: {t.id.slice(0, 8)}...)
+                    {t.name} (ID: {t.id ? t.id.slice(0, 8) + "..." : "N/A"})
                   </option>
                 ))}
               </select>

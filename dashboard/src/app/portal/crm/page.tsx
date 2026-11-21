@@ -1016,7 +1016,7 @@ export default function CRMPipelinePage() {
 
       {/* TAB 1: DYNAMIC VISUAL PIPELINE BOARD (FR-CRM-11) */}
       {!loading && activeTab === "pipeline" && pipelineData && (
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 overflow-x-auto pb-4">
+        <div className="flex gap-4 overflow-x-auto pb-6 pt-1 select-none">
           {currentStages.map((col) => {
             const stageContacts = (pipelineData.stages[col.key] || []).filter(filterContact);
 
@@ -1026,10 +1026,10 @@ export default function CRMPipelinePage() {
                 onDragOver={(e) => handleDragOverColumn(e, col.key)}
                 onDragLeave={handleDragLeaveColumn}
                 onDrop={(e) => handleDropOnColumn(e, col.key)}
-                className={`border rounded-2xl p-3 flex flex-col min-w-[260px] max-w-xs transition-all duration-200 ${
+                className={`w-[290px] shrink-0 border rounded-2xl p-3 flex flex-col transition-all duration-200 ${
                   dragOverStage === col.key
-                    ? "bg-purple-50/70 border-purple-400 ring-2 ring-purple-300 ring-offset-1 shadow-md"
-                    : "bg-zinc-50/70 border-zinc-200"
+                    ? "bg-indigo-50/70 border-indigo-400 ring-2 ring-indigo-300 ring-offset-1 shadow-md"
+                    : "bg-slate-50/80 border-slate-200"
                 }`}
               >
                 {/* Column Header */}
@@ -1040,7 +1040,7 @@ export default function CRMPipelinePage() {
                     >
                       {col.label}
                     </span>
-                    <span className="text-[10px] text-zinc-400 font-mono">
+                    <span className="text-[10px] text-slate-500 font-mono">
                       ({stageContacts.length})
                     </span>
                   </div>
@@ -1052,8 +1052,8 @@ export default function CRMPipelinePage() {
                     <div
                       className={`h-24 flex flex-col items-center justify-center border border-dashed rounded-xl text-[11px] transition-colors ${
                         dragOverStage === col.key
-                          ? "border-purple-400 bg-purple-50/50 text-purple-700 font-semibold"
-                          : "border-zinc-200 text-zinc-400"
+                          ? "border-indigo-400 bg-indigo-50/50 text-indigo-700 font-semibold"
+                          : "border-slate-200 text-slate-400"
                       }`}
                     >
                       {dragOverStage === col.key ? (
@@ -1072,17 +1072,17 @@ export default function CRMPipelinePage() {
                           onDragStart={(e) => handleDragStart(e, contact.id)}
                           onDragEnd={handleDragEnd}
                           onClick={() => handleOpenContactDetail(contact.id)}
-                          className={`group bg-white border rounded-xl p-3 shadow-xs hover:border-purple-300 hover:shadow-md cursor-grab active:cursor-grabbing transition-all duration-150 space-y-2.5 relative select-none ${
+                          className={`group bg-white border rounded-xl p-3.5 shadow-2xs hover:border-indigo-400 hover:shadow-sm cursor-grab active:cursor-grabbing transition-all duration-150 space-y-2.5 relative select-none ${
                             draggedContactId === contact.id
-                              ? "opacity-40 border-dashed border-purple-400"
-                              : "border-zinc-200/90"
+                              ? "opacity-40 border-dashed border-indigo-400"
+                              : "border-slate-200"
                           }`}
                         >
                           {/* Header: Drag Grip, Name, DNC/Callable Pill */}
                           <div className="flex items-start justify-between gap-1.5">
                             <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <GripVertical className="w-3.5 h-3.5 text-zinc-300 group-hover:text-zinc-500 shrink-0 transition-colors" />
-                              <h4 className="text-xs font-bold text-zinc-900 group-hover:text-purple-700 transition-colors truncate">
+                              <GripVertical className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 shrink-0 transition-colors" />
+                              <h4 className="text-xs font-bold text-slate-900 group-hover:text-indigo-700 transition-colors truncate">
                                 {contact.name || "Unnamed Contact"}
                               </h4>
                             </div>
@@ -1111,13 +1111,13 @@ export default function CRMPipelinePage() {
 
                           {/* Phone & Email */}
                           <div className="space-y-1 text-[11px] font-mono">
-                            <div className="flex items-center gap-1.5 text-zinc-700 font-semibold">
-                              <Phone className="w-3 h-3 text-zinc-400 shrink-0" />
+                            <div className="flex items-center gap-1.5 text-slate-800 font-semibold">
+                              <Phone className="w-3 h-3 text-slate-400 shrink-0" />
                               <span>{contact.phone}</span>
                             </div>
                             {contact.email && (
-                              <div className="flex items-center gap-1.5 truncate text-zinc-500 text-[10.5px]">
-                                <Mail className="w-3 h-3 text-zinc-400 shrink-0" />
+                              <div className="flex items-center gap-1.5 truncate text-slate-500 text-[10.5px]">
+                                <Mail className="w-3 h-3 text-slate-400 shrink-0" />
                                 <span className="truncate">{contact.email}</span>
                               </div>
                             )}
@@ -1138,7 +1138,7 @@ export default function CRMPipelinePage() {
                                 );
                               })}
                               {contact.tags.length > 3 && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-500 font-mono">
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 font-mono">
                                   +{contact.tags.length - 3}
                                 </span>
                               )}
@@ -1147,32 +1147,32 @@ export default function CRMPipelinePage() {
 
                           {/* Footer: AI Speed-to-Lead Callback, Call telemetry & Manual stage move trigger */}
                           <div
-                            className="pt-2 border-t border-zinc-100 flex items-center justify-between text-[10px]"
+                            className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px]"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <button
                               type="button"
                               disabled={callingContactId === contact.id}
                               onClick={() => handleTriggerAiCallback(contact)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-semibold transition-colors disabled:opacity-50"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-semibold transition-colors disabled:opacity-50"
                               title="Dispatch instant 1-click AI voice call (Speed-to-lead)"
                             >
                               {callingContactId === contact.id ? (
                                 <RefreshCw className="w-2.5 h-2.5 animate-spin" />
                               ) : (
-                                <Zap className="w-2.5 h-2.5 fill-purple-600 text-purple-600" />
+                                <Zap className="w-2.5 h-2.5 fill-indigo-600 text-indigo-600" />
                               )}
                               <span>{callingContactId === contact.id ? "Dialing..." : "AI Call"}</span>
                             </button>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-zinc-500 font-mono flex items-center gap-1">
-                                <Clock className="w-2.5 h-2.5 text-zinc-400" />
+                              <span className="text-slate-500 font-mono flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5 text-slate-400" />
                                 {contact.call_count}
                               </span>
                               <select
                                 value={col.key}
                                 onChange={(e) => requestStageMove(contact, e.target.value)}
-                                className="bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded px-1.5 py-0.5 text-zinc-600 font-medium cursor-pointer hover:text-zinc-900 focus:outline-none transition text-[10px]"
+                                className="bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-0.5 text-slate-700 font-medium cursor-pointer hover:text-slate-900 focus:outline-none transition text-[10px]"
                                 title="Move to another stage"
                               >
                                 {currentStages.map((s) => (
@@ -1203,8 +1203,8 @@ export default function CRMPipelinePage() {
         );
 
         return (
-          <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs">
-            <table className="w-full text-left border-collapse text-xs">
+          <div className="bg-white border border-slate-200/90 rounded-2xl overflow-x-auto shadow-2xs">
+            <table className="w-full text-left border-collapse text-xs min-w-[850px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold font-mono text-[10px] uppercase">
                   <th className="py-3 px-4">Contact</th>

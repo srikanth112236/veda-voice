@@ -388,7 +388,7 @@ export default function AdminBillingPage() {
                   <tr key={sub.tenant_id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-3 font-sans">
                       <div className="font-bold text-slate-900">{sub.tenant_name}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">ID: {sub.tenant_id.slice(0, 8)}...</div>
+                      <div className="text-[10px] text-slate-400 font-mono">ID: {sub.tenant_id ? sub.tenant_id.slice(0, 8) + "..." : "N/A"}</div>
                     </td>
                     <td className="p-3">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-50 text-purple-700 border border-purple-200">
@@ -474,7 +474,7 @@ export default function AdminBillingPage() {
                   <tr key={req.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-3">
                       <div className="font-semibold text-slate-900">{req.tenant_name}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{req.tier} • ID: {req.tenant_id.slice(0, 8)}...</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{req.tier || "N/A"} • ID: {req.tenant_id ? req.tenant_id.slice(0, 8) + "..." : "N/A"}</div>
                     </td>
                     <td className="p-3 font-mono">
                       <div className="font-semibold text-slate-900">{(req.minutes_used ?? 0).toFixed(1)} / {req.cycle_included_minutes ?? 0}m</div>
@@ -585,17 +585,17 @@ export default function AdminBillingPage() {
                   .slice((topupPage - 1) * topupPageSize, topupPage * topupPageSize)
                   .map((ord: any) => (
                   <tr key={ord.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-3 text-slate-400">ID: {ord.id.slice(0, 10)}...</td>
-                    <td className="p-3 font-sans font-bold text-slate-900">{ord.pack_name}</td>
-                    <td className="p-3 text-blue-700 font-bold">+{ord.minutes.toLocaleString()} mins</td>
+                    <td className="p-3 text-slate-400">ID: {ord.id ? ord.id.slice(0, 10) + "..." : "N/A"}</td>
+                    <td className="p-3 font-sans font-bold text-slate-900">{ord.pack_name || "Top-Up"}</td>
+                    <td className="p-3 text-blue-700 font-bold">+{(ord.minutes ?? 0).toLocaleString()} mins</td>
                     <td className="p-3 text-slate-900 font-bold">${(ord.price_usd ?? 0).toFixed(2)}</td>
                     <td className="p-3 font-sans">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {ord.status}
+                        {ord.status || "completed"}
                       </span>
                     </td>
                     <td className="p-3 text-right text-slate-500">
-                      {new Date(ord.created_at).toLocaleDateString()}
+                      {ord.created_at ? new Date(ord.created_at).toLocaleDateString() : "-"}
                     </td>
                   </tr>
                 ))}

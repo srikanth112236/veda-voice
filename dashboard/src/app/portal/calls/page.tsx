@@ -1495,8 +1495,8 @@ export default function CallsPage() {
       </div>
 
       {/* Responsive Call List: Desktop Table (hidden on mobile) */}
-      <div className="hidden md:block overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-        <table className="w-full text-left text-xs">
+      <div className="hidden md:block overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-2xs">
+        <table className="w-full text-left text-xs min-w-[880px]">
           <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-bold">
             <tr>
               <th className="p-3.5 w-28">Status / Urgency</th>

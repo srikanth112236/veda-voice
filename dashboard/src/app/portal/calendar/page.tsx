@@ -1202,7 +1202,7 @@ export default function StaffAndDispatchPage() {
             </div>
           </div>
 
-          <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+          <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white shadow-xs">
             {(() => {
               const filteredBookings = bookingsList.filter((b) => {
                 const matchesQuery =
@@ -1223,7 +1223,7 @@ export default function StaffAndDispatchPage() {
 
               return (
                 <>
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-xs min-w-[760px]">
                     <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-mono text-[10px]">
                       <tr>
                         <th className="px-4 py-3">Customer</th>
@@ -1878,8 +1878,8 @@ export default function StaffAndDispatchPage() {
                 No customer bookings recorded yet. When a caller confirms an appointment, it will appear here and sync to your Google Calendar.
               </div>
             ) : (
-              <div className="border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-2xs">
-                <table className="w-full text-left text-xs">
+              <div className="border border-slate-200 rounded-xl overflow-x-auto bg-white shadow-2xs">
+                <table className="w-full text-left text-xs min-w-[760px]">
                   <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 uppercase font-mono text-[10px]">
                     <tr>
                       <th className="px-4 py-3">Customer</th>
@@ -1988,7 +1988,7 @@ export default function StaffAndDispatchPage() {
                   >
                     {selectedBooking.status}
                   </span>
-                  <span className="text-xs font-mono text-zinc-400">ID: {selectedBooking.id.slice(0, 8)}</span>
+                  <span className="text-xs font-mono text-zinc-400">ID: {selectedBooking.id ? selectedBooking.id.slice(0, 8) + "..." : "N/A"}</span>
                 </div>
                 <h3 className="text-xl font-bold text-zinc-900 mt-1">{selectedBooking.customer_name}</h3>
                 <p className="text-xs text-zinc-500 font-mono capitalize">
