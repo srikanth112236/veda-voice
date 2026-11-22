@@ -292,21 +292,28 @@ def preview_pack_prompt(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Compile and preview industry pack prompt in real-time with variable overrides and intake trees."""
-    from api.app.services.industry_packs import LAUNCH_PACKS
+    pack = db.scalar(select(IndustryPack).where(IndustryPack.slug == req.pack_slug))
+    latest_ver = None
+    if pack:
+        latest_ver = db.scalar(
+            select(IndustryPackVersion)
+            .where(IndustryPackVersion.pack_id == pack.id)
+            .order_by(IndustryPackVersion.created_at.desc())
+        )
 
-    blueprint = next((p for p in LAUNCH_PACKS if p["slug"] == req.pack_slug), None)
-    if not blueprint:
-        pack = db.scalar(select(IndustryPack).where(IndustryPack.slug == req.pack_slug))
-        if not pack or not pack.versions:
+    if latest_ver:
+        prompt_base = latest_ver.prompt_base
+        schema = latest_ver.prompt_vars_schema or {}
+        emergencies = latest_ver.emergency_rules or {}
+        intake_schema = req.custom_intake_schema or latest_ver.intake_schema or {}
+    else:
+        from api.app.services.industry_packs import LAUNCH_PACKS
+
+        blueprint = next((p for p in LAUNCH_PACKS if p["slug"] == req.pack_slug), None)
+        if not blueprint:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"Pack '{req.pack_slug}' not found"
             )
-        ver = pack.versions[0]
-        prompt_base = ver.prompt_base
-        schema = ver.prompt_vars_schema
-        emergencies = ver.emergency_rules or {}
-        intake_schema = req.custom_intake_schema or ver.intake_schema or {}
-    else:
         prompt_base = blueprint["prompt_base"]
         schema = blueprint["prompt_vars_schema"]
         emergencies = blueprint.get("emergency_rules", {})
@@ -374,13 +381,27 @@ def simulate_sandbox_turn(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Execute interactive conversational turn in studio sandbox against compiled pack rules."""
+    pack = db.scalar(select(IndustryPack).where(IndustryPack.slug == req.pack_slug))
+    latest_ver = None
+    if pack:
+        latest_ver = db.scalar(
+            select(IndustryPackVersion)
+            .where(IndustryPackVersion.pack_id == pack.id)
+            .order_by(IndustryPackVersion.created_at.desc())
+        )
+
     from api.app.services.industry_packs import LAUNCH_PACKS
 
     blueprint = next((p for p in LAUNCH_PACKS if p["slug"] == req.pack_slug), None)
     msg_low = req.message.lower().strip()
 
     # 1. Evaluate emergency detection
-    keywords = list(blueprint.get("emergency_rules", {}).get("keywords", [])) if blueprint else []
+    keywords: list[str] = []
+    if latest_ver and latest_ver.emergency_rules:
+        keywords = list(latest_ver.emergency_rules.get("keywords", []))
+    elif blueprint:
+        keywords = list(blueprint.get("emergency_rules", {}).get("keywords", []))
+
     for ck in req.emergency_keywords:
         if ck and ck not in keywords:
             keywords.append(ck)
@@ -389,17 +410,25 @@ def simulate_sandbox_turn(
 
     matched_kw = next((kw for kw in keywords if kw.lower() in msg_low), None)
     is_emergency = matched_kw is not None
-    safety_script = (
-        req.custom_safety_script
-        or (blueprint.get("emergency_rules", {}).get("safety_advice", "") if blueprint else "")
-        or "Please stay in a safe location outdoors and call 911 if in immediate danger."
-    )
+
+    safety_script = req.custom_safety_script
+    if not safety_script and latest_ver and latest_ver.emergency_rules:
+        safety_script = latest_ver.emergency_rules.get("safety_advice", "")
+    if not safety_script and blueprint:
+        safety_script = blueprint.get("emergency_rules", {}).get("safety_advice", "")
+    if not safety_script:
+        safety_script = (
+            "Please stay in a safe location outdoors and call 911 if in immediate danger."
+        )
+
     biz_name = str(req.vars.get("business_name") or req.vars.get("practice_name") or tenant.name)
     escalated_to = str(req.vars.get("emergency_phone") or "+18005550199")
 
     # 2. Extract structured intake answers
-    intake_schema = req.custom_intake_schema or (
-        blueprint.get("intake_schema", {}) if blueprint else {}
+    intake_schema = (
+        req.custom_intake_schema
+        or (latest_ver.intake_schema if latest_ver and latest_ver.intake_schema else None)
+        or (blueprint.get("intake_schema", {}) if blueprint else {})
     )
     fields = intake_schema.get("fields", [])
     extracted_intake: dict[str, Any] = {}

@@ -615,6 +615,8 @@ export interface TenantSummary {
   monthly_revenue_usd?: number;
   monthly_cogs_usd?: number;
   gross_margin_pct?: number;
+  applied_pack_slug?: string | null;
+  applied_pack_version?: string | null;
 }
 
 export interface ContactItem {
@@ -1844,6 +1846,61 @@ export const api = {
       }
     ),
 
+  // Public Dynamic Onboarding Industry Packs
+  getPublicIndustryPacks: () =>
+    request<PublicIndustryPackItem[]>("/api/v1/auth/industry-packs"),
+
+  // Platform Admin Industry Packs Management (Phase 1/3)
+  listIndustryPacksAdmin: () =>
+    request<AdminIndustryPackDetail[]>("/api/v1/admin/industry-packs"),
+
+  createIndustryPackAdmin: (data: CreateIndustryPackAdminRequest) =>
+    request<{ success: boolean; id: string; slug: string; name: string; message: string }>(
+      "/api/v1/admin/industry-packs",
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    ),
+
+  updateIndustryPackAdmin: (packId: string, data: UpdateIndustryPackAdminRequest) =>
+    request<{
+      success: boolean;
+      id: string;
+      slug: string;
+      name: string;
+      is_active: boolean;
+      message: string;
+    }>(`/api/v1/admin/industry-packs/${packId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  publishPackVersionAdmin: (packId: string, data: PublishPackVersionAdminRequest) =>
+    request<{
+      success: boolean;
+      id: string;
+      pack_id: string;
+      version_semver: string;
+      status: string;
+      message: string;
+    }>(`/api/v1/admin/industry-packs/${packId}/versions`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  assignTenantPackAdmin: (tenantId: string, data: AdminAssignTenantPackRequest) =>
+    request<{
+      success: boolean;
+      tenant_id: string;
+      pack_id: string;
+      version_id: string;
+      message: string;
+    }>(`/api/v1/admin/tenants/${tenantId}/pack`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   // Industry Packs Engine (Milestone M4c)
   listIndustryPacks: () =>
     request<IndustryPackSummary[]>("/api/v1/portal/industry-packs"),
@@ -2273,6 +2330,118 @@ export interface CalendlyConfigResponse {
   is_configured: boolean;
   calendly_url: string | null;
   webhook_endpoint: string;
+}
+
+export interface AdminIndustryPackVersionItem {
+  id: string;
+  pack_id: string;
+  version_semver: string;
+  status: string;
+  validation_status: string;
+  validation_errors: string[];
+  is_system_default: boolean;
+  requires_hipaa_baa: boolean;
+  allowed_outbound_categories: string[];
+  created_at: string;
+  prompt_base: string;
+  prompt_vars_schema: Record<string, any>;
+  intake_questions: Array<{ id?: string; question?: string; required?: boolean }>;
+  intake_schema: Record<string, any>;
+  emergency_rules: { keywords?: string[]; safety_advice?: string };
+  appointment_types: Array<{ id: string; title: string; duration_minutes?: number; fee?: string }>;
+  faq_seed: Array<{ q: string; a: string }>;
+  pipeline_stages: string[];
+  outbound_scripts: Record<string, any>;
+  test_scenarios: Array<{ id?: string; name?: string; caller_message?: string }>;
+  tenant_adoption_count: number;
+}
+
+export interface AdminIndustryPackDetail {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  total_tenants_applied: number;
+  latest_version: string;
+  versions: AdminIndustryPackVersionItem[];
+}
+
+export interface CreateIndustryPackAdminRequest {
+  slug: string;
+  name: string;
+  description?: string;
+  category?: string;
+  icon?: string;
+  is_active?: boolean;
+  initial_version_semver?: string;
+  prompt_base: string;
+  prompt_vars_schema?: Record<string, any>;
+  intake_questions?: Array<Record<string, any>>;
+  intake_schema?: Record<string, any>;
+  emergency_rules?: { keywords?: string[]; safety_advice?: string };
+  appointment_types?: Array<Record<string, any>>;
+  faq_seed?: Array<{ q: string; a: string }>;
+  pipeline_stages?: string[];
+  outbound_scripts?: Record<string, any>;
+  test_scenarios?: Array<Record<string, any>>;
+  allowed_outbound_categories?: string[];
+  requires_hipaa_baa?: boolean;
+}
+
+export interface UpdateIndustryPackAdminRequest {
+  name?: string;
+  description?: string;
+  category?: string;
+  icon?: string;
+  is_active?: boolean;
+}
+
+export interface PublishPackVersionAdminRequest {
+  version_semver: string;
+  prompt_base: string;
+  prompt_vars_schema?: Record<string, any>;
+  intake_questions?: Array<Record<string, any>>;
+  intake_schema?: Record<string, any>;
+  emergency_rules?: { keywords?: string[]; safety_advice?: string };
+  appointment_types?: Array<Record<string, any>>;
+  faq_seed?: Array<{ q: string; a: string }>;
+  pipeline_stages?: string[];
+  outbound_scripts?: Record<string, any>;
+  test_scenarios?: Array<Record<string, any>>;
+  allowed_outbound_categories?: string[];
+  requires_hipaa_baa?: boolean;
+  status?: string;
+}
+
+export interface AdminAssignTenantPackRequest {
+  pack_slug: string;
+  version_semver?: string;
+  overrides?: Record<string, any>;
+}
+
+export interface PublicIndustryPackItem {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  latest_version: string;
+  requires_hipaa_baa: boolean;
+  allowed_outbound_categories: string[];
+  default_prompt_vars: Record<string, any>;
+  prompt_vars_schema: Record<string, any>;
+  emergency_keywords: string[];
+  emergency_advice: string;
+  services: string[];
+  greeting: string;
+  faq: Array<{ question: string; answer: string }>;
+  intake_schema: Record<string, any>;
 }
 
 export interface IndustryPackSummary {

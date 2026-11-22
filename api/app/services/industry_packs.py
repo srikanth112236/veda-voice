@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from api.app.models.industry_pack import (
@@ -987,3 +987,251 @@ def validate_pack_outbound_category(
             f"Industry pack '{pack_data.get('pack_slug')}' restricts outbound campaigns to categories {allowed}. Category '{clean_category}' is prohibited.",
         )
     return True, "Category permitted by industry pack"
+
+
+# ---------------------------------------------------------------------------
+# Platform Admin Industry Pack Management Services
+# ---------------------------------------------------------------------------
+
+
+def admin_list_packs_with_stats(db: Session) -> list[dict[str, Any]]:
+    """List all industry packs with version breakdown and tenant adoption statistics for platform admin."""
+    seed_default_industry_packs(db)
+
+    packs = db.scalars(select(IndustryPack).order_by(IndustryPack.name)).all()
+    results = []
+
+    for p in packs:
+        total_tenants = (
+            db.scalar(
+                select(func.count(TenantPackApplication.id)).where(
+                    TenantPackApplication.pack_id == p.id
+                )
+            )
+            or 0
+        )
+
+        versions = db.scalars(
+            select(IndustryPackVersion)
+            .where(IndustryPackVersion.pack_id == p.id)
+            .order_by(IndustryPackVersion.created_at.desc())
+        ).all()
+
+        version_items = []
+        latest_ver_str = "1.0.0"
+        if versions:
+            latest_ver_str = versions[0].version_semver
+
+        for v in versions:
+            adoption_count = (
+                db.scalar(
+                    select(func.count(TenantPackApplication.id)).where(
+                        TenantPackApplication.version_id == v.id
+                    )
+                )
+                or 0
+            )
+            version_items.append(
+                {
+                    "id": v.id,
+                    "pack_id": v.pack_id,
+                    "version_semver": v.version_semver,
+                    "status": v.status,
+                    "validation_status": v.validation_status,
+                    "validation_errors": v.validation_errors or [],
+                    "is_system_default": v.is_system_default,
+                    "requires_hipaa_baa": v.requires_hipaa_baa,
+                    "allowed_outbound_categories": v.allowed_outbound_categories
+                    or ["A", "B", "C", "D", "E"],
+                    "created_at": v.created_at,
+                    "prompt_base": v.prompt_base,
+                    "prompt_vars_schema": v.prompt_vars_schema or {},
+                    "intake_questions": v.intake_questions or [],
+                    "intake_schema": v.intake_schema or {},
+                    "emergency_rules": v.emergency_rules or {},
+                    "appointment_types": v.appointment_types or [],
+                    "faq_seed": v.faq_seed or [],
+                    "pipeline_stages": v.pipeline_stages or [],
+                    "outbound_scripts": v.outbound_scripts or {},
+                    "test_scenarios": v.test_scenarios or [],
+                    "tenant_adoption_count": adoption_count,
+                }
+            )
+
+        results.append(
+            {
+                "id": p.id,
+                "slug": p.slug,
+                "name": p.name,
+                "description": p.description,
+                "category": p.category,
+                "icon": p.icon,
+                "is_active": p.is_active,
+                "created_at": p.created_at,
+                "updated_at": p.updated_at,
+                "total_tenants_applied": total_tenants,
+                "latest_version": latest_ver_str,
+                "versions": version_items,
+            }
+        )
+
+    return results
+
+
+def admin_create_pack(
+    db: Session,
+    slug: str,
+    name: str,
+    description: str = "",
+    category: str = "commercial",
+    icon: str = "Briefcase",
+    is_active: bool = True,
+    initial_version_semver: str = "1.0.0",
+    prompt_base: str = "",
+    prompt_vars_schema: dict[str, Any] | None = None,
+    intake_questions: list[dict[str, Any]] | None = None,
+    intake_schema: dict[str, Any] | None = None,
+    emergency_rules: dict[str, Any] | None = None,
+    appointment_types: list[dict[str, Any]] | None = None,
+    faq_seed: list[dict[str, Any]] | None = None,
+    pipeline_stages: list[str] | None = None,
+    outbound_scripts: dict[str, Any] | None = None,
+    test_scenarios: list[dict[str, Any]] | None = None,
+    allowed_outbound_categories: list[str] | None = None,
+    requires_hipaa_baa: bool = False,
+) -> IndustryPack:
+    """Create a new industry pack template with an initial published version."""
+    existing = db.scalar(select(IndustryPack).where(IndustryPack.slug == slug.lower().strip()))
+    if existing:
+        raise ValueError(f"Industry pack with slug '{slug}' already exists")
+
+    pack = IndustryPack(
+        slug=slug.lower().strip(),
+        name=name.strip(),
+        description=description.strip(),
+        category=category.strip(),
+        icon=icon.strip() or "Briefcase",
+        is_active=is_active,
+    )
+    db.add(pack)
+    db.flush()
+
+    version = IndustryPackVersion(
+        pack_id=pack.id,
+        version_semver=initial_version_semver.strip() or "1.0.0",
+        status="published",
+        validation_status="valid",
+        validation_errors=[],
+        is_system_default=False,
+        prompt_base=prompt_base or f"You are the AI assistant for {name}.",
+        prompt_vars_schema=prompt_vars_schema or {},
+        faq_seed=faq_seed or [],
+        appointment_types=appointment_types or [],
+        intake_questions=intake_questions or [],
+        intake_schema=intake_schema or {},
+        pipeline_stages=pipeline_stages
+        or ["lead", "contacted", "qualified", "scheduled", "completed"],
+        emergency_rules=emergency_rules or {"keywords": [], "safety_advice": ""},
+        outbound_scripts=outbound_scripts or {},
+        test_scenarios=test_scenarios or [],
+        allowed_outbound_categories=allowed_outbound_categories or ["A", "B", "C", "D", "E"],
+        requires_hipaa_baa=requires_hipaa_baa,
+    )
+    db.add(version)
+    db.commit()
+    db.refresh(pack)
+    return pack
+
+
+def admin_update_pack(
+    db: Session,
+    pack_id: str,
+    name: str | None = None,
+    description: str | None = None,
+    category: str | None = None,
+    icon: str | None = None,
+    is_active: bool | None = None,
+) -> IndustryPack:
+    """Update industry pack metadata without altering immutable version records."""
+    pack = db.scalar(select(IndustryPack).where(IndustryPack.id == pack_id))
+    if not pack:
+        raise KeyError(f"Industry pack with id '{pack_id}' not found")
+
+    if name is not None:
+        pack.name = name.strip()
+    if description is not None:
+        pack.description = description.strip()
+    if category is not None:
+        pack.category = category.strip()
+    if icon is not None:
+        pack.icon = icon.strip()
+    if is_active is not None:
+        pack.is_active = is_active
+
+    pack.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(pack)
+    return pack
+
+
+def admin_publish_version(
+    db: Session,
+    pack_id: str,
+    version_semver: str,
+    prompt_base: str,
+    prompt_vars_schema: dict[str, Any] | None = None,
+    intake_questions: list[dict[str, Any]] | None = None,
+    intake_schema: dict[str, Any] | None = None,
+    emergency_rules: dict[str, Any] | None = None,
+    appointment_types: list[dict[str, Any]] | None = None,
+    faq_seed: list[dict[str, Any]] | None = None,
+    pipeline_stages: list[str] | None = None,
+    outbound_scripts: dict[str, Any] | None = None,
+    test_scenarios: list[dict[str, Any]] | None = None,
+    allowed_outbound_categories: list[str] | None = None,
+    requires_hipaa_baa: bool = False,
+    status: str = "published",
+) -> IndustryPackVersion:
+    """Publish a new immutable semver version for an industry pack."""
+    pack = db.scalar(select(IndustryPack).where(IndustryPack.id == pack_id))
+    if not pack:
+        raise KeyError(f"Industry pack with id '{pack_id}' not found")
+
+    clean_semver = version_semver.strip()
+    existing_ver = db.scalar(
+        select(IndustryPackVersion).where(
+            IndustryPackVersion.pack_id == pack_id,
+            IndustryPackVersion.version_semver == clean_semver,
+        )
+    )
+    if existing_ver:
+        raise ValueError(
+            f"Version '{clean_semver}' already exists for pack '{pack.slug}'. Versions are immutable."
+        )
+
+    new_version = IndustryPackVersion(
+        pack_id=pack_id,
+        version_semver=clean_semver,
+        status=status,
+        validation_status="valid",
+        validation_errors=[],
+        is_system_default=False,
+        prompt_base=prompt_base,
+        prompt_vars_schema=prompt_vars_schema or {},
+        faq_seed=faq_seed or [],
+        appointment_types=appointment_types or [],
+        intake_questions=intake_questions or [],
+        intake_schema=intake_schema or {},
+        pipeline_stages=pipeline_stages
+        or ["lead", "contacted", "qualified", "scheduled", "completed"],
+        emergency_rules=emergency_rules or {"keywords": [], "safety_advice": ""},
+        outbound_scripts=outbound_scripts or {},
+        test_scenarios=test_scenarios or [],
+        allowed_outbound_categories=allowed_outbound_categories or ["A", "B", "C", "D", "E"],
+        requires_hipaa_baa=requires_hipaa_baa,
+    )
+    db.add(new_version)
+    pack.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(new_version)
+    return new_version

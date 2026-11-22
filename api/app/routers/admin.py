@@ -1,10 +1,11 @@
 """Platform Administrator endpoints for multi-tenant oversight."""
 
+import logging
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -13,8 +14,23 @@ from api.app.core.deps import require_platform_admin
 from api.app.core.security import hash_password
 from api.app.db.session import get_db
 from api.app.models.call import Call
+from api.app.models.industry_pack import (
+    IndustryPack,
+    IndustryPackVersion,
+    TenantPackApplication,
+)
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
+from api.app.services.industry_packs import (
+    admin_create_pack,
+    admin_list_packs_with_stats,
+    admin_publish_version,
+    admin_update_pack,
+    apply_pack_to_tenant,
+    seed_default_industry_packs,
+)
+
+logger = logging.getLogger("vedavoice.admin")
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_platform_admin)])
 
@@ -35,6 +51,8 @@ class CreateTenantAdminRequest(BaseModel):
     services: list[str] = ["Plumbing", "Heating", "Drain Cleaning"]
     emergency_keywords: list[str] = ["burst pipe", "flooding", "gas smell", "sewage"]
     emergency_advice: str = "If safe, shut off your main water valve right away."
+    industry_pack_slug: str | None = None
+    version_semver: str | None = None
 
 
 class AvailableNumberItem(BaseModel):
@@ -67,6 +85,8 @@ class TenantSummaryResponse(BaseModel):
     monthly_revenue_usd: float = 499.00
     monthly_cogs_usd: float = 0.00
     gross_margin_pct: float = 95.0
+    applied_pack_slug: str | None = None
+    applied_pack_version: str | None = None
 
 
 class CarrierTrunkHealth(BaseModel):
@@ -244,6 +264,21 @@ def list_tenants(db: Session = Depends(get_db)) -> Any:
             round(((total_rev - total_cogs) / total_rev) * 100, 1) if total_rev > 0 else 95.0
         )
 
+        pack_app = db.scalar(
+            select(TenantPackApplication).where(TenantPackApplication.tenant_id == t.id)
+        )
+        applied_slug = None
+        applied_ver = None
+        if pack_app:
+            p_obj = db.scalar(select(IndustryPack).where(IndustryPack.id == pack_app.pack_id))
+            v_obj = db.scalar(
+                select(IndustryPackVersion).where(IndustryPackVersion.id == pack_app.version_id)
+            )
+            if p_obj:
+                applied_slug = p_obj.slug
+            if v_obj:
+                applied_ver = v_obj.version_semver
+
         results.append(
             TenantSummaryResponse(
                 id=t.id,
@@ -264,6 +299,8 @@ def list_tenants(db: Session = Depends(get_db)) -> Any:
                 monthly_revenue_usd=total_rev,
                 monthly_cogs_usd=total_cogs,
                 gross_margin_pct=margin_pct,
+                applied_pack_slug=applied_slug,
+                applied_pack_version=applied_ver,
             )
         )
 
@@ -337,6 +374,31 @@ def create_tenant_admin(req: CreateTenantAdminRequest, db: Session = Depends(get
     db.commit()
     db.refresh(tenant)
 
+    # 5. Apply selected or default Industry Pack
+    target_pack_slug = req.industry_pack_slug or "home_services"
+    applied_slug = None
+    applied_ver = None
+    try:
+        seed_default_industry_packs(db)
+        app_rec = apply_pack_to_tenant(
+            tenant_id=tenant.id,
+            pack_slug=target_pack_slug,
+            version_semver=req.version_semver,
+            db=db,
+        )
+        applied_slug = target_pack_slug
+        ver_obj = db.scalar(
+            select(IndustryPackVersion).where(IndustryPackVersion.id == app_rec.version_id)
+        )
+        applied_ver = ver_obj.version_semver if ver_obj else (req.version_semver or "1.0.0")
+    except Exception as exc:
+        logger.warning(
+            "Could not apply industry pack %s to tenant %s in admin provisioning: %s",
+            target_pack_slug,
+            tenant.id,
+            exc,
+        )
+
     return TenantSummaryResponse(
         id=tenant.id,
         name=tenant.name,
@@ -352,6 +414,8 @@ def create_tenant_admin(req: CreateTenantAdminRequest, db: Session = Depends(get
         monthly_minute_quota=tenant.monthly_minute_quota,
         minutes_used=0.0,
         health_status="operational",
+        applied_pack_slug=applied_slug,
+        applied_pack_version=applied_ver,
     )
 
 
@@ -502,3 +566,255 @@ def search_available_numbers(
             results.append(AvailableNumberItem(**item))
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Platform Admin Industry Packs Management Endpoints
+# ---------------------------------------------------------------------------
+
+
+class AdminIndustryPackVersionItem(BaseModel):
+    id: str
+    pack_id: str
+    version_semver: str
+    status: str
+    validation_status: str
+    validation_errors: list[str] = Field(default_factory=list)
+    is_system_default: bool
+    requires_hipaa_baa: bool
+    allowed_outbound_categories: list[str] = Field(default_factory=list)
+    created_at: datetime
+    prompt_base: str
+    prompt_vars_schema: dict[str, Any] = Field(default_factory=dict)
+    intake_questions: list[dict[str, Any]] = Field(default_factory=list)
+    intake_schema: dict[str, Any] = Field(default_factory=dict)
+    emergency_rules: dict[str, Any] = Field(default_factory=dict)
+    appointment_types: list[dict[str, Any]] = Field(default_factory=list)
+    faq_seed: list[dict[str, Any]] = Field(default_factory=list)
+    pipeline_stages: list[str] = Field(default_factory=list)
+    outbound_scripts: dict[str, Any] = Field(default_factory=dict)
+    test_scenarios: list[dict[str, Any]] = Field(default_factory=list)
+    tenant_adoption_count: int = 0
+
+
+class AdminIndustryPackDetail(BaseModel):
+    id: str
+    slug: str
+    name: str
+    description: str
+    category: str
+    icon: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    total_tenants_applied: int = 0
+    latest_version: str = "1.0.0"
+    versions: list[AdminIndustryPackVersionItem] = Field(default_factory=list)
+
+
+class CreateIndustryPackAdminRequest(BaseModel):
+    slug: str = Field(..., min_length=2, max_length=64)
+    name: str = Field(..., min_length=2, max_length=128)
+    description: str = ""
+    category: str = "commercial"
+    icon: str = "Briefcase"
+    is_active: bool = True
+    initial_version_semver: str = "1.0.0"
+    prompt_base: str = ""
+    prompt_vars_schema: dict[str, Any] = Field(default_factory=dict)
+    intake_questions: list[dict[str, Any]] = Field(default_factory=list)
+    intake_schema: dict[str, Any] = Field(default_factory=dict)
+    emergency_rules: dict[str, Any] = Field(default_factory=dict)
+    appointment_types: list[dict[str, Any]] = Field(default_factory=list)
+    faq_seed: list[dict[str, Any]] = Field(default_factory=list)
+    pipeline_stages: list[str] = Field(default_factory=list)
+    outbound_scripts: dict[str, Any] = Field(default_factory=dict)
+    test_scenarios: list[dict[str, Any]] = Field(default_factory=list)
+    allowed_outbound_categories: list[str] = Field(
+        default_factory=lambda: ["A", "B", "C", "D", "E"]
+    )
+    requires_hipaa_baa: bool = False
+
+
+class UpdateIndustryPackAdminRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    category: str | None = None
+    icon: str | None = None
+    is_active: bool | None = None
+
+
+class PublishPackVersionAdminRequest(BaseModel):
+    version_semver: str = Field(..., min_length=1, max_length=32)
+    prompt_base: str
+    prompt_vars_schema: dict[str, Any] = Field(default_factory=dict)
+    intake_questions: list[dict[str, Any]] = Field(default_factory=list)
+    intake_schema: dict[str, Any] = Field(default_factory=dict)
+    emergency_rules: dict[str, Any] = Field(default_factory=dict)
+    appointment_types: list[dict[str, Any]] = Field(default_factory=list)
+    faq_seed: list[dict[str, Any]] = Field(default_factory=list)
+    pipeline_stages: list[str] = Field(default_factory=list)
+    outbound_scripts: dict[str, Any] = Field(default_factory=dict)
+    test_scenarios: list[dict[str, Any]] = Field(default_factory=list)
+    allowed_outbound_categories: list[str] = Field(
+        default_factory=lambda: ["A", "B", "C", "D", "E"]
+    )
+    requires_hipaa_baa: bool = False
+    status: str = "published"
+
+
+class AdminAssignTenantPackRequest(BaseModel):
+    pack_slug: str = Field(..., min_length=2, max_length=64)
+    version_semver: str | None = None
+    overrides: dict[str, Any] | None = None
+
+
+@router.get("/industry-packs", response_model=list[AdminIndustryPackDetail])
+def list_industry_packs_admin(db: Session = Depends(get_db)) -> Any:
+    """List all global industry packs with complete version histories and tenant adoption statistics."""
+    return admin_list_packs_with_stats(db)
+
+
+@router.post("/industry-packs", status_code=status.HTTP_201_CREATED)
+def create_industry_pack_admin(
+    req: CreateIndustryPackAdminRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Create a new global industry pack template and its initial version."""
+    try:
+        pack = admin_create_pack(
+            db=db,
+            slug=req.slug,
+            name=req.name,
+            description=req.description,
+            category=req.category,
+            icon=req.icon,
+            is_active=req.is_active,
+            initial_version_semver=req.initial_version_semver,
+            prompt_base=req.prompt_base,
+            prompt_vars_schema=req.prompt_vars_schema,
+            intake_questions=req.intake_questions,
+            intake_schema=req.intake_schema,
+            emergency_rules=req.emergency_rules,
+            appointment_types=req.appointment_types,
+            faq_seed=req.faq_seed,
+            pipeline_stages=req.pipeline_stages,
+            outbound_scripts=req.outbound_scripts,
+            test_scenarios=req.test_scenarios,
+            allowed_outbound_categories=req.allowed_outbound_categories,
+            requires_hipaa_baa=req.requires_hipaa_baa,
+        )
+        return {
+            "success": True,
+            "id": pack.id,
+            "slug": pack.slug,
+            "name": pack.name,
+            "message": f"Successfully created industry pack '{pack.name}' ({pack.slug})",
+        }
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err)) from err
+
+
+@router.put("/industry-packs/{pack_id}", status_code=status.HTTP_200_OK)
+def update_industry_pack_admin(
+    pack_id: str,
+    req: UpdateIndustryPackAdminRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Update industry pack metadata without altering immutable version records."""
+    try:
+        pack = admin_update_pack(
+            db=db,
+            pack_id=pack_id,
+            name=req.name,
+            description=req.description,
+            category=req.category,
+            icon=req.icon,
+            is_active=req.is_active,
+        )
+        return {
+            "success": True,
+            "id": pack.id,
+            "slug": pack.slug,
+            "name": pack.name,
+            "is_active": pack.is_active,
+            "message": f"Industry pack '{pack.slug}' updated successfully",
+        }
+    except KeyError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+
+@router.post("/industry-packs/{pack_id}/versions", status_code=status.HTTP_201_CREATED)
+def publish_pack_version_admin(
+    pack_id: str,
+    req: PublishPackVersionAdminRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Publish a new immutable semver version snapshot for an existing industry pack."""
+    try:
+        version = admin_publish_version(
+            db=db,
+            pack_id=pack_id,
+            version_semver=req.version_semver,
+            prompt_base=req.prompt_base,
+            prompt_vars_schema=req.prompt_vars_schema,
+            intake_questions=req.intake_questions,
+            intake_schema=req.intake_schema,
+            emergency_rules=req.emergency_rules,
+            appointment_types=req.appointment_types,
+            faq_seed=req.faq_seed,
+            pipeline_stages=req.pipeline_stages,
+            outbound_scripts=req.outbound_scripts,
+            test_scenarios=req.test_scenarios,
+            allowed_outbound_categories=req.allowed_outbound_categories,
+            requires_hipaa_baa=req.requires_hipaa_baa,
+            status=req.status,
+        )
+        return {
+            "success": True,
+            "id": version.id,
+            "pack_id": version.pack_id,
+            "version_semver": version.version_semver,
+            "status": version.status,
+            "message": f"Successfully published version {version.version_semver}",
+        }
+    except KeyError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err)) from err
+
+
+@router.post("/tenants/{tenant_id}/pack", status_code=status.HTTP_200_OK)
+def assign_tenant_pack_admin(
+    tenant_id: str,
+    req: AdminAssignTenantPackRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Admin-driven assignment or upgrade of an industry pack and version for a specific client tenant."""
+    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant '{tenant_id}' not found",
+        )
+
+    try:
+        seed_default_industry_packs(db)
+        app_record = apply_pack_to_tenant(
+            tenant_id=tenant_id,
+            pack_slug=req.pack_slug,
+            version_semver=req.version_semver,
+            overrides=req.overrides,
+            db=db,
+        )
+        return {
+            "success": True,
+            "tenant_id": tenant_id,
+            "pack_id": app_record.pack_id,
+            "version_id": app_record.version_id,
+            "message": f"Successfully applied pack '{req.pack_slug}' to tenant '{tenant.name}'",
+        }
+    except PermissionError as err:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(err)) from err
+    except KeyError as err:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err

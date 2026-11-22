@@ -12,11 +12,13 @@ from api.app.core.deps import get_current_user
 from api.app.core.security import create_access_token, hash_password, verify_password
 from api.app.db.session import get_db
 from api.app.models.entitlement import TrialAbuseRecord
+from api.app.models.industry_pack import IndustryPack, IndustryPackVersion
 from api.app.models.location import Location
 from api.app.models.subscription import Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.services.entitlements import verify_trial_eligibility
+from api.app.services.industry_packs import seed_default_industry_packs
 from api.app.services.livekit_sync import sync_tenant_to_livekit
 
 logger = logging.getLogger("vedavoice.auth")
@@ -78,6 +80,102 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class PublicIndustryPackItem(BaseModel):
+    id: str
+    slug: str
+    name: str
+    description: str
+    category: str
+    icon: str
+    latest_version: str
+    requires_hipaa_baa: bool
+    allowed_outbound_categories: list[str] = Field(default_factory=list)
+    default_prompt_vars: dict[str, Any] = Field(default_factory=dict)
+    prompt_vars_schema: dict[str, Any] = Field(default_factory=dict)
+    emergency_keywords: list[str] = Field(default_factory=list)
+    emergency_advice: str = ""
+    services: list[str] = Field(default_factory=list)
+    greeting: str = ""
+    faq: list[dict[str, str]] = Field(default_factory=list)
+    intake_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.get("/industry-packs", response_model=list[PublicIndustryPackItem])
+def get_public_industry_packs(db: Session = Depends(get_db)) -> Any:
+    """Public onboarding catalog of active industry packs with default presets."""
+    packs = db.scalars(
+        select(IndustryPack).where(IndustryPack.is_active.is_(True)).order_by(IndustryPack.name)
+    ).all()
+    if not packs:
+        packs = seed_default_industry_packs(db)
+
+    results: list[PublicIndustryPackItem] = []
+    for p in packs:
+        latest_ver = db.scalar(
+            select(IndustryPackVersion)
+            .where(
+                IndustryPackVersion.pack_id == p.id,
+                IndustryPackVersion.status == "published",
+            )
+            .order_by(IndustryPackVersion.created_at.desc())
+        )
+        if not latest_ver:
+            continue
+
+        vars_schema = latest_ver.prompt_vars_schema or {}
+        default_vars = {
+            k: v.get("default", "") for k, v in vars_schema.items() if isinstance(v, dict)
+        }
+
+        # Services from appointment types or prompt vars
+        services: list[str] = []
+        if latest_ver.appointment_types:
+            services = [
+                apt.get("title", "") for apt in latest_ver.appointment_types if apt.get("title")
+            ]
+        if not services and "specialties" in default_vars:
+            services = [s.strip() for s in default_vars["specialties"].split(",") if s.strip()]
+        if not services:
+            services = ["General Consultation", "Standard Service", "Support Intake"]
+
+        biz_name = default_vars.get("business_name", p.name)
+        greeting = (
+            f"Thanks for calling {biz_name}. I'm an automated assistant, and this call may be "
+            "recorded and transcribed for quality assurance. How can I help you today?"
+        )
+
+        faq_list = [
+            {"question": item.get("q", ""), "answer": item.get("a", "")}
+            for item in (latest_ver.faq_seed or [])
+            if item.get("q") and item.get("a")
+        ]
+
+        results.append(
+            PublicIndustryPackItem(
+                id=p.id,
+                slug=p.slug,
+                name=p.name,
+                description=p.description,
+                category=p.category,
+                icon=p.icon,
+                latest_version=latest_ver.version_semver,
+                requires_hipaa_baa=latest_ver.requires_hipaa_baa,
+                allowed_outbound_categories=latest_ver.allowed_outbound_categories
+                or ["A", "B", "C", "D", "E"],
+                default_prompt_vars=default_vars,
+                prompt_vars_schema=vars_schema,
+                emergency_keywords=latest_ver.emergency_rules.get("keywords", []),
+                emergency_advice=latest_ver.emergency_rules.get("safety_advice", ""),
+                services=services,
+                greeting=greeting,
+                faq=faq_list,
+                intake_schema=latest_ver.intake_schema or {},
+            )
+        )
+
+    return results
 
 
 @router.post("/login", response_model=LoginResponse)

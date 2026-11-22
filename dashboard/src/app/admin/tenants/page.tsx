@@ -22,6 +22,7 @@ import {
   Sliders,
   DollarSign,
   TrendingUp,
+  Boxes,
 } from "lucide-react";
 import { PaginationBar } from "@/components/ui/pagination";
 
@@ -114,6 +115,14 @@ export default function AdminTenantsPage() {
             <Zap className="w-3.5 h-3.5 text-amber-300" />
             <span>Concurrency Plan</span>
           </button>
+
+          <Link
+            href="/admin/packs"
+            className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors"
+          >
+            <Boxes className="w-3.5 h-3.5 text-rose-300" />
+            <span>Industry Packs</span>
+          </Link>
         </div>
       </div>
 
@@ -201,7 +210,20 @@ export default function AdminTenantsPage() {
                 <tr key={t.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="p-3 font-sans">
                     <div className="font-semibold text-slate-900">{t.name}</div>
-                    <div className="text-[10px] font-mono text-slate-400">ID: {t.id ? t.id.slice(0, 8) + "..." : "N/A"}</div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[10px] font-mono text-slate-400">
+                        ID: {t.id ? t.id.slice(0, 8) + "..." : "N/A"}
+                      </span>
+                      {t.applied_pack_slug && (
+                        <Link
+                          href="/admin/packs"
+                          className="text-[9px] font-mono font-bold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200 hover:bg-rose-100 transition-colors"
+                          title="Assigned Industry Pack Template"
+                        >
+                          {t.applied_pack_slug} {t.applied_pack_version ? `v${t.applied_pack_version}` : ""}
+                        </Link>
+                      )}
+                    </div>
                   </td>
 
                   <td className="p-3 text-slate-600 text-[11px] font-sans">

@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   Sparkles,
+  Boxes,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -102,6 +103,15 @@ function AdminSidebarNav({ onLinkClick }: { onLinkClick?: () => void }) {
       >
         <Tag className="w-4 h-4 text-amber-600" />
         Coupons &amp; Bonus Credits
+      </Link>
+
+      <Link
+        href="/admin/packs"
+        onClick={onLinkClick}
+        className={getLinkClass("/admin/packs")}
+      >
+        <Boxes className="w-4 h-4 text-rose-600" />
+        Industry Packs &amp; Releases
       </Link>
 
       <div className="pt-3 pb-1">

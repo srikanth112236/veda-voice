@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, AvailableNumberItem } from "@/lib/api";
+import { api, AvailableNumberItem, PublicIndustryPackItem } from "@/lib/api";
 import { LIVEKIT_VOICE_CATALOG, LiveKitVoice } from "@/lib/voice-catalog";
 import {
   Building2,
@@ -42,6 +42,7 @@ export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [industryPacks, setIndustryPacks] = useState<PublicIndustryPackItem[]>([]);
 
   // Step 2: Phone number search & mode state
   const [phoneMode, setPhoneMode] = useState<"carrier_search" | "agency_pool" | "byon">("carrier_search");
@@ -143,6 +144,18 @@ export default function OnboardingPage() {
     }
   }, []);
 
+  // Fetch dynamic industry packs from backend catalog
+  useEffect(() => {
+    api
+      .getPublicIndustryPacks()
+      .then((packs) => {
+        if (packs && packs.length > 0) {
+          setIndustryPacks(packs);
+        }
+      })
+      .catch((err) => console.warn("Using default niche presets:", err));
+  }, []);
+
   // Fetch numbers on mode or area code change
   useEffect(() => {
     if (phoneMode === "byon") return;
@@ -226,6 +239,50 @@ export default function OnboardingPage() {
   };
 
   const applyNichePreset = (niche: string) => {
+    const matchedPack = industryPacks.find(
+      (p) =>
+        p.slug === niche ||
+        p.id === niche ||
+        (niche === "plumbing" && p.slug === "home_services") ||
+        (niche === "dental" && p.slug === "dental_clinic") ||
+        (niche === "legal" && p.slug === "legal_intake")
+    );
+    if (matchedPack) {
+      setFormData((prev) => ({
+        ...prev,
+        niche: matchedPack.slug,
+        niche_pack_slug: matchedPack.slug,
+        business_name: (matchedPack.default_prompt_vars?.business_name as string) || matchedPack.name,
+        tone:
+          matchedPack.category === "healthcare"
+            ? "warm"
+            : matchedPack.category === "professional_legal"
+            ? "formal"
+            : "direct",
+        agent_name: matchedPack.category === "healthcare" ? "Ashley" : "Alex",
+        tts_voice: matchedPack.category === "healthcare" ? "Ashley" : "Alex",
+        pricing_policy: matchedPack.default_prompt_vars?.diagnostic_fee
+          ? "diagnostic_fee_only"
+          : "quote_on_site",
+        diagnostic_fee: (matchedPack.default_prompt_vars?.diagnostic_fee as string) || "$89.00",
+        emergency_advice: matchedPack.emergency_advice || prev.emergency_advice,
+        emergency_keywords:
+          matchedPack.emergency_keywords && matchedPack.emergency_keywords.length > 0
+            ? matchedPack.emergency_keywords
+            : prev.emergency_keywords,
+        services:
+          matchedPack.services && matchedPack.services.length > 0
+            ? matchedPack.services
+            : prev.services,
+        greeting: matchedPack.greeting || prev.greeting,
+        faq:
+          matchedPack.faq && matchedPack.faq.length > 0
+            ? (matchedPack.faq as FAQEntry[])
+            : prev.faq,
+      }));
+      return;
+    }
+
     if (niche === "plumbing") {
       setFormData((prev) => ({
         ...prev,
@@ -602,36 +659,102 @@ export default function OnboardingPage() {
 
             {/* Industry Preset Cards */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
-                Industry Pre-Grounded Template
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                {[
-                  { id: "plumbing", label: "Plumbing & Trades", desc: "Pipe burst triage & diagnostic fees" },
-                  { id: "dental", label: "Dental Practice", desc: "Warm appointment intake & emergency gate" },
-                  { id: "hvac", label: "HVAC & Heating", desc: "Furnace safety & seasonal maintenance" },
-                  { id: "legal", label: "Legal & Advisory", desc: "Formal executive intake & no blind quotes" },
-                  { id: "electrical", label: "Electrical Trades", desc: "Spark/breaker safety & panel triage" },
-                ].map((niche) => (
-                  <button
-                    key={niche.id}
-                    type="button"
-                    onClick={() => applyNichePreset(niche.id)}
-                    className={`p-3 rounded-xl border text-left transition-all relative ${
-                      formData.niche === niche.id
-                        ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                        : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
-                    }`}
-                  >
-                    {formData.niche === niche.id && (
-                      <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-emerald-400" />
-                    )}
-                    <div className="text-xs font-bold">{niche.label}</div>
-                    <div className={`text-[10px] mt-1 leading-snug ${formData.niche === niche.id ? "text-zinc-300" : "text-zinc-500"}`}>
-                      {niche.desc}
-                    </div>
-                  </button>
-                ))}
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-zinc-700 uppercase tracking-wider font-mono">
+                  Industry Pre-Grounded Template
+                </label>
+                {industryPacks.length > 0 && (
+                  <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Catalog ({industryPacks.length} packs)
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
+                {(industryPacks.length > 0
+                  ? industryPacks.map((pack) => ({
+                      id: pack.slug,
+                      label: pack.name.replace(/\(.*?\)/, "").trim(),
+                      desc:
+                        pack.description.length > 46
+                          ? pack.description.slice(0, 46) + "..."
+                          : pack.description,
+                      isHipaa: pack.requires_hipaa_baa,
+                    }))
+                  : [
+                      {
+                        id: "plumbing",
+                        label: "Plumbing & Trades",
+                        desc: "Pipe burst triage & diagnostic fees",
+                        isHipaa: false,
+                      },
+                      {
+                        id: "dental",
+                        label: "Dental Practice",
+                        desc: "Warm appointment intake & emergency gate",
+                        isHipaa: true,
+                      },
+                      {
+                        id: "hvac",
+                        label: "HVAC & Heating",
+                        desc: "Furnace safety & seasonal maintenance",
+                        isHipaa: false,
+                      },
+                      {
+                        id: "legal",
+                        label: "Legal & Advisory",
+                        desc: "Formal executive intake & no blind quotes",
+                        isHipaa: false,
+                      },
+                      {
+                        id: "electrical",
+                        label: "Electrical Trades",
+                        desc: "Spark/breaker safety & panel triage",
+                        isHipaa: false,
+                      },
+                    ]
+                ).map((niche) => {
+                  const isSelected =
+                    formData.niche === niche.id ||
+                    formData.niche_pack_slug === niche.id ||
+                    (niche.id === "home_services" &&
+                      ["plumbing", "hvac", "electrical"].includes(formData.niche));
+                  return (
+                    <button
+                      key={niche.id}
+                      type="button"
+                      onClick={() => applyNichePreset(niche.id)}
+                      className={`p-3 rounded-xl border text-left transition-all relative ${
+                        isSelected
+                          ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
+                      }`}
+                    >
+                      {isSelected && (
+                        <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-emerald-400" />
+                      )}
+                      <div className="text-xs font-bold truncate">{niche.label}</div>
+                      <div
+                        className={`text-[10px] mt-1 line-clamp-2 leading-snug ${
+                          isSelected ? "text-zinc-300" : "text-zinc-500"
+                        }`}
+                      >
+                        {niche.desc}
+                      </div>
+                      {niche.isHipaa && (
+                        <span
+                          className={`inline-block mt-1.5 text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                            isSelected
+                              ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
+                              : "bg-blue-50 text-blue-700 border border-blue-200"
+                          }`}
+                        >
+                          HIPAA Ready
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
