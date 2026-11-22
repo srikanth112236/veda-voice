@@ -1282,114 +1282,333 @@ def init_db() -> None:
         with engine.connect() as conn:
             from sqlalchemy import text
 
+            try:
+                conn.execute(text("SET lock_timeout = '2s';"))
+                conn.commit()
+            except Exception:
+                pass
+
+            try:
+                col_res = conn.execute(
+                    text(
+                        "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public';"
+                    )
+                ).all()
+                existing_cols = {(str(r[0]).lower(), str(r[1]).lower()) for r in col_res}
+                table_res = conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
+                    )
+                ).all()
+                existing_tables = {str(r[0]).lower() for r in table_res}
+            except Exception as schema_err:
+                logging.getLogger("uvicorn.error").debug(
+                    "Could not inspect existing schema: %s", schema_err
+                )
+                existing_cols = set()
+                existing_tables = set()
+
             pg_statements = [
-                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_concurrent_calls INTEGER DEFAULT 3 NOT NULL;",
-                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 2 NOT NULL;",
-                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS monthly_minute_quota INTEGER DEFAULT 500 NOT NULL;",
-                "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS config JSON DEFAULT '{}'::json NOT NULL;",
-                "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS purpose VARCHAR(32) DEFAULT 'inbound_outbound' NOT NULL;",
-                "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS label VARCHAR(64) DEFAULT 'Main Inbound Line' NOT NULL;",
-                "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS locality VARCHAR(64) DEFAULT '' NOT NULL;",
-                "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS region VARCHAR(16) DEFAULT 'US' NOT NULL;",
-                "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS trunk_id VARCHAR(64) DEFAULT 'ST_inbound_livekit_scale' NOT NULL;",
-                "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS location_id VARCHAR(36) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS direction VARCHAR(16) DEFAULT 'inbound' NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS billable_minutes FLOAT DEFAULT 0.0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS llm_prompt_tokens INTEGER DEFAULT 0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS llm_completion_tokens INTEGER DEFAULT 0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS tts_characters INTEGER DEFAULT 0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS estimated_cogs_usd FLOAT DEFAULT 0.0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS sentiment_score FLOAT DEFAULT 0.0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS sentiment_label VARCHAR(32) DEFAULT 'neutral' NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS lead_score FLOAT DEFAULT 50.0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS lost_reason VARCHAR(64) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS key_objections JSON DEFAULT '[]'::json NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS supervisor_whispers JSON DEFAULT '[]'::json NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_url VARCHAR(512) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_duration_s FLOAT DEFAULT 0.0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_status VARCHAR(32) DEFAULT 'not_recorded' NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS barge_in_active BOOLEAN DEFAULT FALSE NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS takeover_active BOOLEAN DEFAULT FALSE NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transfer_to_number VARCHAR(64) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transferred_at TIMESTAMP WITH TIME ZONE NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transferred_by VARCHAR(64) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS whisper_briefing TEXT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_score FLOAT DEFAULT 100.0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_rubric JSON DEFAULT '{}'::json NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_flags JSON DEFAULT '[]'::json NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS csat_score FLOAT DEFAULT 5.0 NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS csat_rationale VARCHAR(512) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_reviewed_by VARCHAR(64) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_reviewed_at TIMESTAMP WITH TIME ZONE NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS location_id VARCHAR(36) NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contact_id VARCHAR(36) NULL;",
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS location_ids JSON DEFAULT '[]'::json NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS is_followed_up BOOLEAN DEFAULT FALSE NOT NULL;",
-                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_channels INTEGER DEFAULT 2 NOT NULL;",
-                "ALTER TABLE crm_connections ADD COLUMN IF NOT EXISTS key_fingerprint VARCHAR(32) NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS bilingual_spanish_enabled BOOLEAN DEFAULT FALSE NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS patience_cadence VARCHAR(32) DEFAULT 'balanced' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS silence_timeout_ms INTEGER DEFAULT 500 NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS speech_barge_in BOOLEAN DEFAULT TRUE NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS adaptive_empathy BOOLEAN DEFAULT TRUE NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS background_ambience VARCHAR(64) DEFAULT 'studio_clean' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS barred_phrases JSON DEFAULT '[]' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS intake_questions JSON DEFAULT '[]' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS office_override_mode VARCHAR(32) DEFAULT 'normal' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS office_override_announcement TEXT DEFAULT '' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS vip_returning_caller_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS vip_returning_greeting TEXT DEFAULT '' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS mid_call_sms_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS disconnect_recovery_sms_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS disconnect_recovery_sms_text TEXT DEFAULT '' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS scheduling_mode VARCHAR(32) DEFAULT 'exact_time' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS arrival_window_hours INTEGER DEFAULT 2 NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_minutes INTEGER DEFAULT 15 NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_mode VARCHAR(32) DEFAULT 'after' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS calendar_buffer_reason VARCHAR(64) DEFAULT 'travel_and_reset' NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS auto_sms_reminders_enabled BOOLEAN DEFAULT TRUE NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS reminder_lead_hours INTEGER DEFAULT 24 NOT NULL;",
-                "ALTER TABLE agent_profiles ADD COLUMN IF NOT EXISTS custom_reminder_template TEXT DEFAULT '' NOT NULL;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS is_arrival_window BOOLEAN DEFAULT FALSE NOT NULL;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS arrival_window_start TIMESTAMP WITH TIME ZONE NULL;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS arrival_window_end TIMESTAMP WITH TIME ZONE NULL;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reschedule_token VARCHAR(64) NULL;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP WITH TIME ZONE NULL;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmed_via_sms_at TIMESTAMP WITH TIME ZONE NULL;",
-                "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmation_channel VARCHAR(32) NULL;",
-                "CREATE TABLE IF NOT EXISTS industry_packs (id VARCHAR(36) PRIMARY KEY, slug VARCHAR(64) UNIQUE NOT NULL, name VARCHAR(128) NOT NULL, description TEXT NOT NULL DEFAULT '', category VARCHAR(64) NOT NULL DEFAULT 'commercial', icon VARCHAR(64) NOT NULL DEFAULT 'Briefcase', is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP);",
-                "CREATE TABLE IF NOT EXISTS industry_pack_versions (id VARCHAR(36) PRIMARY KEY, pack_id VARCHAR(36) REFERENCES industry_packs(id) ON DELETE CASCADE, version_semver VARCHAR(32) NOT NULL DEFAULT '1.0.0', status VARCHAR(32) NOT NULL DEFAULT 'published', validation_status VARCHAR(32) NOT NULL DEFAULT 'valid', validation_errors JSON NOT NULL DEFAULT '[]'::json, is_system_default BOOLEAN NOT NULL DEFAULT FALSE, prompt_base TEXT NOT NULL, prompt_vars_schema JSON NOT NULL DEFAULT '{}'::json, faq_seed JSON NOT NULL DEFAULT '[]'::json, appointment_types JSON NOT NULL DEFAULT '[]'::json, intake_questions JSON NOT NULL DEFAULT '[]'::json, intake_schema JSON NOT NULL DEFAULT '{}'::json, pipeline_stages JSON NOT NULL DEFAULT '[]'::json, emergency_rules JSON NOT NULL DEFAULT '{}'::json, outbound_scripts JSON NOT NULL DEFAULT '{}'::json, test_scenarios JSON NOT NULL DEFAULT '[]'::json, allowed_outbound_categories JSON NOT NULL DEFAULT '[\"A\",\"B\",\"C\",\"D\",\"E\"]'::json, requires_hipaa_baa BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT uq_pack_version_semver UNIQUE (pack_id, version_semver));",
-                "CREATE TABLE IF NOT EXISTS tenant_pack_applications (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) UNIQUE REFERENCES tenants(id) ON DELETE CASCADE, pack_id VARCHAR(36) REFERENCES industry_packs(id) ON DELETE RESTRICT, version_id VARCHAR(36) REFERENCES industry_pack_versions(id) ON DELETE RESTRICT, overrides JSON NOT NULL DEFAULT '{}'::json, applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP);",
-                "ALTER TABLE industry_packs ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;",
-                "ALTER TABLE industry_packs ADD COLUMN IF NOT EXISTS category VARCHAR(64) NOT NULL DEFAULT 'commercial';",
-                "ALTER TABLE industry_packs ADD COLUMN IF NOT EXISTS icon VARCHAR(64) NOT NULL DEFAULT 'Briefcase';",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS validation_status VARCHAR(32) NOT NULL DEFAULT 'valid';",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS validation_errors JSON NOT NULL DEFAULT '[]'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN NOT NULL DEFAULT FALSE;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS intake_schema JSON NOT NULL DEFAULT '{}'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS requires_hipaa_baa BOOLEAN NOT NULL DEFAULT FALSE;",
-                'ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS allowed_outbound_categories JSON NOT NULL DEFAULT \'["A","B","C","D","E"]\'::json;',
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS prompt_vars_schema JSON NOT NULL DEFAULT '{}'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS intake_questions JSON NOT NULL DEFAULT '[]'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS appointment_types JSON NOT NULL DEFAULT '[]'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS faq_seed JSON NOT NULL DEFAULT '[]'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS pipeline_stages JSON NOT NULL DEFAULT '[]'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS emergency_rules JSON NOT NULL DEFAULT '{}'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS outbound_scripts JSON NOT NULL DEFAULT '{}'::json;",
-                "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS test_scenarios JSON NOT NULL DEFAULT '[]'::json;",
-                "ALTER TABLE tenant_pack_applications ADD COLUMN IF NOT EXISTS overrides JSON NOT NULL DEFAULT '{}'::json;",
-                "CREATE TABLE IF NOT EXISTS knowledge_documents (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) REFERENCES tenants(id) ON DELETE CASCADE, filename VARCHAR(255) NOT NULL, file_size_bytes INTEGER DEFAULT 0 NOT NULL, mime_type VARCHAR(128) DEFAULT 'text/plain' NOT NULL, storage_path VARCHAR(512) DEFAULT '' NOT NULL, status VARCHAR(32) DEFAULT 'indexed' NOT NULL, error_message TEXT NULL, chunk_count INTEGER DEFAULT 0 NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL);",
-                "CREATE TABLE IF NOT EXISTS knowledge_chunks (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) REFERENCES tenants(id) ON DELETE CASCADE, document_id VARCHAR(36) REFERENCES knowledge_documents(id) ON DELETE CASCADE, chunk_index INTEGER DEFAULT 0 NOT NULL, content TEXT NOT NULL, token_count INTEGER DEFAULT 0 NOT NULL, chunk_metadata JSON DEFAULT '{}'::json NOT NULL, embedding JSON NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL);",
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_documents_tenant_created ON knowledge_documents (tenant_id, created_at DESC);",
-                "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_tenant_doc ON knowledge_chunks (tenant_id, document_id);",
+                (
+                    "tenants",
+                    "max_concurrent_calls",
+                    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_concurrent_calls INTEGER DEFAULT 3 NOT NULL;",
+                ),
+                (
+                    "tenants",
+                    "max_concurrent_outbound",
+                    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_concurrent_outbound INTEGER DEFAULT 2 NOT NULL;",
+                ),
+                (
+                    "tenants",
+                    "monthly_minute_quota",
+                    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS monthly_minute_quota INTEGER DEFAULT 500 NOT NULL;",
+                ),
+                (
+                    "tenants",
+                    "config",
+                    "ALTER TABLE tenants ADD COLUMN IF NOT EXISTS config JSON DEFAULT '{}'::json NOT NULL;",
+                ),
+                (
+                    "phone_numbers",
+                    "purpose",
+                    "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS purpose VARCHAR(32) DEFAULT 'inbound_outbound' NOT NULL;",
+                ),
+                (
+                    "phone_numbers",
+                    "label",
+                    "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS label VARCHAR(64) DEFAULT 'Main Inbound Line' NOT NULL;",
+                ),
+                (
+                    "phone_numbers",
+                    "locality",
+                    "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS locality VARCHAR(64) DEFAULT '' NOT NULL;",
+                ),
+                (
+                    "phone_numbers",
+                    "region",
+                    "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS region VARCHAR(16) DEFAULT 'US' NOT NULL;",
+                ),
+                (
+                    "phone_numbers",
+                    "trunk_id",
+                    "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS trunk_id VARCHAR(64) DEFAULT 'ST_inbound_livekit_scale' NOT NULL;",
+                ),
+                (
+                    "phone_numbers",
+                    "location_id",
+                    "ALTER TABLE phone_numbers ADD COLUMN IF NOT EXISTS location_id VARCHAR(36) NULL;",
+                ),
+                (
+                    "calls",
+                    "direction",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS direction VARCHAR(16) DEFAULT 'inbound' NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "billable_minutes",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS billable_minutes FLOAT DEFAULT 0.0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "llm_prompt_tokens",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS llm_prompt_tokens INTEGER DEFAULT 0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "llm_completion_tokens",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS llm_completion_tokens INTEGER DEFAULT 0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "tts_characters",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS tts_characters INTEGER DEFAULT 0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "estimated_cogs_usd",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS estimated_cogs_usd FLOAT DEFAULT 0.0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "sentiment_score",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS sentiment_score FLOAT DEFAULT 0.0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "sentiment_label",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS sentiment_label VARCHAR(32) DEFAULT 'neutral' NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "lead_score",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS lead_score FLOAT DEFAULT 50.0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "lost_reason",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS lost_reason VARCHAR(64) NULL;",
+                ),
+                (
+                    "calls",
+                    "key_objections",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS key_objections JSON DEFAULT '[]'::json NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "supervisor_whispers",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS supervisor_whispers JSON DEFAULT '[]'::json NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "recording_url",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_url VARCHAR(512) NULL;",
+                ),
+                (
+                    "calls",
+                    "recording_duration_s",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_duration_s FLOAT DEFAULT 0.0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "recording_status",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_status VARCHAR(32) DEFAULT 'not_recorded' NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "barge_in_active",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS barge_in_active BOOLEAN DEFAULT FALSE NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "takeover_active",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS takeover_active BOOLEAN DEFAULT FALSE NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "transfer_to_number",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transfer_to_number VARCHAR(64) NULL;",
+                ),
+                (
+                    "calls",
+                    "transferred_at",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transferred_at TIMESTAMP WITH TIME ZONE NULL;",
+                ),
+                (
+                    "calls",
+                    "transferred_by",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS transferred_by VARCHAR(64) NULL;",
+                ),
+                (
+                    "calls",
+                    "whisper_briefing",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS whisper_briefing TEXT NULL;",
+                ),
+                (
+                    "calls",
+                    "qa_score",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_score FLOAT DEFAULT 100.0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "qa_rubric",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_rubric JSON DEFAULT '{}'::json NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "qa_flags",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_flags JSON DEFAULT '[]'::json NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "csat_score",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS csat_score FLOAT DEFAULT 5.0 NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "csat_rationale",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS csat_rationale VARCHAR(512) NULL;",
+                ),
+                (
+                    "calls",
+                    "qa_reviewed_by",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_reviewed_by VARCHAR(64) NULL;",
+                ),
+                (
+                    "calls",
+                    "qa_reviewed_at",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_reviewed_at TIMESTAMP WITH TIME ZONE NULL;",
+                ),
+                (
+                    "calls",
+                    "location_id",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS location_id VARCHAR(36) NULL;",
+                ),
+                (
+                    "calls",
+                    "contact_id",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS contact_id VARCHAR(36) NULL;",
+                ),
+                (
+                    "users",
+                    "location_ids",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS location_ids JSON DEFAULT '[]'::json NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "is_followed_up",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS is_followed_up BOOLEAN DEFAULT FALSE NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "recording_channels",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS recording_channels INTEGER DEFAULT 2 NOT NULL;",
+                ),
+                (
+                    "crm_connections",
+                    "key_fingerprint",
+                    "ALTER TABLE crm_connections ADD COLUMN IF NOT EXISTS key_fingerprint VARCHAR(32) NULL;",
+                ),
+                (
+                    "industry_pack_versions",
+                    "validation_status",
+                    "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS validation_status VARCHAR(32) NOT NULL DEFAULT 'valid';",
+                ),
+                (
+                    "industry_pack_versions",
+                    "is_system_default",
+                    "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN NOT NULL DEFAULT FALSE;",
+                ),
+                (
+                    "industry_pack_versions",
+                    "author_email",
+                    "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS author_email VARCHAR(255) NULL;",
+                ),
+                (
+                    "industry_pack_versions",
+                    "changelog",
+                    "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS changelog TEXT NULL;",
+                ),
+                (
+                    "industry_pack_versions",
+                    "intake_schema",
+                    "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS intake_schema JSON NOT NULL DEFAULT '{}'::json;",
+                ),
+                (
+                    "industry_pack_versions",
+                    "outbound_scripts",
+                    "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS outbound_scripts JSON NOT NULL DEFAULT '{}'::json;",
+                ),
+                (
+                    "industry_pack_versions",
+                    "test_scenarios",
+                    "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS test_scenarios JSON NOT NULL DEFAULT '[]'::json;",
+                ),
+                (
+                    "tenant_pack_applications",
+                    "overrides",
+                    "ALTER TABLE tenant_pack_applications ADD COLUMN IF NOT EXISTS overrides JSON NOT NULL DEFAULT '{}'::json;",
+                ),
             ]
-            for stmt in pg_statements:
+            for tbl, col, stmt in pg_statements:
+                if existing_cols and (tbl.lower(), col.lower()) in existing_cols:
+                    continue
                 try:
                     conn.execute(text(stmt))
                     conn.commit()
                 except Exception as stmt_err:
                     logging.getLogger("uvicorn.error").warning(
-                        "Init DB statement failed (%s...): %s", stmt[:40], stmt_err
+                        "Init DB column add skipped (%s.%s): %s", tbl, col, stmt_err
+                    )
+                    conn.rollback()
+
+            raw_ddl_statements = [
+                (
+                    "knowledge_documents",
+                    "CREATE TABLE IF NOT EXISTS knowledge_documents (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) REFERENCES tenants(id) ON DELETE CASCADE, filename VARCHAR(255) NOT NULL, file_size_bytes INTEGER DEFAULT 0 NOT NULL, mime_type VARCHAR(128) DEFAULT 'text/plain' NOT NULL, storage_path VARCHAR(512) DEFAULT '' NOT NULL, status VARCHAR(32) DEFAULT 'indexed' NOT NULL, error_message TEXT NULL, chunk_count INTEGER DEFAULT 0 NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+                ),
+                (
+                    "knowledge_chunks",
+                    "CREATE TABLE IF NOT EXISTS knowledge_chunks (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) REFERENCES tenants(id) ON DELETE CASCADE, document_id VARCHAR(36) REFERENCES knowledge_documents(id) ON DELETE CASCADE, chunk_index INTEGER DEFAULT 0 NOT NULL, content TEXT NOT NULL, token_count INTEGER DEFAULT 0 NOT NULL, chunk_metadata JSON DEFAULT '{}'::json NOT NULL, embedding JSON NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+                ),
+                (
+                    "ix_knowledge_documents_tenant_created",
+                    "CREATE INDEX IF NOT EXISTS ix_knowledge_documents_tenant_created ON knowledge_documents (tenant_id, created_at DESC);",
+                ),
+                (
+                    "ix_knowledge_chunks_tenant_doc",
+                    "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_tenant_doc ON knowledge_chunks (tenant_id, document_id);",
+                ),
+            ]
+            for target_name, stmt in raw_ddl_statements:
+                if existing_tables and target_name.lower() in existing_tables:
+                    continue
+                try:
+                    conn.execute(text(stmt))
+                    conn.commit()
+                except Exception as ddl_err:
+                    logging.getLogger("uvicorn.error").warning(
+                        "Init DB DDL skipped (%s): %s", target_name, ddl_err
                     )
                     conn.rollback()
 

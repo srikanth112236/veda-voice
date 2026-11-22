@@ -45,6 +45,10 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
         all_versions = list(db.scalars(select(IndustryPackVersion)).all())
         versions_by_key = {(v.pack_id, v.version_semver): v for v in all_versions}
 
+        # If all default industry packs and versions are already present, avoid unnecessary updates and row locks
+        if len(packs_by_slug) >= len(LAUNCH_PACKS) and len(versions_by_key) >= len(LAUNCH_PACKS):
+            return existing_packs_list
+
         for blueprint in LAUNCH_PACKS:
             slug = blueprint["slug"]
             pack = packs_by_slug.get(slug)
