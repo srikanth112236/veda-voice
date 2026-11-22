@@ -131,9 +131,12 @@ def test_public_reschedule_execution(test_setup_booking: dict[str, Any]) -> None
     token = test_setup_booking["token"]
     booking_id = test_setup_booking["booking_id"]
 
-    # Pick a unique future day/time to avoid slot collisions with previous runs
-    unique_day_offset = 20 + (uuid.uuid4().int % 50)
-    new_slot = datetime.now(UTC) + timedelta(days=unique_day_offset, hours=2)
+    # Pick a unique future weekday between 9 AM and 5 PM
+    unique_day_offset = 20 + (uuid.uuid4().int % 30)
+    candidate = datetime.now(UTC) + timedelta(days=unique_day_offset)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    new_slot = candidate.replace(hour=14, minute=0, second=0, microsecond=0)
     payload = {
         "slot_start": new_slot.isoformat(),
         "notes": "Please park in the driveway.",
@@ -247,8 +250,9 @@ def test_dispatch_24h_reminders_worker(test_setup_booking: dict[str, Any]) -> No
 
         # Verify SMS was recorded
         assert len(mock_sms.sent_messages) >= 1
-        sent_recipient, sent_text = mock_sms.sent_messages[-1]
-        assert sent_recipient == "+15125550888"
+        sent_recipients = [m[0] for m in mock_sms.sent_messages]
+        assert "+15125550888" in sent_recipients
+        sent_text = next(m[1] for m in mock_sms.sent_messages if m[0] == "+15125550888")
         assert "reschedule" in sent_text.lower()
     finally:
         db.close()

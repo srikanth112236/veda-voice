@@ -37,22 +37,17 @@ LAUNCH_PACKS: list[dict[str, Any]] = ALL_50_INDUSTRY_PACKS
 
 def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
     """Seed the default launch industry packs with immutable version configurations."""
-    try:
-        existing_slugs = set(db.scalars(select(IndustryPack.slug)).all())
-        if len(existing_slugs) >= len(LAUNCH_PACKS):
-            return []
-    except Exception as check_err:
-        logger.debug("Could not check existing industry packs count: %s", check_err)
-        existing_slugs = set()
-
     seeded_packs: list[IndustryPack] = []
 
     try:
+        existing_packs_list = list(db.scalars(select(IndustryPack)).all())
+        packs_by_slug = {p.slug: p for p in existing_packs_list}
+        all_versions = list(db.scalars(select(IndustryPackVersion)).all())
+        versions_by_key = {(v.pack_id, v.version_semver): v for v in all_versions}
+
         for blueprint in LAUNCH_PACKS:
             slug = blueprint["slug"]
-            if slug in existing_slugs:
-                continue
-            pack = db.scalar(select(IndustryPack).where(IndustryPack.slug == slug))
+            pack = packs_by_slug.get(slug)
             if not pack:
                 pack = IndustryPack(
                     id=str(uuid.uuid4()),
@@ -65,14 +60,11 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
                 )
                 db.add(pack)
                 db.flush()
+                packs_by_slug[slug] = pack
                 logger.info("Seeded Industry Pack: %s (%s)", pack.name, slug)
 
-            version = db.scalar(
-                select(IndustryPackVersion).where(
-                    IndustryPackVersion.pack_id == pack.id,
-                    IndustryPackVersion.version_semver == blueprint["version"],
-                )
-            )
+            ver_key = (pack.id, blueprint["version"])
+            version = versions_by_key.get(ver_key)
             if not version:
                 version = IndustryPackVersion(
                     id=str(uuid.uuid4()),
@@ -97,6 +89,7 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
                 )
                 db.add(version)
                 db.flush()
+                versions_by_key[ver_key] = version
                 logger.info(
                     "Seeded Industry Pack Version: %s v%s", pack.slug, version.version_semver
                 )
@@ -504,25 +497,27 @@ def admin_list_packs_with_stats(db: Session) -> list[dict[str, Any]]:
         return get_fallback_launch_packs_with_stats()
 
     # Pre-fetch version lists and adoption counts in batch to eliminate N+1 queries
+    adoption_by_pack: dict[str, int] = {}
+    adoption_by_ver: dict[str, int] = {}
+    versions_by_pack: dict[str, list[IndustryPackVersion]] = defaultdict(list)
     try:
-        adoption_by_pack = dict(
-            db.execute(
-                select(
-                    TenantPackApplication.pack_id, func.count(TenantPackApplication.id)
-                ).group_by(TenantPackApplication.pack_id)
-            ).all()
-        )
-        adoption_by_ver = dict(
-            db.execute(
-                select(
-                    TenantPackApplication.version_id, func.count(TenantPackApplication.id)
-                ).group_by(TenantPackApplication.version_id)
-            ).all()
-        )
+        pack_rows = db.execute(
+            select(TenantPackApplication.pack_id, func.count(TenantPackApplication.id)).group_by(
+                TenantPackApplication.pack_id
+            )
+        ).all()
+        adoption_by_pack = {str(row[0]): int(row[1]) for row in pack_rows if row[0] is not None}
+
+        ver_rows = db.execute(
+            select(TenantPackApplication.version_id, func.count(TenantPackApplication.id)).group_by(
+                TenantPackApplication.version_id
+            )
+        ).all()
+        adoption_by_ver = {str(row[0]): int(row[1]) for row in ver_rows if row[0] is not None}
+
         all_versions = db.scalars(
             select(IndustryPackVersion).order_by(IndustryPackVersion.created_at.desc())
         ).all()
-        versions_by_pack: dict[str, list[IndustryPackVersion]] = defaultdict(list)
         for v in all_versions:
             versions_by_pack[v.pack_id].append(v)
     except Exception as batch_err:

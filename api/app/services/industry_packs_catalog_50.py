@@ -207,7 +207,7 @@ ALL_50_INDUSTRY_PACKS: list[dict[str, Any]] = [
             },
         ],
         "intake_schema": {
-            "title": "Home Services (Plumbing, HVAC, Electrical) Client Intake",
+            "title": "Home Services Trade Triage",
             "fields": [
                 {
                     "key": "trade_type",

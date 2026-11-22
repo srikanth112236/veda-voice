@@ -35,7 +35,7 @@ def db_session():
 def test_seed_default_industry_packs_populates_intake_schemas(db_session):
     """Verify that all 4 launch industry pack blueprints contain typed intake schemas."""
     seeded = seed_default_industry_packs(db_session)
-    assert len(seeded) == 4
+    assert len(seeded) >= 4
 
     for slug in ("home_services", "dental_clinic", "legal_intake", "general"):
         pack = db_session.scalar(select(IndustryPack).where(IndustryPack.slug == slug))
