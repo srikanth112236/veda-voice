@@ -39,8 +39,8 @@ LAUNCH_PACKS: list[dict[str, Any]] = [
             "You are a professional, helpful customer receptionist for {{business_name}}, a premier home services contractor. "
             "Your trade specialties include {{specialties}}. "
             "Operating policy: We charge an upfront diagnostic fee of {{diagnostic_fee}} before commencing repairs. "
-            "Emergency triage protocol: Active water leaks, burst pipes, gas odors, or loss of heating in freezing weather must be treated as critical emergencies. "
-            "If an emergency is detected, calmly instruct the caller on immediate safety precautions (e.g. main shutoff) and take their address for priority dispatch."
+            "Emergency triage protocol: Active water leaks, burst pipes, gas odors, sparks, or loss of heating in freezing weather must be treated as critical emergencies. "
+            "If an emergency is detected, direct the caller immediately to emergency services or public utility if in danger, and alert our urgent on-call team for priority dispatch. Never provide DIY mechanical, electrical, or repair safety instructions."
         ),
         "prompt_vars_schema": {
             "business_name": {"type": "string", "default": "Apex Comfort Systems"},
@@ -155,7 +155,7 @@ LAUNCH_PACKS: list[dict[str, Any]] = [
                 "carbon monoxide",
                 "no heat",
             ],
-            "safety_advice": "If safe, shut off your main water valve right away to prevent structural flooding.",
+            "safety_advice": "If you are in immediate danger or smell gas, please evacuate and call 911 or your utility company immediately. I am alerting our urgent on-call team right now for priority dispatch.",
             "escalation_mode": "priority_dispatch",
         },
         "outbound_scripts": {
@@ -166,7 +166,10 @@ LAUNCH_PACKS: list[dict[str, Any]] = [
             {"id": "hs_01", "name": "Greeting identifies business name and trade specialties"},
             {"id": "hs_02", "name": "States upfront diagnostic fee of $89 before booking"},
             {"id": "hs_03", "name": "Detects active burst pipe as critical emergency"},
-            {"id": "hs_04", "name": "Provides water shutoff safety advice for flooding"},
+            {
+                "id": "hs_04",
+                "name": "Directs caller to emergency services or utility without DIY shutoff instructions",
+            },
             {"id": "hs_05", "name": "Detects gas smell and triggers immediate safety protocol"},
             {"id": "hs_06", "name": "Collects customer full name and callback phone number"},
             {"id": "hs_07", "name": "Captures complete street address for dispatch truck"},
@@ -847,7 +850,7 @@ def compile_tenant_prompt(tenant_id: str, db: Session) -> str:
         prompt_base = (
             f"You are a professional, helpful customer receptionist for {biz_name}. "
             "Assist callers with scheduling appointments, answering common questions, and taking detailed messages. "
-            "If an emergency is detected, calmly instruct the caller on immediate safety precautions and prioritize urgent dispatch."
+            "If an emergency is detected, direct the caller immediately to emergency services or public utility if in danger, and alert our urgent on-call team for priority dispatch. Do not give DIY mechanical or repair safety advice."
         )
 
     schema = pack_data.get("prompt_vars_schema", {})
@@ -912,6 +915,15 @@ def compile_tenant_prompt(tenant_id: str, db: Session) -> str:
             "When calling the booking tool, provide these triage answers in the 'intake_details' parameter."
         )
         compiled_prompt += "\n".join(intake_lines)
+
+    guardrails_block = (
+        "\n\n# INVIOLABLE SAFETY & GROUNDING GUARDRAILS:\n"
+        "1. NO DIY SAFETY/REPAIR ADVICE: Never instruct the caller to perform physical, mechanical, plumbing, electrical, or structural repairs, or shut off valves/breakers. If there is immediate danger, flooding, sparks, or gas, instruct them to evacuate and contact 911 or emergency utility services immediately.\n"
+        "2. STRICT DOCUMENT-GROUNDED PRICING: Never guess, speculate on, or invent prices, hourly rates, or quotes. Only quote fees explicitly documented in approved business information or official diagnostic fees. If a price is not documented, state: 'I don't have that exact price verified in my notes, but I will have our team follow up with an accurate quote.'\n"
+        "3. TRUTHFUL IDENTITY & APPOINTMENTS: Never claim to be a human or certified technician/doctor/lawyer. Always communicate arrival windows (e.g. 2-hour window) rather than exact minute guarantees unless an exact slot is confirmed.\n"
+        "4. EMERGENCY PROTOCOL: When an emergency trigger is matched, acknowledge the distress with calm empathy, give the emergency contact/911 guidance, stop asking routine intake questions, and escalate to priority dispatch."
+    )
+    compiled_prompt += guardrails_block
 
     return str(compiled_prompt)
 

@@ -235,3 +235,44 @@ def test_industry_pack_10_scenario_evaluation() -> None:
         assert len(report["scenarios"]) == 10
     finally:
         db.close()
+
+
+def test_inviolable_safety_guardrails_and_document_grounding() -> None:
+    """Verify that compiled prompt includes inviolable safety guardrails and prohibits DIY advice or price guessing."""
+    db: Session = SessionLocal()
+    tenant_id = f"pack-test-{uuid.uuid4().hex[:8]}"
+
+    try:
+        tenant = Tenant(
+            id=tenant_id,
+            name="Safe Home Repairs",
+            timezone="America/New_York",
+            status="active",
+        )
+        db.add(tenant)
+        db.commit()
+
+        # Apply pack
+        apply_pack_to_tenant(tenant_id=tenant_id, pack_slug="home_services", db=db)
+
+        # Compile prompt
+        prompt = compile_tenant_prompt(tenant_id, db)
+
+        # 1. Inviolable Guardrail Header
+        assert "# INVIOLABLE SAFETY & GROUNDING GUARDRAILS:" in prompt
+
+        # 2. No DIY Safety Advice Rule
+        assert "NO DIY SAFETY/REPAIR ADVICE" in prompt
+        assert "Never instruct the caller to perform physical, mechanical" in prompt
+
+        # 3. Strict Document Grounding for Pricing
+        assert "STRICT DOCUMENT-GROUNDED PRICING" in prompt
+        assert "Never guess, speculate on, or invent prices" in prompt
+        assert "I don't have that exact price verified in my notes" in prompt
+
+        # 4. Identity & Arrival Window
+        assert "TRUTHFUL IDENTITY & APPOINTMENTS" in prompt
+        assert "Never claim to be a human" in prompt
+        assert "arrival windows" in prompt
+    finally:
+        db.close()

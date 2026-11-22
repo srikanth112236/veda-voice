@@ -320,6 +320,22 @@ Default stack: Deepgram Nova-3 (STT), a fast LLM (e.g. Gemini Flash class), Rime
 - LLM or TTS errors: switch to fallback stack; if still failing, forward to human and alert.
 - Silence over 10 seconds: prompt twice, then end politely.
 
+### 7.7 Industry Packs (formerly Niche Templates) and Grounding Contract
+- **Terminology & Grounding:** All business-specific knowledge retrieval is specified as "grounded in tenant business information" rather than "trained on data". Retrieval operates at call-time using `lookup_business_info(topic)` and server-side context compilation with zero model parameter modification.
+- **Five-Part Pack Contract:** Every industry pack definition must contain:
+  1. The 4 to 8 structured intake questions to classify caller intent into CRM fields.
+  2. What counts as an emergency (domain-specific hazard/life-safety triggers).
+  3. Appointment types, standard durations, and arrival window policies.
+  4. Inviolable "Must Never Say" guardrails (forbidden words, speculative estimates, and physical safety advice).
+  5. 3 to 5 sample golden-turn dialogue scenarios.
+- **Emergency Safety Policy (No DIY Advice):** The voice agent must NEVER give DIY mechanical, gas, electrical, or repair safety instructions (e.g. never instruct callers to shut off valves, flip electrical breakers, or inspect gas equipment). When an emergency trigger is matched:
+  1. Acknowledge caller distress with brief, calm empathy.
+  2. Direct caller immediately to certified 911 / emergency services or public utility providers.
+  3. Offer immediate priority on-call team escalation and notification.
+  4. Cease routine intake questions immediately.
+- **Strict Document-Grounded Pricing:** The agent must never invent, estimate, or speculate on prices or diagnostic fees. Quoted prices must match verified tenant knowledge items or approved pack price disclosures. If no match exists, the agent must state that it will have a staff member follow up with an accurate quote.
+- **Outbound Consent & Calling Gates:** Outbound voice campaigns require recorded consent, DNC list scrub, 8am-9pm local calling-window compliance, and immediate opt-out before dialing.
+
 ---
 
 ## 8. Calendar, booking and meeting scheduling
