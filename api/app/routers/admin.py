@@ -722,7 +722,12 @@ def create_industry_pack_admin(
             "message": f"Successfully created industry pack '{pack.name}' ({pack.slug})",
         }
     except ValueError as err:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err)) from err
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to create industry pack: %s", exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.put("/industry-packs/{pack_id}", status_code=status.HTTP_200_OK)
@@ -791,7 +796,12 @@ def publish_pack_version_admin(
     except KeyError as err:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
     except ValueError as err:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err)) from err
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to create industry pack: %s", exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/tenants/{tenant_id}/pack", status_code=status.HTTP_200_OK)

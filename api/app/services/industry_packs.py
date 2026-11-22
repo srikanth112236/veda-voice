@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -639,6 +640,7 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
             pack = db.scalar(select(IndustryPack).where(IndustryPack.slug == slug))
             if not pack:
                 pack = IndustryPack(
+                    id=str(uuid.uuid4()),
                     slug=slug,
                     name=blueprint["name"],
                     description=blueprint["description"],
@@ -658,6 +660,7 @@ def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
             )
             if not version:
                 version = IndustryPackVersion(
+                    id=str(uuid.uuid4()),
                     pack_id=pack.id,
                     version_semver=blueprint["version"],
                     status="published",
@@ -753,6 +756,7 @@ def apply_pack_to_tenant(
         app_record = existing_app
     else:
         app_record = TenantPackApplication(
+            id=str(uuid.uuid4()),
             tenant_id=tenant_id,
             pack_id=pack.id,
             version_id=version.id,
@@ -1197,7 +1201,9 @@ def admin_create_pack(
     if existing:
         raise ValueError(f"Industry pack with slug '{slug}' already exists")
 
+    pack_id = str(uuid.uuid4())
     pack = IndustryPack(
+        id=pack_id,
         slug=slug.lower().strip(),
         name=name.strip(),
         description=description.strip(),
@@ -1209,7 +1215,8 @@ def admin_create_pack(
     db.flush()
 
     version = IndustryPackVersion(
-        pack_id=pack.id,
+        id=str(uuid.uuid4()),
+        pack_id=pack_id,
         version_semver=initial_version_semver.strip() or "1.0.0",
         status="published",
         validation_status="valid",
@@ -1302,6 +1309,7 @@ def admin_publish_version(
         )
 
     new_version = IndustryPackVersion(
+        id=str(uuid.uuid4()),
         pack_id=pack_id,
         version_semver=clean_semver,
         status=status,
