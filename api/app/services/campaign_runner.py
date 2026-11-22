@@ -18,7 +18,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from agent.outbound.dialer import trigger_instant_outbound_call
 from api.app.models.call import Call
 from api.app.models.outbound import CampaignContact, OutboundDispatch, VoiceCampaign
 from api.app.services.compliance import (
@@ -194,33 +193,45 @@ def run_campaign_step(
             # We call the async dispatcher synchronously if loop exists or run inline
             import asyncio
 
+            trigger_func: Any = None
             try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
+                import importlib
 
-            if loop and loop.is_running():
-                asyncio.create_task(
-                    trigger_instant_outbound_call(
-                        lk_api=lk_api,
-                        tenant_id=campaign.tenant_id,
-                        lead_phone=norm_phone,
-                        caller_id=campaign.caller_id_e164,
-                        trunk_id=trunk_id,
-                        lead_metadata=metadata,
+                dialer_mod = importlib.import_module("agent.outbound.dialer")
+                trigger_func = getattr(dialer_mod, "trigger_instant_outbound_call", None)
+            except Exception:
+                trigger_func = None
+
+            if trigger_func is not None:
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+
+                if loop and loop.is_running():
+                    asyncio.create_task(
+                        trigger_func(
+                            lk_api=lk_api,
+                            tenant_id=campaign.tenant_id,
+                            lead_phone=norm_phone,
+                            caller_id=campaign.caller_id_e164,
+                            trunk_id=trunk_id,
+                            lead_metadata=metadata,
+                        )
                     )
-                )
+                else:
+                    asyncio.run(
+                        trigger_func(
+                            lk_api=lk_api,
+                            tenant_id=campaign.tenant_id,
+                            lead_phone=norm_phone,
+                            caller_id=campaign.caller_id_e164,
+                            trunk_id=trunk_id,
+                            lead_metadata=metadata,
+                        )
+                    )
             else:
-                asyncio.run(
-                    trigger_instant_outbound_call(
-                        lk_api=lk_api,
-                        tenant_id=campaign.tenant_id,
-                        lead_phone=norm_phone,
-                        caller_id=campaign.caller_id_e164,
-                        trunk_id=trunk_id,
-                        lead_metadata=metadata,
-                    )
-                )
+                logger.info("Agent dialer not packaged in api container; skipping direct dispatch.")
         except Exception as e:
             logger.warning("LiveKit call dispatch error or sandbox mock: %s", e)
 
