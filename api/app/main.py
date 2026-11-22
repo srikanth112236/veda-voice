@@ -23,6 +23,11 @@ from api.app.models.entitlement import (
     FeatureFlag,
     Plan,
 )
+from api.app.models.industry_pack import (
+    IndustryPack,  # noqa: F401
+    IndustryPackVersion,  # noqa: F401
+    TenantPackApplication,  # noqa: F401
+)
 from api.app.models.lead_form import Lead, LeadForm
 from api.app.models.subscription import Coupon, Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
@@ -1307,6 +1312,9 @@ def init_db() -> None:
                 "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP WITH TIME ZONE NULL;",
                 "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmed_via_sms_at TIMESTAMP WITH TIME ZONE NULL;",
                 "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmation_channel VARCHAR(32) NULL;",
+                "CREATE TABLE IF NOT EXISTS industry_packs (id VARCHAR(36) PRIMARY KEY, slug VARCHAR(64) UNIQUE NOT NULL, name VARCHAR(128) NOT NULL, description TEXT NOT NULL DEFAULT '', category VARCHAR(64) NOT NULL DEFAULT 'commercial', icon VARCHAR(64) NOT NULL DEFAULT 'Briefcase', is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+                "CREATE TABLE IF NOT EXISTS industry_pack_versions (id VARCHAR(36) PRIMARY KEY, pack_id VARCHAR(36) REFERENCES industry_packs(id) ON DELETE CASCADE, version_semver VARCHAR(32) NOT NULL DEFAULT '1.0.0', status VARCHAR(32) NOT NULL DEFAULT 'published', validation_status VARCHAR(32) NOT NULL DEFAULT 'valid', validation_errors JSON NOT NULL DEFAULT '[]', is_system_default BOOLEAN NOT NULL DEFAULT FALSE, prompt_base TEXT NOT NULL, prompt_vars_schema JSON NOT NULL DEFAULT '{}', faq_seed JSON NOT NULL DEFAULT '[]', appointment_types JSON NOT NULL DEFAULT '[]', intake_questions JSON NOT NULL DEFAULT '[]', intake_schema JSON NOT NULL DEFAULT '{}', pipeline_stages JSON NOT NULL DEFAULT '[]', emergency_rules JSON NOT NULL DEFAULT '{}', outbound_scripts JSON NOT NULL DEFAULT '{}', test_scenarios JSON NOT NULL DEFAULT '[]', allowed_outbound_categories JSON NOT NULL DEFAULT '[\"A\",\"B\",\"C\",\"D\",\"E\"]', requires_hipaa_baa BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT uq_pack_version_semver UNIQUE (pack_id, version_semver));",
+                "CREATE TABLE IF NOT EXISTS tenant_pack_applications (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) UNIQUE REFERENCES tenants(id) ON DELETE CASCADE, pack_id VARCHAR(36) REFERENCES industry_packs(id) ON DELETE RESTRICT, version_id VARCHAR(36) REFERENCES industry_pack_versions(id) ON DELETE RESTRICT, overrides JSON NOT NULL DEFAULT '{}', applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP);",
             ]
             for stmt in pg_statements:
                 try:

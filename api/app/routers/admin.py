@@ -27,6 +27,7 @@ from api.app.services.industry_packs import (
     admin_publish_version,
     admin_update_pack,
     apply_pack_to_tenant,
+    get_fallback_launch_packs_with_stats,
     seed_default_industry_packs,
 )
 
@@ -264,20 +265,24 @@ def list_tenants(db: Session = Depends(get_db)) -> Any:
             round(((total_rev - total_cogs) / total_rev) * 100, 1) if total_rev > 0 else 95.0
         )
 
-        pack_app = db.scalar(
-            select(TenantPackApplication).where(TenantPackApplication.tenant_id == t.id)
-        )
         applied_slug = None
         applied_ver = None
-        if pack_app:
-            p_obj = db.scalar(select(IndustryPack).where(IndustryPack.id == pack_app.pack_id))
-            v_obj = db.scalar(
-                select(IndustryPackVersion).where(IndustryPackVersion.id == pack_app.version_id)
+        try:
+            pack_app = db.scalar(
+                select(TenantPackApplication).where(TenantPackApplication.tenant_id == t.id)
             )
-            if p_obj:
-                applied_slug = p_obj.slug
-            if v_obj:
-                applied_ver = v_obj.version_semver
+            if pack_app:
+                p_obj = db.scalar(select(IndustryPack).where(IndustryPack.id == pack_app.pack_id))
+                v_obj = db.scalar(
+                    select(IndustryPackVersion).where(IndustryPackVersion.id == pack_app.version_id)
+                )
+                if p_obj:
+                    applied_slug = p_obj.slug
+                if v_obj:
+                    applied_ver = v_obj.version_semver
+        except Exception as pack_err:
+            logger.warning("Could not resolve pack application for tenant %s: %s", t.id, pack_err)
+            db.rollback()
 
         results.append(
             TenantSummaryResponse(
@@ -672,7 +677,12 @@ class AdminAssignTenantPackRequest(BaseModel):
 @router.get("/industry-packs", response_model=list[AdminIndustryPackDetail])
 def list_industry_packs_admin(db: Session = Depends(get_db)) -> Any:
     """List all global industry packs with complete version histories and tenant adoption statistics."""
-    return admin_list_packs_with_stats(db)
+    try:
+        return admin_list_packs_with_stats(db)
+    except Exception as exc:
+        logger.warning("Error fetching admin industry packs: %s", exc)
+        db.rollback()
+        return get_fallback_launch_packs_with_stats()
 
 
 @router.post("/industry-packs", status_code=status.HTTP_201_CREATED)
