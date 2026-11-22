@@ -64,9 +64,9 @@ jobs:
       - name: Azure OIDC Login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID || vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID || vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID || vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set Image Tags & Variables
         id: vars
@@ -131,9 +131,9 @@ jobs:
       - name: Azure OIDC Login
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID || vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID || vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID || vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set Production Tags
         id: vars
@@ -141,15 +141,15 @@ jobs:
           SHA_SHORT=$(git rev-parse --short HEAD)
           echo "SHA_SHORT=${SHA_SHORT}" >> $GITHUB_OUTPUT
 
-          RG="${{ secrets.AZURE_RG }}"
+          RG="${{ secrets.AZURE_RG || vars.AZURE_RG }}"
           if [ -z "$RG" ]; then
             RG="rg-vagency-prod"
           fi
           echo "AZURE_RG=${RG}" >> $GITHUB_OUTPUT
 
-          ACR=$(az acr list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "acrvagencyprod6eac3")
+          ACR=$(az acr list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || echo "${{ vars.ACR_NAME || 'acrvagencyprod6eac3' }}")
           if [ -z "$ACR" ]; then
-            ACR="acrvagencyprod6eac3"
+            ACR="${{ vars.ACR_NAME || 'acrvagencyprod6eac3' }}"
           fi
           echo "ACR_NAME=${ACR}" >> $GITHUB_OUTPUT
           echo "ACR_SERVER=${ACR}.azurecr.io" >> $GITHUB_OUTPUT
@@ -259,21 +259,25 @@ jobs:
                 --name "$CORE_APP" \
                 --resource-group "$RG" \
                 --image "$TARGET_IMG" \
+                --min-replicas 1 \
                 --set-env-vars \
                   LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
                   LIVEKIT_API_KEY="APIUJck6jdupFvT" \
                   LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" < /dev/null || az containerapp update \
                   --name "$CORE_APP" \
                   --resource-group "$RG" \
-                  --image "$LATEST_IMG" < /dev/null || true
+                  --image "$LATEST_IMG" \
+                  --min-replicas 1 < /dev/null || true
             else
               az containerapp update \
                 --name "$CORE_APP" \
                 --resource-group "$RG" \
-                --image "$TARGET_IMG" < /dev/null || az containerapp update \
+                --image "$TARGET_IMG" \
+                --min-replicas 1 < /dev/null || az containerapp update \
                 --name "$CORE_APP" \
                 --resource-group "$RG" \
-                --image "$LATEST_IMG" < /dev/null || true
+                --image "$LATEST_IMG" \
+                --min-replicas 1 < /dev/null || true
             fi
           done
 
