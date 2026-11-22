@@ -358,11 +358,43 @@ def create_test_call_session(
             lk_api.AccessToken(lk_key, lk_secret)
             .with_identity(f"portal-caller-{session_id}")
             .with_name(f"{tenant.name} Test Caller")
-            .with_grants(lk_api.VideoGrants(room_join=True, room=room_name))
+            .with_grants(
+                lk_api.VideoGrants(
+                    room_join=True,
+                    room=room_name,
+                    can_publish=True,
+                    can_subscribe=True,
+                    can_publish_data=True,
+                )
+            )
             .to_jwt()
         )
     except Exception as e:
-        logger.warning("Failed to generate LiveKit AccessToken: %s", e)
+        logger.warning("Failed to generate LiveKit AccessToken via livekit-api: %s", e)
+
+    # Resilient fallback: direct JWT encoding with HS256 for LiveKit Cloud
+    if not token and lk_key and lk_secret:
+        try:
+            import jwt as pyjwt
+
+            now_ts = int(datetime.now(UTC).timestamp())
+            jwt_payload = {
+                "sub": f"portal-caller-{session_id}",
+                "name": f"{tenant.name} Test Caller",
+                "iss": lk_key,
+                "nbf": now_ts - 5,
+                "exp": now_ts + (3600 * 6),
+                "video": {
+                    "roomJoin": True,
+                    "room": room_name,
+                    "canPublish": True,
+                    "canSubscribe": True,
+                    "canPublishData": True,
+                },
+            }
+            token = pyjwt.encode(jwt_payload, lk_secret, algorithm="HS256")
+        except Exception as jwt_err:
+            logger.warning("Failed pyjwt fallback token generation: %s", jwt_err)
 
     # Pre-register Call record in DB so it shows in supervision console
     phone = db.scalar(
@@ -384,6 +416,39 @@ def create_test_call_session(
     )
     db.add(new_call)
     db.commit()
+
+    # Dispatch Voice Agent worker to the test room
+    if lk_url and lk_key and lk_secret:
+        try:
+            import asyncio
+
+            from livekit import api as lk_api
+
+            async def _dispatch_agent() -> None:
+                try:
+                    async with lk_api.LiveKitAPI(lk_url, lk_key, lk_secret) as client:
+                        req = lk_api.CreateAgentDispatchRequest(
+                            agent_name="receptionist",
+                            room=room_name,
+                            metadata=json.dumps(
+                                {
+                                    "tenant_id": tenant.id,
+                                    "business": tenant.name,
+                                    "dialed_number": dialed_num,
+                                }
+                            ),
+                        )
+                        await client.agent_dispatch.create_dispatch(req)
+                except Exception as ex:
+                    logger.warning("LiveKit agent dispatch note: %s", ex)
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_dispatch_agent())
+            except RuntimeError:
+                asyncio.run(_dispatch_agent())
+        except Exception as dispatch_err:
+            logger.warning("Could not schedule agent dispatch: %s", dispatch_err)
 
     playground_url = f"https://agents-playground.livekit.io/#url={lk_url}&token={token}"
 
@@ -1149,6 +1214,7 @@ async def get_supervision_token(
         or "devsecret32bytesminimumforlivekitcloudauth"
     )
 
+    token = ""
     try:
         from livekit import api as lk_api
 
@@ -1168,11 +1234,34 @@ async def get_supervision_token(
             .to_jwt()
         )
     except Exception as e:
-        logger.error("Failed to generate LiveKit supervisor token: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate LiveKit supervisor token: {e}",
-        ) from e
+        logger.warning("Failed to generate LiveKit supervisor token via livekit-api: %s", e)
+
+    if not token and api_key and api_secret:
+        try:
+            import jwt as pyjwt
+
+            now_ts = int(datetime.now(UTC).timestamp())
+            jwt_payload = {
+                "sub": supervisor_identity,
+                "name": f"{current_user.full_name or 'Supervisor'} (Supervisor)",
+                "iss": api_key,
+                "nbf": now_ts - 5,
+                "exp": now_ts + (3600 * 6),
+                "video": {
+                    "roomJoin": True,
+                    "room": room_name,
+                    "canPublish": True,
+                    "canSubscribe": True,
+                    "canPublishData": True,
+                },
+            }
+            token = pyjwt.encode(jwt_payload, api_secret, algorithm="HS256")
+        except Exception as jwt_err:
+            logger.error("Failed pyjwt fallback supervisor token: %s", jwt_err)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate supervisor token: {jwt_err}",
+            ) from jwt_err
 
     return {
         "status": "ok",
