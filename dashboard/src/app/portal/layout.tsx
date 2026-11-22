@@ -23,13 +23,24 @@ import {
   Menu,
   X,
   Sparkles,
+  Mic,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { LiveRadarRing } from "@/components/ui/motion";
 import { AnimatePresence, motion } from "framer-motion";
+import { TestCallProvider, useTestCall } from "@/context/test-call-context";
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <TestCallProvider>
+      <PortalLayoutInner>{children}</PortalLayoutInner>
+    </TestCallProvider>
+  );
+}
+
+function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
+  const { startTestCall, isConnecting, isCallActive, duration } = useTestCall();
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -112,30 +123,45 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       )}
 
       {/* Mobile Sticky Header (< 1024px) */}
-      <header className="lg:hidden sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-2xs">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center font-bold text-white text-xs shadow-xs">
+      <header className="lg:hidden sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-2xs gap-2">
+        <div className="flex items-center gap-2.5 truncate">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center font-bold text-white text-xs shadow-xs shrink-0">
             {user.tenant_name ? user.tenant_name.charAt(0).toUpperCase() : "V"}
           </div>
-          <div>
-            <h2 className="text-xs font-bold text-slate-900 leading-tight">
+          <div className="truncate">
+            <h2 className="text-xs font-bold text-slate-900 leading-tight truncate">
               {user.tenant_name || "VedaVoice Client"}
             </h2>
             <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-mono font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>LiveKit SIP Active</span>
+              <span>SIP Active</span>
             </div>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          aria-label="Toggle mobile menu"
-          className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
-        >
-          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={startTestCall}
+            disabled={isConnecting}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 active:scale-[0.98] text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs"
+            title="Launch in-browser WebRTC test call"
+          >
+            <Mic className="w-3.5 h-3.5 animate-pulse" />
+            <span className="hidden sm:inline">
+              {isConnecting ? "Connecting..." : isCallActive ? `Call (${duration}s)` : "Test Call"}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle mobile menu"
+            className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </header>
 
       {/* Mobile Slide-in Drawer with Backdrop */}
@@ -344,7 +370,42 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
       {/* Main Content Viewport */}
       <main className="lg:ml-64 flex-1 min-h-screen bg-[#f8fafc] p-4 sm:p-8 lg:p-10">
-        <div className="max-w-7xl mx-auto">{children}</div>
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Universal Sticky Action Header across all 12 modules */}
+          <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/80 px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/70 text-[11px] font-mono font-medium text-emerald-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>LiveKit Telephony Online</span>
+              </div>
+              <span className="text-slate-300 hidden md:inline">•</span>
+              <span className="text-xs text-slate-500 hidden md:inline font-mono">
+                Sub-400ms In-Browser WebRTC
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={startTestCall}
+                disabled={isConnecting}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-[0.98] disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-all"
+                title="Launch instant browser WebRTC test call connected to your AI receptionist"
+              >
+                <Mic className="w-4 h-4 animate-pulse text-white" />
+                <span>
+                  {isConnecting
+                    ? "Connecting LiveKit..."
+                    : isCallActive
+                    ? `🎙️ In Test Call (${String(Math.floor(duration / 60)).padStart(2, "0")}:${String(duration % 60).padStart(2, "0")})`
+                    : "🎙️ Test Voice Call (WebRTC)"}
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {children}
+        </div>
       </main>
     </div>
   );

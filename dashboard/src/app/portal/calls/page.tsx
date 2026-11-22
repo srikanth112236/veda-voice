@@ -48,6 +48,7 @@ import {
 import { api, CallListItem, CallDetail, LiveActiveCallItem, TestCallSessionResponse } from "@/lib/api";
 import { PaginationBar } from "@/components/ui/pagination";
 import { AcousticWaveformEqualizer, EmptyCallsIllustration } from "@/components/ui/illustrations";
+import { useTestCall } from "@/context/test-call-context";
 
 /**
  * Sanitizes dialog text so TTS does not narrate robotic labels like "Apex AI Receptionist:" or "Caller:"
@@ -629,88 +630,8 @@ export default function CallsPage() {
 
 
 
-  // In-Portal Interactive WebRTC Test Call State
-  const [testSessionModal, setTestSessionModal] = useState<TestCallSessionResponse | null>(null);
-  const [startingTestCall, setStartingTestCall] = useState(false);
-  const [testCallConnected, setTestCallConnected] = useState(false);
-  const [testCallMuted, setTestCallMuted] = useState(false);
-  const [testCallDuration, setTestCallDuration] = useState(0);
-  const testRoomRef = useRef<Room | null>(null);
-  const testTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const handleStartTestCall = async () => {
-    setStartingTestCall(true);
-    try {
-      const session = await api.createTestCallSession();
-      setTestSessionModal(session);
-      setTestCallDuration(0);
-      setTestCallMuted(false);
-
-      // Connect WebRTC directly inside portal without any redirect
-      const room = new Room({
-        adaptiveStream: true,
-        dynacast: true,
-      });
-      testRoomRef.current = room;
-
-      room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
-        if (track.kind === Track.Kind.Audio) {
-          const audioElement = track.attach();
-          audioElement.id = "in-portal-test-audio";
-          audioElement.volume = 1.0;
-          document.body.appendChild(audioElement);
-        }
-      });
-
-      room.on(RoomEvent.Disconnected, () => {
-        handleEndTestCall();
-      });
-
-      await room.connect(session.livekit_url, session.token);
-      await room.localParticipant.setMicrophoneEnabled(true);
-      setTestCallConnected(true);
-
-      // Start duration timer
-      if (testTimerRef.current) clearInterval(testTimerRef.current);
-      testTimerRef.current = setInterval(() => {
-        setTestCallDuration((d) => d + 1);
-      }, 1000);
-
-      setTimeout(() => {
-        fetchLiveCalls();
-      }, 1000);
-    } catch (err: any) {
-      alert(`Could not start in-portal test call: ${err?.message || err}`);
-      handleEndTestCall();
-    } finally {
-      setStartingTestCall(false);
-    }
-  };
-
-  const handleToggleTestMic = async () => {
-    if (!testRoomRef.current) return;
-    const nextState = !testCallMuted;
-    await testRoomRef.current.localParticipant.setMicrophoneEnabled(!nextState);
-    setTestCallMuted(nextState);
-  };
-
-  const handleEndTestCall = () => {
-    if (testTimerRef.current) {
-      clearInterval(testTimerRef.current);
-      testTimerRef.current = null;
-    }
-    if (testRoomRef.current) {
-      try {
-        testRoomRef.current.disconnect();
-      } catch {}
-      testRoomRef.current = null;
-    }
-    const el = document.getElementById("in-portal-test-audio");
-    if (el) el.remove();
-    setTestCallConnected(false);
-    setTestSessionModal(null);
-    fetchLiveCalls();
-  };
+  // Shared Global In-Portal Interactive WebRTC Test Call
+  const { startTestCall: handleStartTestCall, isConnecting: startingTestCall } = useTestCall();
 
   // Preload and cache browser speech synthesis voices
   useEffect(() => {
@@ -3072,77 +2993,6 @@ export default function CallsPage() {
                 <PhoneForwarded className="w-3.5 h-3.5" />
                 {actionInProgress === "transfer" ? "Transferring..." : "Initiate Warm Transfer"}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* In-Portal Interactive Voice Audition Modal */}
-      {testSessionModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="w-full max-w-lg bg-zinc-900 text-white rounded-3xl border border-zinc-700/80 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-6 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="p-2.5 rounded-2xl bg-white/20 text-white shadow-inner">
-                  <PhoneCall className="w-6 h-6 animate-pulse" />
-                </span>
-                <div>
-                  <h3 className="text-base font-bold tracking-tight">AI Receptionist Live Audition</h3>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-300 animate-ping" />
-                    <p className="text-xs text-emerald-100 font-mono">
-                      {testCallConnected ? "Connected • In-Portal WebRTC" : "Connecting audio stream..."}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="px-3 py-1.5 rounded-full bg-black/25 backdrop-blur-md font-mono text-xs font-semibold tracking-wider text-emerald-200 border border-white/10">
-                {String(Math.floor(testCallDuration / 60)).padStart(2, "0")}:{String(testCallDuration % 60).padStart(2, "0")}
-              </div>
-            </div>
-
-            <div className="p-6 space-y-6">
-              <div className="flex flex-col items-center justify-center py-6 px-4 bg-zinc-950/60 rounded-2xl border border-zinc-800 space-y-4">
-                <div className="relative flex items-center justify-center">
-                  <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center animate-pulse">
-                    <Headphones className="w-10 h-10 text-emerald-400" />
-                  </div>
-                </div>
-                <div className="text-center space-y-1">
-                  <h4 className="text-sm font-semibold text-zinc-100">Apex Plumbing AI Receptionist</h4>
-                  <p className="text-xs text-zinc-400 max-w-xs">
-                    Speak into your microphone naturally. Say: <span className="text-emerald-400 font-medium">&ldquo;Hi, I have a water leak in my kitchen.&rdquo;</span>
-                  </p>
-                </div>
-
-                <div className="w-full flex justify-center py-2">
-                  <AcousticWaveformEqualizer isPlaying={testCallConnected && !testCallMuted} />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center gap-4 pt-2">
-                <button
-                  type="button"
-                  onClick={handleToggleTestMic}
-                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-semibold transition-all shadow-md ${
-                    testCallMuted
-                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30"
-                      : "bg-zinc-800 text-zinc-200 border border-zinc-700 hover:bg-zinc-700"
-                  }`}
-                >
-                  {testCallMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-emerald-400" />}
-                  <span>{testCallMuted ? "Unmute Mic" : "Mute Mic"}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleEndTestCall}
-                  className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold transition-all shadow-lg shadow-red-950/50"
-                >
-                  <PhoneOff className="w-4 h-4" />
-                  <span>End Test Call</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>

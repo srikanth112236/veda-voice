@@ -147,12 +147,12 @@ class AgentSettings(BaseModel):
     tts_model: str = Field(default_factory=lambda: os.getenv("TTS_MODEL", "inworld/inworld-tts-1"))
     tts_voice_id: str = Field(default_factory=lambda: os.getenv("TTS_VOICE_ID", "Alex"))
 
-    # VAD Latency Optimization (Sub-400ms end-of-utterance response)
+    # VAD Latency Optimization & Noise Robustness (Prevents stutter/chopping on pauses & acoustic feedback)
     vad_min_silence_duration: float = Field(
-        default_factory=lambda: float(os.getenv("VAD_MIN_SILENCE_DURATION", "0.38"))
+        default_factory=lambda: float(os.getenv("VAD_MIN_SILENCE_DURATION", "0.48"))
     )
     vad_prefix_padding_duration: float = Field(
-        default_factory=lambda: float(os.getenv("VAD_PREFIX_PADDING_DURATION", "0.30"))
+        default_factory=lambda: float(os.getenv("VAD_PREFIX_PADDING_DURATION", "0.35"))
     )
 
 

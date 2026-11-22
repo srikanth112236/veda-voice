@@ -36,8 +36,8 @@ def test_agent_settings_defaults() -> None:
     assert settings.llm_model in ("google/gemma-2-9b-it", "google/gemini-2.5-flash")
     assert settings.tts_model == "inworld/inworld-tts-1"
     assert settings.tts_voice_id == "Alex"
-    assert settings.vad_min_silence_duration == 0.38
-    assert settings.vad_prefix_padding_duration == 0.30
+    assert settings.vad_min_silence_duration == 0.48
+    assert settings.vad_prefix_padding_duration == 0.35
 
 
 def test_agent_settings_vad_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
