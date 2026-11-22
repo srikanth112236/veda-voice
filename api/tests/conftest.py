@@ -2,11 +2,16 @@
 
 import pytest
 
+import api.app.models  # noqa: F401
+import api.app.models.audit  # noqa: F401
+import api.app.models.booking  # noqa: F401
 import api.app.models.call  # noqa: F401
 import api.app.models.compliance  # noqa: F401
 import api.app.models.crm  # noqa: F401
+import api.app.models.crm_sync  # noqa: F401
 import api.app.models.entitlement  # noqa: F401
 import api.app.models.industry_pack  # noqa: F401
+import api.app.models.knowledge  # noqa: F401
 import api.app.models.lead_form  # noqa: F401
 import api.app.models.location  # noqa: F401
 import api.app.models.outbound  # noqa: F401
