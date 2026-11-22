@@ -629,24 +629,87 @@ export default function CallsPage() {
 
 
 
-  // LiveKit Web Voice Test Call State
+  // In-Portal Interactive WebRTC Test Call State
   const [testSessionModal, setTestSessionModal] = useState<TestCallSessionResponse | null>(null);
   const [startingTestCall, setStartingTestCall] = useState(false);
+  const [testCallConnected, setTestCallConnected] = useState(false);
+  const [testCallMuted, setTestCallMuted] = useState(false);
+  const [testCallDuration, setTestCallDuration] = useState(0);
+  const testRoomRef = useRef<Room | null>(null);
+  const testTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleStartTestCall = async () => {
     setStartingTestCall(true);
     try {
       const session = await api.createTestCallSession();
       setTestSessionModal(session);
-      window.open(session.playground_url, "_blank", "noopener,noreferrer");
+      setTestCallDuration(0);
+      setTestCallMuted(false);
+
+      // Connect WebRTC directly inside portal without any redirect
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+      testRoomRef.current = room;
+
+      room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+        if (track.kind === Track.Kind.Audio) {
+          const audioElement = track.attach();
+          audioElement.id = "in-portal-test-audio";
+          audioElement.volume = 1.0;
+          document.body.appendChild(audioElement);
+        }
+      });
+
+      room.on(RoomEvent.Disconnected, () => {
+        handleEndTestCall();
+      });
+
+      await room.connect(session.livekit_url, session.token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+      setTestCallConnected(true);
+
+      // Start duration timer
+      if (testTimerRef.current) clearInterval(testTimerRef.current);
+      testTimerRef.current = setInterval(() => {
+        setTestCallDuration((d) => d + 1);
+      }, 1000);
+
       setTimeout(() => {
         fetchLiveCalls();
       }, 1000);
     } catch (err: any) {
-      alert(`Could not start test session: ${err?.message || err}`);
+      alert(`Could not start in-portal test call: ${err?.message || err}`);
+      handleEndTestCall();
     } finally {
       setStartingTestCall(false);
     }
+  };
+
+  const handleToggleTestMic = async () => {
+    if (!testRoomRef.current) return;
+    const nextState = !testCallMuted;
+    await testRoomRef.current.localParticipant.setMicrophoneEnabled(!nextState);
+    setTestCallMuted(nextState);
+  };
+
+  const handleEndTestCall = () => {
+    if (testTimerRef.current) {
+      clearInterval(testTimerRef.current);
+      testTimerRef.current = null;
+    }
+    if (testRoomRef.current) {
+      try {
+        testRoomRef.current.disconnect();
+      } catch {}
+      testRoomRef.current = null;
+    }
+    const el = document.getElementById("in-portal-test-audio");
+    if (el) el.remove();
+    setTestCallConnected(false);
+    setTestSessionModal(null);
+    fetchLiveCalls();
   };
 
   // Preload and cache browser speech synthesis voices
@@ -3014,78 +3077,70 @@ export default function CallsPage() {
         </div>
       )}
 
-      {/* LiveKit Web Voice Test Call Modal */}
+      {/* In-Portal Interactive Voice Audition Modal */}
       {testSessionModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="w-full max-w-lg bg-white rounded-3xl border border-zinc-200 shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-6 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="p-1.5 rounded-lg bg-white/20">
-                    <Mic className="w-5 h-5 text-amber-300" />
-                  </span>
-                  <h3 className="text-lg font-bold">LiveKit Web Voice Session</h3>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-lg bg-zinc-900 text-white rounded-3xl border border-zinc-700/80 shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 rounded-2xl bg-white/20 text-white shadow-inner">
+                  <PhoneCall className="w-6 h-6 animate-pulse" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold tracking-tight">AI Receptionist Live Audition</h3>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-300 animate-ping" />
+                    <p className="text-xs text-emerald-100 font-mono">
+                      {testCallConnected ? "Connected • In-Portal WebRTC" : "Connecting audio stream..."}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs text-emerald-100 mt-1">
-                  Connected to LiveKit Cloud &bull; Room: <code className="font-mono bg-white/10 px-1 py-0.5 rounded">{testSessionModal.room_name}</code>
-                </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setTestSessionModal(null)}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="px-3 py-1.5 rounded-full bg-black/25 backdrop-blur-md font-mono text-xs font-semibold tracking-wider text-emerald-200 border border-white/10">
+                {String(Math.floor(testCallDuration / 60)).padStart(2, "0")}:{String(testCallDuration % 60).padStart(2, "0")}
+              </div>
             </div>
 
-            <div className="p-6 space-y-5 text-xs text-zinc-600">
-              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2">
-                <div className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-emerald-600" />
-                  <span>Browser Voice Session Created!</span>
+            <div className="p-6 space-y-6">
+              <div className="flex flex-col items-center justify-center py-6 px-4 bg-zinc-950/60 rounded-2xl border border-zinc-800 space-y-4">
+                <div className="relative flex items-center justify-center">
+                  <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center animate-pulse">
+                    <Headphones className="w-10 h-10 text-emerald-400" />
+                  </div>
                 </div>
-                <p className="text-[11px] text-emerald-900 leading-relaxed">
-                  We opened the official LiveKit Voice Playground in a new tab. If your browser blocked popups, click the button below to join the call with your microphone!
-                </p>
-              </div>
+                <div className="text-center space-y-1">
+                  <h4 className="text-sm font-semibold text-zinc-100">Apex Plumbing AI Receptionist</h4>
+                  <p className="text-xs text-zinc-400 max-w-xs">
+                    Speak into your microphone naturally. Say: <span className="text-emerald-400 font-medium">&ldquo;Hi, I have a water leak in my kitchen.&rdquo;</span>
+                  </p>
+                </div>
 
-              <div className="space-y-2 font-mono text-[11px]">
-                <div className="flex justify-between py-1.5 border-b border-zinc-100">
-                  <span className="text-zinc-400">LiveKit Cloud URL</span>
-                  <span className="font-semibold text-zinc-800">{testSessionModal.livekit_url}</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-zinc-100">
-                  <span className="text-zinc-400">Room Name</span>
-                  <span className="font-bold text-emerald-700">{testSessionModal.room_name}</span>
-                </div>
-                <div className="flex justify-between py-1.5 border-b border-zinc-100">
-                  <span className="text-zinc-400">Agent Dispatched</span>
-                  <span className="font-bold text-zinc-800">receptionist (Nova-3 + Gemini)</span>
+                <div className="w-full flex justify-center py-2">
+                  <AcousticWaveformEqualizer isPlaying={testCallConnected && !testCallMuted} />
                 </div>
               </div>
 
-              <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
-                <a
-                  href={testSessionModal.playground_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full sm:flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-all"
+              <div className="flex items-center justify-center gap-4 pt-2">
+                <button
+                  type="button"
+                  onClick={handleToggleTestMic}
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs font-semibold transition-all shadow-md ${
+                    testCallMuted
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30"
+                      : "bg-zinc-800 text-zinc-200 border border-zinc-700 hover:bg-zinc-700"
+                  }`}
                 >
-                  <Mic className="w-4 h-4 text-amber-300" />
-                  <span>Talk with AI Receptionist</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                  {testCallMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-emerald-400" />}
+                  <span>{testCallMuted ? "Unmute Mic" : "Mute Mic"}</span>
+                </button>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setTestSessionModal(null);
-                    fetchLiveCalls();
-                  }}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-semibold text-xs"
+                  onClick={handleEndTestCall}
+                  className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold transition-all shadow-lg shadow-red-950/50"
                 >
-                  Close &amp; Monitor
+                  <PhoneOff className="w-4 h-4" />
+                  <span>End Test Call</span>
                 </button>
               </div>
             </div>
