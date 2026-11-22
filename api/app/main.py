@@ -54,6 +54,14 @@ def seed_initial_data() -> None:
     """Initialize platform admin, default tenant, and import existing call records."""
     db = SessionLocal()
     try:
+        # 0. Seed Default Industry Packs if not present
+        try:
+            seed_default_industry_packs(db)
+        except Exception as exc:
+            logging.getLogger("uvicorn.error").warning(
+                "Initial industry packs seeding deferred: %s", exc
+            )
+
         # 1. Seed Platform Admin
         admin_user = db.scalar(
             select(User).where(User.email == settings.PLATFORM_ADMIN_EMAIL.lower())

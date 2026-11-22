@@ -191,7 +191,7 @@ jobs:
             exit 1
           fi
 
-          echo "$APPS_INFO" | while read -r APP APP_RG; do
+          while IFS=$'\t ' read -r APP APP_RG <&3; do
             [ -z "$APP" ] && continue
             echo "--------------------------------------------------------"
             echo "Updating Container App '$APP' in resource group '$APP_RG'..."
@@ -219,14 +219,29 @@ jobs:
             az containerapp update \
               --name "$APP" \
               --resource-group "$APP_RG" \
-              --image "$TARGET_IMAGE" || {
+              --image "$TARGET_IMAGE" < /dev/null || {
                 echo "Warning: Update with tag $TAG failed, falling back to :latest..."
                 az containerapp update \
                   --name "$APP" \
                   --resource-group "$APP_RG" \
-                  --image "$LATEST_IMAGE"
+                  --image "$LATEST_IMAGE" < /dev/null
               }
             echo "[SUCCESS] Finished revision rollout for '$APP'."
+          done 3<<< "$APPS_INFO"
+
+          # Explicit targeted update fallback for standard core apps
+          for CORE_APP in api dashboard agent; do
+            CORE_ROLE="$CORE_APP"
+            TARGET_IMG="${ACR_SERVER}/${CORE_ROLE}:${TAG}"
+            LATEST_IMG="${ACR_SERVER}/${CORE_ROLE}:latest"
+            echo "Ensuring core app '$CORE_APP' in '$RG' is verified and updated..."
+            az containerapp update \
+              --name "$CORE_APP" \
+              --resource-group "$RG" \
+              --image "$TARGET_IMG" < /dev/null || az containerapp update \
+              --name "$CORE_APP" \
+              --resource-group "$RG" \
+              --image "$LATEST_IMG" < /dev/null || true
           done
 
       - name: Deploy Voice Agent to LiveKit Cloud
