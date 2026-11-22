@@ -218,6 +218,13 @@ az acr build \
     --image dashboard:latest \
     --file dashboard/Dockerfile . \
     --output none
+
+echo "    Building Voice Agent container image ($ACR_NAME)..."
+az acr build \
+    --registry "$ACR_NAME" \
+    --image agent:latest \
+    --file agent/Dockerfile . \
+    --output none
 echo "    [DONE] Docker images are built and published in ACR ($ACR_LOGIN_SERVER)."
 
 # 7. Provision Remaining Infrastructure with Bicep (Container Apps, Key Vault, Storage)
@@ -257,13 +264,30 @@ az containerapp job start \
     --output none || true
 echo "    [DONE] Database migrations executed on PostgreSQL 16."
 
-# 9. Rolling revision check
-echo "--> [7/8] Ensuring Container Apps revisions are active..."
+# 9. Rolling revision check & Agent Worker Activation
+echo "--> [7/8] Ensuring Container Apps revisions are active and Voice Agent is online..."
 az containerapp update \
     --name api \
     --resource-group "$RESOURCE_GROUP" \
+    --set-env-vars \
+      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
     --output none 2>/dev/null || true
-echo "    [DONE] Container Apps revisions healthy."
+
+az containerapp update \
+    --name agent \
+    --resource-group "$RESOURCE_GROUP" \
+    --min-replicas 1 \
+    --max-replicas 5 \
+    --set-env-vars \
+      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+      API_BASE_URL="$API_URL" \
+      PROD_API_URL="$API_URL" \
+    --output none 2>/dev/null || true
+echo "    [DONE] Container Apps revisions healthy & Voice Agent online."
 
 # 10. Verify Live Health
 echo "--> [8/8] Verifying API Health Endpoint..."

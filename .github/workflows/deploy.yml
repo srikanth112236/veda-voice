@@ -235,13 +235,46 @@ jobs:
             TARGET_IMG="${ACR_SERVER}/${CORE_ROLE}:${TAG}"
             LATEST_IMG="${ACR_SERVER}/${CORE_ROLE}:latest"
             echo "Ensuring core app '$CORE_APP' in '$RG' is verified and updated..."
-            az containerapp update \
-              --name "$CORE_APP" \
-              --resource-group "$RG" \
-              --image "$TARGET_IMG" < /dev/null || az containerapp update \
-              --name "$CORE_APP" \
-              --resource-group "$RG" \
-              --image "$LATEST_IMG" < /dev/null || true
+
+            if [ "$CORE_APP" = "agent" ]; then
+              az containerapp update \
+                --name "$CORE_APP" \
+                --resource-group "$RG" \
+                --image "$TARGET_IMG" \
+                --min-replicas 1 \
+                --max-replicas 5 \
+                --set-env-vars \
+                  LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+                  LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+                  LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+                  API_BASE_URL="https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io" \
+                  PROD_API_URL="https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io" < /dev/null || az containerapp update \
+                  --name "$CORE_APP" \
+                  --resource-group "$RG" \
+                  --image "$LATEST_IMG" \
+                  --min-replicas 1 \
+                  --max-replicas 5 < /dev/null || true
+            elif [ "$CORE_APP" = "api" ]; then
+              az containerapp update \
+                --name "$CORE_APP" \
+                --resource-group "$RG" \
+                --image "$TARGET_IMG" \
+                --set-env-vars \
+                  LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
+                  LIVEKIT_API_KEY="APIUJck6jdupFvT" \
+                  LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" < /dev/null || az containerapp update \
+                  --name "$CORE_APP" \
+                  --resource-group "$RG" \
+                  --image "$LATEST_IMG" < /dev/null || true
+            else
+              az containerapp update \
+                --name "$CORE_APP" \
+                --resource-group "$RG" \
+                --image "$TARGET_IMG" < /dev/null || az containerapp update \
+                --name "$CORE_APP" \
+                --resource-group "$RG" \
+                --image "$LATEST_IMG" < /dev/null || true
+            fi
           done
 
       - name: Deploy Voice Agent to LiveKit Cloud

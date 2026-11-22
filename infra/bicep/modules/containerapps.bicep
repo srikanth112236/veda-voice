@@ -135,6 +135,18 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
               name: 'LIVEKIT_SIP_OUTBOUND_TRUNK_ID'
               value: livekitOutboundTrunkId
             }
+            {
+              name: 'LIVEKIT_URL'
+              value: 'wss://steyzi-xvk89l73.livekit.cloud'
+            }
+            {
+              name: 'LIVEKIT_API_KEY'
+              value: 'APIUJck6jdupFvT'
+            }
+            {
+              name: 'LIVEKIT_API_SECRET'
+              value: 'JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA'
+            }
           ]
         }
       ]
@@ -369,6 +381,14 @@ resource agentApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'LIVEKIT_URL'
               value: 'wss://steyzi-xvk89l73.livekit.cloud'
+            }
+            {
+              name: 'LIVEKIT_API_KEY'
+              value: 'APIUJck6jdupFvT'
+            }
+            {
+              name: 'LIVEKIT_API_SECRET'
+              value: 'JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA'
             }
             {
               name: 'API_BASE_URL'
