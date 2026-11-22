@@ -41,31 +41,29 @@ def admin_auth_setup() -> dict[str, Any]:
         )
 
         # 2. Regular Tenant & Tenant Owner
-        tenant = db.scalar(select(Tenant).where(Tenant.name == "Pack Tenant Client"))
-        if not tenant:
-            tenant = Tenant(
-                name="Pack Tenant Client",
-                timezone="America/New_York",
-                hours="Mon-Fri 08:00-18:00",
-                status="active",
-            )
-            db.add(tenant)
-            db.commit()
-            db.refresh(tenant)
+        tenant_name = f"Pack Tenant Client {uuid.uuid4().hex[:6]}"
+        tenant = Tenant(
+            name=tenant_name,
+            timezone="America/New_York",
+            hours="Mon-Fri 08:00-18:00",
+            status="active",
+        )
+        db.add(tenant)
+        db.commit()
+        db.refresh(tenant)
 
-        owner = db.scalar(select(User).where(User.email == "tenant_owner_packs@example.com"))
-        if not owner:
-            owner = User(
-                email="tenant_owner_packs@example.com",
-                hashed_password=hash_password("TenantPass123!"),
-                role="tenant_owner",
-                full_name="Tenant Client Owner",
-                tenant_id=tenant.id,
-                is_active=True,
-            )
-            db.add(owner)
-            db.commit()
-            db.refresh(owner)
+        owner_email = f"owner_{uuid.uuid4().hex[:6]}@example.com"
+        owner = User(
+            email=owner_email,
+            hashed_password=hash_password("TenantPass123!"),
+            role="tenant_owner",
+            full_name="Tenant Client Owner",
+            tenant_id=tenant.id,
+            is_active=True,
+        )
+        db.add(owner)
+        db.commit()
+        db.refresh(owner)
 
         owner_token = create_access_token(
             {"sub": owner.id, "role": "tenant_owner", "tenant_id": tenant.id}

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -220,9 +220,12 @@ def get_platform_stats(db: Session = Depends(get_db)) -> Any:
 
 
 @router.get("/tenants", response_model=list[TenantSummaryResponse])
-def list_tenants(db: Session = Depends(get_db)) -> Any:
+def list_tenants(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> Any:
     """List all onboarded business clients."""
-    tenants = db.scalars(select(Tenant).order_by(Tenant.created_at.desc())).all()
+    tenants = db.scalars(select(Tenant).order_by(Tenant.created_at.desc()).limit(limit)).all()
     results = []
 
     plan_pricing = {

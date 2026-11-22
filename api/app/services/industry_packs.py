@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -35,19 +36,22 @@ LAUNCH_PACKS: list[dict[str, Any]] = ALL_50_INDUSTRY_PACKS
 
 
 def seed_default_industry_packs(db: Session) -> list[IndustryPack]:
-    """Seed the 4 launch industry packs with immutable version 1.0.0 configurations."""
+    """Seed the default launch industry packs with immutable version configurations."""
     try:
-        bind = db.get_bind()
-        Base.metadata.create_all(bind=bind, checkfirst=True)
-    except Exception as table_err:
-        logger.warning("Could not auto-create industry pack tables on seed: %s", table_err)
-        db.rollback()
+        existing_slugs = set(db.scalars(select(IndustryPack.slug)).all())
+        if len(existing_slugs) >= len(LAUNCH_PACKS):
+            return []
+    except Exception as check_err:
+        logger.debug("Could not check existing industry packs count: %s", check_err)
+        existing_slugs = set()
 
     seeded_packs: list[IndustryPack] = []
 
     try:
         for blueprint in LAUNCH_PACKS:
             slug = blueprint["slug"]
+            if slug in existing_slugs:
+                continue
             pack = db.scalar(select(IndustryPack).where(IndustryPack.slug == slug))
             if not pack:
                 pack = IndustryPack(
@@ -499,24 +503,40 @@ def admin_list_packs_with_stats(db: Session) -> list[dict[str, Any]]:
     if not packs:
         return get_fallback_launch_packs_with_stats()
 
+    # Pre-fetch version lists and adoption counts in batch to eliminate N+1 queries
+    try:
+        adoption_by_pack = dict(
+            db.execute(
+                select(
+                    TenantPackApplication.pack_id, func.count(TenantPackApplication.id)
+                ).group_by(TenantPackApplication.pack_id)
+            ).all()
+        )
+        adoption_by_ver = dict(
+            db.execute(
+                select(
+                    TenantPackApplication.version_id, func.count(TenantPackApplication.id)
+                ).group_by(TenantPackApplication.version_id)
+            ).all()
+        )
+        all_versions = db.scalars(
+            select(IndustryPackVersion).order_by(IndustryPackVersion.created_at.desc())
+        ).all()
+        versions_by_pack: dict[str, list[IndustryPackVersion]] = defaultdict(list)
+        for v in all_versions:
+            versions_by_pack[v.pack_id].append(v)
+    except Exception as batch_err:
+        logger.warning("Batch adoption lookup skipped: %s", batch_err)
+        adoption_by_pack = {}
+        adoption_by_ver = {}
+        versions_by_pack = defaultdict(list)
+
     results = []
 
     for p in packs:
         try:
-            total_tenants = (
-                db.scalar(
-                    select(func.count(TenantPackApplication.id)).where(
-                        TenantPackApplication.pack_id == p.id
-                    )
-                )
-                or 0
-            )
-
-            versions = db.scalars(
-                select(IndustryPackVersion)
-                .where(IndustryPackVersion.pack_id == p.id)
-                .order_by(IndustryPackVersion.created_at.desc())
-            ).all()
+            total_tenants = adoption_by_pack.get(p.id, 0)
+            versions = versions_by_pack.get(p.id, [])
 
             version_items = []
             latest_ver_str = "1.0.0"
@@ -524,14 +544,7 @@ def admin_list_packs_with_stats(db: Session) -> list[dict[str, Any]]:
                 latest_ver_str = versions[0].version_semver
 
             for v in versions:
-                adoption_count = (
-                    db.scalar(
-                        select(func.count(TenantPackApplication.id)).where(
-                            TenantPackApplication.version_id == v.id
-                        )
-                    )
-                    or 0
-                )
+                adoption_count = adoption_by_ver.get(v.id, 0)
                 version_items.append(
                     {
                         "id": v.id,
