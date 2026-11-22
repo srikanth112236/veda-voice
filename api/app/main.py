@@ -28,6 +28,10 @@ from api.app.models.industry_pack import (
     IndustryPackVersion,  # noqa: F401
     TenantPackApplication,  # noqa: F401
 )
+from api.app.models.knowledge import (
+    KnowledgeChunk,  # noqa: F401
+    KnowledgeDocument,  # noqa: F401
+)
 from api.app.models.lead_form import Lead, LeadForm
 from api.app.models.subscription import Coupon, Subscription
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
@@ -1333,6 +1337,10 @@ def init_db() -> None:
                 "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS outbound_scripts JSON NOT NULL DEFAULT '{}'::json;",
                 "ALTER TABLE industry_pack_versions ADD COLUMN IF NOT EXISTS test_scenarios JSON NOT NULL DEFAULT '[]'::json;",
                 "ALTER TABLE tenant_pack_applications ADD COLUMN IF NOT EXISTS overrides JSON NOT NULL DEFAULT '{}'::json;",
+                "CREATE TABLE IF NOT EXISTS knowledge_documents (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) REFERENCES tenants(id) ON DELETE CASCADE, filename VARCHAR(255) NOT NULL, file_size_bytes INTEGER DEFAULT 0 NOT NULL, mime_type VARCHAR(128) DEFAULT 'text/plain' NOT NULL, storage_path VARCHAR(512) DEFAULT '' NOT NULL, status VARCHAR(32) DEFAULT 'indexed' NOT NULL, error_message TEXT NULL, chunk_count INTEGER DEFAULT 0 NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+                "CREATE TABLE IF NOT EXISTS knowledge_chunks (id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) REFERENCES tenants(id) ON DELETE CASCADE, document_id VARCHAR(36) REFERENCES knowledge_documents(id) ON DELETE CASCADE, chunk_index INTEGER DEFAULT 0 NOT NULL, content TEXT NOT NULL, token_count INTEGER DEFAULT 0 NOT NULL, chunk_metadata JSON DEFAULT '{}'::json NOT NULL, embedding JSON NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_documents_tenant_created ON knowledge_documents (tenant_id, created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_tenant_doc ON knowledge_chunks (tenant_id, document_id);",
             ]
             for stmt in pg_statements:
                 try:

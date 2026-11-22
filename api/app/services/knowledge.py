@@ -152,6 +152,29 @@ def _normalize_text(text: str) -> str:
     return text.strip()
 
 
+# Prompt injection regex patterns to defend against untrusted user/caller documents
+_INJECTION_PATTERNS = [
+    re.compile(r"(?i)\[\s*system[\s:]+.*?\]"),
+    re.compile(r"(?i)<\|(system|im_start|im_end|assistant|user)\|>"),
+    re.compile(r"(?i)###\s*(system|instruction|prompt)"),
+    re.compile(r"(?i)ignore\s+(all\s+)?(previous|prior|existing)\s+instructions"),
+    re.compile(r"(?i)(disclose|reveal|dump)\s+(all\s+)?(passwords|secrets|keys|system\s+prompts?)"),
+    re.compile(
+        r"(?i)(you\s+are\s+now|enter)\s+(developer\s+mode|dan\s+mode|unrestricted\s+mode|jailbreak)"
+    ),
+]
+
+
+def sanitize_prompt_injection(text: str) -> str:
+    """Neutralize malicious prompt injection tokens and prompt override directives in document text."""
+    if not text:
+        return ""
+    cleaned = text
+    for pattern in _INJECTION_PATTERNS:
+        cleaned = pattern.sub("[filtered-system-directive]", cleaned)
+    return _normalize_text(cleaned)
+
+
 # ================= 2. RECURSIVE SENTENCE-AWARE CHUNKING =================
 
 
@@ -236,8 +259,56 @@ def chunk_text_recursively(
 # ================= 3. SUB-50MS HYBRID RETRIEVAL ENGINE =================
 
 
+# Common English stop words that should not drive BM25 or semantic matching
+_STOPWORDS = {
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "whom",
+    "this",
+    "that",
+    "these",
+    "those",
+    "the",
+    "and",
+    "are",
+    "can",
+    "you",
+    "for",
+    "our",
+    "your",
+    "with",
+    "have",
+    "has",
+    "does",
+    "did",
+    "about",
+    "from",
+    "how",
+    "much",
+    "many",
+    "will",
+    "would",
+    "could",
+    "tell",
+    "give",
+    "some",
+    "any",
+    "into",
+    "onto",
+    "under",
+    "over",
+    "more",
+    "less",
+}
+
+
 def _tokenize(text: str) -> list[str]:
-    return [w.lower() for w in _WORD_PATTERN.findall(text) if len(w) > 2]
+    raw = [w.lower() for w in _WORD_PATTERN.findall(text) if len(w) > 2]
+    filtered = [w for w in raw if w not in _STOPWORDS]
+    return filtered if filtered else raw
 
 
 def _compute_dense_vector(text: str, dim: int = 64) -> list[float]:
@@ -379,7 +450,12 @@ def search_knowledge_base(
             "out_of_scope": True,
             "confidence_score": 0.0,
             "top_matches": [],
-            "grounding_prompt": "No tenant knowledge base documents match this inquiry.",
+            "grounding_prompt": (
+                "GROUNDING WARNING: No verified business documentation matches this inquiry. "
+                "Politely inform the caller: 'I don't have that specific detail in our verified documents, "
+                "but I will have someone follow up with you with an accurate quote.' "
+                "NEVER guess, estimate, or invent prices, fees, or policy terms."
+            ),
             "latency_ms": elapsed_ms,
         }
 
@@ -451,8 +527,9 @@ def search_knowledge_base(
     if out_of_scope:
         grounding_prompt = (
             "GROUNDING WARNING: The user inquiry is outside the verified business documentation. "
-            "Politely inform the caller: 'I don't have that specific detail in our documentation, "
-            "but I can take down your contact info or transfer you to our specialist team.'"
+            "Politely inform the caller: 'I don't have that specific detail in our verified documents, "
+            "but I will have someone follow up with you with an accurate quote.' "
+            "NEVER guess, estimate, or invent prices, fees, or policy terms."
         )
     else:
         excerpts = "\n---\n".join(
@@ -461,7 +538,9 @@ def search_knowledge_base(
         )
         grounding_prompt = (
             f"VERIFIED TENANT KNOWLEDGE BASE CONTEXT (Sub-50ms RAG):\n{excerpts}\n"
-            "INSTRUCTION: Answer caller questions accurately using ONLY the facts above."
+            "INSTRUCTION: Answer caller questions accurately using ONLY the facts above. "
+            "Quoted prices must come only from the client's approved documents. "
+            "If no match exists, state that someone will follow up."
         )
 
     elapsed_ms = round((time.perf_counter() - start_time) * 1000.0, 2)

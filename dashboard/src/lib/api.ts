@@ -338,6 +338,7 @@ export interface PhoneticEntry {
 }
 
 export interface FAQItem {
+  id?: string;
   question: string;
   answer: string;
   category?: string;
@@ -1986,6 +1987,9 @@ export const api = {
       escalated_to?: string;
       extracted_intake: Record<string, any>;
       turn_count: number;
+      cited_source?: string;
+      cited_snippet?: string;
+      cited_score?: number;
     }>("/api/v1/portal/industry-packs/sandbox/turn", {
       method: "POST",
       body: JSON.stringify(data),

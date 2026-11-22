@@ -1,5 +1,6 @@
 """Integration tests verifying Client Portal reflection and voice runtime for Platform Admin Industry Packs (Phase 4)."""
 
+import io
 import uuid
 from typing import Any
 
@@ -278,3 +279,74 @@ def test_end_to_end_portal_and_runtime_reflection(portal_reflection_setup: dict[
     cfg_num = by_num_res.json()
     assert cfg_num["industry_pack_slug"] == pack_slug
     assert "Rivera Family Chiropractic & Spine" in cfg_num["industry_pack_prompt"]
+
+
+def test_portal_knowledge_grounding_and_sandbox_citation(
+    portal_reflection_setup: dict[str, Any],
+) -> None:
+    """Verify document upload, verified FAQ sync, and Sandbox source citation display."""
+    client_headers = {"Authorization": f"Bearer {portal_reflection_setup['owner_token']}"}
+
+    # 1. Upload price list
+    price_doc = (
+        "APEX PLUMBING OFFICIAL PRICE LIST:\n"
+        "Main sewer line camera inspection fee is $195.\n"
+        "Water heater thermal expansion tank replacement is $350.\n"
+    )
+    upload_res = client.post(
+        "/api/v1/portal/knowledge/upload",
+        files={
+            "file": ("apex_price_list.txt", io.BytesIO(price_doc.encode("utf-8")), "text/plain")
+        },
+        headers=client_headers,
+    )
+    assert upload_res.status_code == 200
+    doc_data = upload_res.json()
+    assert doc_data["filename"] == "apex_price_list.txt"
+
+    # 2. Add verified FAQ
+    faq_res = client.post(
+        "/api/v1/portal/knowledge/faqs",
+        json={
+            "question": "What is your main sewer inspection fee?",
+            "answer": "Our main sewer line camera inspection is $195.",
+            "category": "Pricing & Fees",
+            "alternate_phrasings": ["camera snake inspection", "sewer scope price"],
+        },
+        headers=client_headers,
+    )
+    assert faq_res.status_code == 200
+
+    # 3. Simulate turn inquiring about sewer scope price -> MUST cite source
+    sandbox_res = client.post(
+        "/api/v1/portal/industry-packs/sandbox/turn",
+        json={
+            "pack_slug": "home_services",
+            "message": "How much do you charge for a sewer scope price?",
+            "vars": {"business_name": "Apex Plumbing"},
+            "emergency_keywords": ["burst pipe"],
+        },
+        headers=client_headers,
+    )
+    assert sandbox_res.status_code == 200
+    res_data = sandbox_res.json()
+    assert res_data["cited_source"] is not None
+    assert "$195" in res_data["reply"]
+    assert "Based on our verified documents" in res_data["reply"]
+
+    # 4. Simulate turn inquiring about completely unlisted service -> MUST NOT invent price
+    unlisted_res = client.post(
+        "/api/v1/portal/industry-packs/sandbox/turn",
+        json={
+            "pack_slug": "home_services",
+            "message": "What is the cost to build a 500-gallon underground septic reservoir?",
+            "vars": {"business_name": "Apex Plumbing"},
+            "emergency_keywords": ["burst pipe"],
+        },
+        headers=client_headers,
+    )
+    assert unlisted_res.status_code == 200
+    unlisted_data = unlisted_res.json()
+    assert "I don't have that specific pricing in our verified documents" in unlisted_data["reply"]
+    assert "follow up with you with an accurate quote" in unlisted_data["reply"]
+    assert "$" not in unlisted_data["reply"]

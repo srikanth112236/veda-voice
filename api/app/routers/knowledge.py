@@ -19,6 +19,7 @@ from api.app.services.knowledge import (
     _compute_dense_vector,
     chunk_text_recursively,
     extract_document_text,
+    sanitize_prompt_injection,
     search_knowledge_base,
 )
 
@@ -96,6 +97,7 @@ def _sync_tenant_faqs_to_chunks(tenant_id: str, faqs: list[dict[str, Any]], db: 
     )
     if not doc:
         doc = KnowledgeDocument(
+            id=str(uuid.uuid4()),
             tenant_id=tenant_id,
             filename="Direct Business FAQs & Policies",
             file_size_bytes=sum(len(f.get("question", "") + f.get("answer", "")) for f in faqs),
@@ -116,8 +118,8 @@ def _sync_tenant_faqs_to_chunks(tenant_id: str, faqs: list[dict[str, Any]], db: 
 
     # Insert a structured chunk per FAQ
     for idx, item in enumerate(faqs):
-        q = str(item.get("question", "")).strip()
-        a = str(item.get("answer", "")).strip()
+        q = sanitize_prompt_injection(str(item.get("question", "")).strip())
+        a = sanitize_prompt_injection(str(item.get("answer", "")).strip())
         cat = str(item.get("category", "General")).strip()
         alts = item.get("alternate_phrasings", [])
         alt_str = f" Alternate phrasings: {', '.join(alts)}." if alts else ""
@@ -125,6 +127,7 @@ def _sync_tenant_faqs_to_chunks(tenant_id: str, faqs: list[dict[str, Any]], db: 
         embedding_vec = _compute_dense_vector(content)
 
         chunk = KnowledgeChunk(
+            id=str(uuid.uuid4()),
             tenant_id=tenant_id,
             document_id=doc.id,
             chunk_index=idx,
@@ -183,11 +186,15 @@ async def upload_knowledge_document(
             detail="Document appears to be empty or contains no extractable text.",
         )
 
+    # Sanitize prompt injection attempts in uploaded documents
+    sanitized_text = sanitize_prompt_injection(extracted_text)
+
     # 2. Chunk text recursively
-    chunks = chunk_text_recursively(extracted_text, chunk_size=800, chunk_overlap=150)
+    chunks = chunk_text_recursively(sanitized_text, chunk_size=800, chunk_overlap=150)
 
     # 3. Save Document
     doc = KnowledgeDocument(
+        id=str(uuid.uuid4()),
         tenant_id=tenant.id,
         filename=filename,
         file_size_bytes=file_size,
@@ -203,6 +210,7 @@ async def upload_knowledge_document(
     for idx, chunk_content in enumerate(chunks):
         embedding_vec = _compute_dense_vector(chunk_content)
         chunk_obj = KnowledgeChunk(
+            id=str(uuid.uuid4()),
             tenant_id=tenant.id,
             document_id=doc.id,
             chunk_index=idx,
@@ -388,10 +396,12 @@ def create_or_update_direct_faq(
     new_id = str(uuid.uuid4())
     new_item = {
         "id": new_id,
-        "question": req.question.strip(),
-        "answer": req.answer.strip(),
+        "question": sanitize_prompt_injection(req.question.strip()),
+        "answer": sanitize_prompt_injection(req.answer.strip()),
         "category": req.category.strip() or "General",
-        "alternate_phrasings": [a.strip() for a in req.alternate_phrasings if a.strip()],
+        "alternate_phrasings": [
+            sanitize_prompt_injection(a.strip()) for a in req.alternate_phrasings if a.strip()
+        ],
     }
 
     faq_list.append(new_item)

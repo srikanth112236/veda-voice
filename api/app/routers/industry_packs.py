@@ -453,6 +453,21 @@ def simulate_sandbox_turn(
                     extracted_intake[k] = area.title()
                     break
 
+    # 2.5 Query Tenant Knowledge Base (Grounding Engine)
+    from api.app.services.knowledge import search_knowledge_base
+
+    rag_result = search_knowledge_base(
+        db=db, tenant_id=tenant.id, query=req.message, top_k=1, confidence_threshold=0.30
+    )
+    cited_source: str | None = None
+    cited_snippet: str | None = None
+    cited_score: float | None = None
+    if not rag_result.get("out_of_scope") and rag_result.get("top_matches"):
+        top_match = rag_result["top_matches"][0]
+        cited_source = f"{top_match['filename']} (Chunk {top_match.get('chunk_index', 0)})"
+        cited_snippet = top_match["content"]
+        cited_score = top_match.get("score")
+
     # 3. Conversational response generation
     if is_emergency:
         reply = (
@@ -485,13 +500,21 @@ def simulate_sandbox_turn(
                 f"I have conflict-free openings tomorrow at 10:00 AM or 2:00 PM for {biz_name}. "
                 "Which of those times works best for you?"
             )
-    elif any(p in msg_low for p in ("fee", "price", "cost", "how much", "rate")):
-        fee = (
-            req.vars.get("diagnostic_fee")
-            or req.vars.get("consultation_fee")
-            or "standard competitive pricing"
-        )
-        reply = f"For our service visits, {biz_name} has {fee}. Would you like to check open appointment slots?"
+    elif any(p in msg_low for p in ("fee", "price", "cost", "how much", "rate", "quote")):
+        if cited_source and cited_snippet:
+            reply = f"Based on our verified documents ({cited_source}): {cited_snippet} Would you like to check available appointment times?"
+        elif req.vars.get("diagnostic_fee") and any(
+            w in msg_low for w in ("diagnostic", "dispatch", "visit", "come out", "look")
+        ):
+            fee = req.vars.get("diagnostic_fee")
+            reply = f"Our standard diagnostic dispatch fee is {fee}. Would you like to reserve a 2-hour arrival window?"
+        else:
+            reply = (
+                f"I don't have that specific pricing in our verified documents for {biz_name}, "
+                "but I will have someone follow up with you with an accurate quote."
+            )
+    elif cited_source and cited_snippet:
+        reply = f"Regarding your question ({cited_source}): {cited_snippet}"
     else:
         reply = (
             f"Thank you for contacting {biz_name}. I can assist with scheduling an appointment, "
@@ -507,4 +530,7 @@ def simulate_sandbox_turn(
         "escalated_to": escalated_to if is_emergency else None,
         "extracted_intake": extracted_intake,
         "turn_count": len(req.history) + 1,
+        "cited_source": cited_source,
+        "cited_snippet": cited_snippet,
+        "cited_score": cited_score,
     }

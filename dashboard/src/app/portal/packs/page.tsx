@@ -25,8 +25,23 @@ import {
   Flame,
   PhoneCall,
   Terminal,
+  FileText,
+  UploadCloud,
+  Search,
+  Trash2,
+  Eye,
+  BookOpen,
+  HelpCircle,
+  Layers,
 } from "lucide-react";
-import { api, IndustryPackSummary, IndustryPackDetail } from "@/lib/api";
+import {
+  api,
+  IndustryPackSummary,
+  IndustryPackDetail,
+  KnowledgeDocument,
+  FAQItem,
+  RAGQueryResponse,
+} from "@/lib/api";
 
 interface ChatMessage {
   id: string;
@@ -34,6 +49,9 @@ interface ChatMessage {
   text: string;
   is_emergency?: boolean;
   timestamp: string;
+  cited_source?: string;
+  cited_snippet?: string;
+  cited_score?: number;
 }
 
 interface SandboxHudState {
@@ -43,10 +61,15 @@ interface SandboxHudState {
   escalatedTo?: string;
   extractedIntake: Record<string, any>;
   turnCount: number;
+  citedSource?: string;
+  citedScore?: number;
+  citedSnippet?: string;
 }
 
 export default function IndustryPacksPage() {
-  const [activeTab, setActiveTab] = useState<"catalog" | "studio" | "sandbox" | "test">("catalog");
+  const [activeTab, setActiveTab] = useState<
+    "catalog" | "studio" | "grounding" | "sandbox" | "test"
+  >("catalog");
   const [packs, setPacks] = useState<IndustryPackSummary[]>([]);
   const [selectedPackSlug, setSelectedPackSlug] = useState<string>("home_services");
   const [packDetail, setPackDetail] = useState<IndustryPackDetail | null>(null);
@@ -84,8 +107,126 @@ export default function IndustryPacksPage() {
     turnCount: 0,
   });
 
+  // Knowledge Grounding state (Grounded in business info, Milestone M10a)
+  const [kbDocs, setKbDocs] = useState<KnowledgeDocument[]>([]);
+  const [kbFaqs, setKbFaqs] = useState<FAQItem[]>([]);
+  const [kbLoading, setKbLoading] = useState<boolean>(false);
+  const [uploadingDoc, setUploadingDoc] = useState<boolean>(false);
+  const [newFaqQuestion, setNewFaqQuestion] = useState<string>("");
+  const [newFaqAnswer, setNewFaqAnswer] = useState<string>("");
+  const [newFaqCategory, setNewFaqCategory] = useState<string>("Pricing & Fees");
+  const [newFaqAlts, setNewFaqAlts] = useState<string>("");
+  const [ragQuery, setRagQuery] = useState<string>("");
+  const [ragResult, setRagResult] = useState<RAGQueryResponse | null>(null);
+  const [ragSearching, setRagSearching] = useState<boolean>(false);
+  const [inspectingDoc, setInspectingDoc] = useState<{
+    document: KnowledgeDocument;
+    chunks: Array<{ id: string; chunk_index: number; content: string; token_count: number }>;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const speechRecognitionRef = useRef<any>(null);
+
+  const loadGroundingData = async () => {
+    try {
+      setKbLoading(true);
+      const [docs, faqs] = await Promise.all([
+        api.listKnowledgeDocuments().catch(() => []),
+        api.listDirectFAQs().catch(() => []),
+      ]);
+      setKbDocs(docs || []);
+      setKbFaqs(faqs || []);
+    } catch (err: any) {
+      console.error("Failed to load grounding data", err);
+    } finally {
+      setKbLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingDoc(true);
+      await api.uploadKnowledgeDocument(file);
+      setMessage({ type: "success", text: `Successfully indexed and grounded "${file.name}".` });
+      await loadGroundingData();
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Failed to upload document" });
+    } finally {
+      setUploadingDoc(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteDoc = async (docId: string, filename: string) => {
+    if (!confirm(`Delete "${filename}" and remove its indexed chunks from voice agent grounding?`)) return;
+    try {
+      await api.deleteKnowledgeDocument(docId);
+      setMessage({ type: "success", text: `Removed "${filename}".` });
+      await loadGroundingData();
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Failed to delete document" });
+    }
+  };
+
+  const handleInspectDoc = async (docId: string) => {
+    try {
+      const details = await api.getKnowledgeDocument(docId);
+      setInspectingDoc(details);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Failed to retrieve document chunks" });
+    }
+  };
+
+  const handleAddFaq = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFaqQuestion.trim() || !newFaqAnswer.trim()) return;
+    try {
+      const alts = newFaqAlts
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await api.createDirectFAQ({
+        question: newFaqQuestion.trim(),
+        answer: newFaqAnswer.trim(),
+        category: newFaqCategory.trim() || "Pricing & Fees",
+        alternate_phrasings: alts,
+      });
+      setNewFaqQuestion("");
+      setNewFaqAnswer("");
+      setNewFaqAlts("");
+      setMessage({ type: "success", text: "Added verified FAQ. Synchronized into RAG vector index." });
+      await loadGroundingData();
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Failed to add FAQ" });
+    }
+  };
+
+  const handleDeleteFaq = async (faqId: string) => {
+    try {
+      await api.deleteDirectFAQ(faqId);
+      setMessage({ type: "success", text: "Deleted verified FAQ from knowledge base." });
+      await loadGroundingData();
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Failed to delete FAQ" });
+    }
+  };
+
+  const handleTestRag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ragQuery.trim()) return;
+    try {
+      setRagSearching(true);
+      const res = await api.testRAGQuery(ragQuery.trim(), 3, 0.30);
+      setRagResult(res);
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Search failed" });
+    } finally {
+      setRagSearching(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -119,6 +260,9 @@ export default function IndustryPacksPage() {
 
       // Hydrate Studio State
       hydrateStudio(detail, applied?.overrides);
+
+      // Hydrate Grounding Knowledge Base
+      loadGroundingData();
     } catch (err: any) {
       console.error("Failed to load industry packs", err);
       setMessage({ type: "error", text: err.message || "Failed to load industry packs" });
@@ -368,6 +512,9 @@ export default function IndustryPacksPage() {
         text: res.reply,
         is_emergency: res.detected_emergency,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        cited_source: res.cited_source,
+        cited_snippet: res.cited_snippet,
+        cited_score: res.cited_score,
       };
 
       setChatHistory((prev) => [...prev, assistantMessage]);
@@ -379,6 +526,9 @@ export default function IndustryPacksPage() {
         escalatedTo: res.escalated_to || prev.escalatedTo,
         extractedIntake: { ...prev.extractedIntake, ...(res.extracted_intake || {}) },
         turnCount: res.turn_count,
+        citedSource: res.cited_source || prev.citedSource,
+        citedSnippet: res.cited_snippet || prev.citedSnippet,
+        citedScore: res.cited_score || prev.citedScore,
       }));
 
       // Speak assistant reply
@@ -549,6 +699,22 @@ export default function IndustryPacksPage() {
         >
           <Sliders className="h-4 w-4" />
           Customization Studio
+        </button>
+        <button
+          onClick={() => setActiveTab("grounding")}
+          className={`pb-3 border-b-2 flex items-center gap-2 transition ${
+            activeTab === "grounding"
+              ? "border-indigo-600 text-indigo-600 font-semibold"
+              : "border-transparent text-zinc-500 hover:text-zinc-800"
+          }`}
+        >
+          <BookOpen className="h-4 w-4" />
+          Knowledge Grounding Studio
+          {kbDocs.length > 0 && (
+            <span className="rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0.2 text-[10px] font-mono font-semibold">
+              {kbDocs.length}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab("sandbox")}
@@ -1015,6 +1181,400 @@ export default function IndustryPacksPage() {
         </div>
       )}
 
+      {/* Tab: Knowledge Grounding Studio */}
+      {activeTab === "grounding" && (
+        <div className="space-y-6">
+          {/* Header Policy Banner */}
+          <div className="rounded-xl border border-indigo-100 bg-gradient-to-r from-indigo-50/70 via-white to-emerald-50/50 p-5 shadow-xs">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 mb-2">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Grounded in Your Business Info
+                </span>
+                <h3 className="text-base font-bold text-zinc-900">
+                  Client Knowledge Grounding Studio
+                </h3>
+                <p className="mt-1 text-xs text-zinc-600 max-w-2xl leading-relaxed">
+                  Upload verified price sheets, warranties, and business policies. VedaVoice retrieves relevant excerpts at call time so answers and quoted prices come strictly from your approved documents.
+                </p>
+              </div>
+              <div className="text-right hidden sm:block">
+                <span className="text-xs font-mono font-medium text-zinc-500">
+                  Retrieval Latency Target: &lt;50ms
+                </span>
+                <div className="text-[11px] text-zinc-400 mt-0.5">
+                  Hybrid BM25 + Dense Semantic Chunks
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="rounded-lg border border-zinc-200 bg-white/80 p-3 shadow-2xs">
+                <div className="font-semibold text-zinc-800 flex items-center gap-1.5 mb-1">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  Strict Document Grounding
+                </div>
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  Quoted prices come only from approved documents. If no match exists, the agent states it will have someone follow up.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white/80 p-3 shadow-2xs">
+                <div className="font-semibold text-zinc-800 flex items-center gap-1.5 mb-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-indigo-600" />
+                  Prompt Injection Defense
+                </div>
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  Uploaded documents pass through sanitizer rules to strip adversarial tokens and prevent system instruction override.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white/80 p-3 shadow-2xs">
+                <div className="font-semibold text-zinc-800 flex items-center gap-1.5 mb-1">
+                  <Flame className="h-3.5 w-3.5 text-amber-600" />
+                  Life Safety Directive
+                </div>
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  VedaVoice never gives DIY gas, electrical, or plumbing repair advice. Callers are directed to public utilities / 911.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column (7 cols): Document Upload & Verified FAQs */}
+            <div className="lg:col-span-7 space-y-6">
+              {/* Section 1: Approved Business Documents */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-indigo-600" />
+                      Approved Business Documents &amp; Price Sheets
+                    </h4>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      PDF, Word (.docx), CSV, Markdown, or plain text (max 10MB each).
+                    </p>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.txt,.csv,.md,.markdown"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingDoc}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50 shadow-2xs"
+                  >
+                    <UploadCloud className="h-3.5 w-3.5" />
+                    {uploadingDoc ? "Indexing..." : "Upload Document"}
+                  </button>
+                </div>
+
+                {kbLoading ? (
+                  <div className="py-8 text-center text-xs text-zinc-400">Loading grounded documents...</div>
+                ) : kbDocs.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-zinc-300 p-8 text-center">
+                    <BookOpen className="h-8 w-8 text-zinc-300 mx-auto mb-2" />
+                    <p className="text-xs font-medium text-zinc-700">No documents uploaded yet</p>
+                    <p className="text-[11px] text-zinc-400 mt-1 max-w-sm mx-auto">
+                      Upload your standard service menu, price sheet, or warranty guidelines so your voice agent can answer customer inquiries accurately.
+                    </p>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Upload First Price Sheet
+                    </button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden">
+                    {kbDocs.map((doc) => (
+                      <div key={doc.id} className="flex items-center justify-between p-3 bg-white hover:bg-zinc-50/60 transition">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="p-2 rounded bg-zinc-100 text-zinc-600 shrink-0">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-zinc-900 truncate">
+                                {doc.filename}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.2 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="h-2.5 w-2.5" />
+                                {doc.status}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-[11px] text-zinc-400 mt-0.5 font-mono">
+                              <span>{(doc.file_size_bytes / 1024).toFixed(1)} KB</span>
+                              <span>•</span>
+                              <span>{doc.chunk_count} chunks</span>
+                              <span>•</span>
+                              <span>{new Date(doc.created_at).toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0 ml-3">
+                          <button
+                            onClick={() => handleInspectDoc(doc.id)}
+                            title="Inspect sentence chunks"
+                            className="p-1.5 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDoc(doc.id, doc.filename)}
+                            title="Delete document"
+                            className="p-1.5 rounded text-zinc-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Verified Direct FAQs & Policies */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+                <div className="border-b border-zinc-100 pb-3">
+                  <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+                    <HelpCircle className="h-4 w-4 text-emerald-600" />
+                    Verified Direct FAQs &amp; Policies
+                  </h4>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Direct Q&amp;A pairs immediately synchronize into vector chunks for sub-50ms voice retrieval.
+                  </p>
+                </div>
+
+                {/* Add FAQ Form */}
+                <form onSubmit={handleAddFaq} className="space-y-3 bg-zinc-50/70 p-3.5 rounded-lg border border-zinc-200 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <div className="md:col-span-2 space-y-1">
+                      <label className="font-semibold text-zinc-700">Question / Customer Inquiry</label>
+                      <input
+                        type="text"
+                        value={newFaqQuestion}
+                        onChange={(e) => setNewFaqQuestion(e.target.value)}
+                        placeholder="e.g. What is your diagnostic dispatch fee?"
+                        required
+                        className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-semibold text-zinc-700">Category</label>
+                      <select
+                        value={newFaqCategory}
+                        onChange={(e) => setNewFaqCategory(e.target.value)}
+                        className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                      >
+                        <option value="Pricing & Fees">Pricing &amp; Fees</option>
+                        <option value="Emergency Protocol">Emergency Protocol</option>
+                        <option value="Warranties & Guarantees">Warranties &amp; Guarantees</option>
+                        <option value="Hours & Service Area">Hours &amp; Service Area</option>
+                        <option value="General">General</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-semibold text-zinc-700">Verified Answer</label>
+                    <textarea
+                      rows={2}
+                      value={newFaqAnswer}
+                      onChange={(e) => setNewFaqAnswer(e.target.value)}
+                      placeholder="e.g. Our standard diagnostic dispatch fee is $89 during regular business hours, which is credited toward any completed repair."
+                      required
+                      className="w-full rounded-md border border-zinc-300 p-2.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-semibold text-zinc-700">Alternate Phrasings (Comma-separated)</label>
+                    <input
+                      type="text"
+                      value={newFaqAlts}
+                      onChange={(e) => setNewFaqAlts(e.target.value)}
+                      placeholder="e.g. service call rate, diagnostic charge, how much to come look"
+                      className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                    />
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition shadow-2xs"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Save &amp; Sync FAQ
+                    </button>
+                  </div>
+                </form>
+
+                {/* FAQ List */}
+                {kbFaqs.length > 0 && (
+                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden max-h-[360px] overflow-y-auto">
+                    {kbFaqs.map((faq, idx) => (
+                      <div key={faq.id || idx} className="p-3 bg-white hover:bg-zinc-50/50 transition flex items-start justify-between gap-3 text-xs">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-zinc-900">Q: {faq.question}</span>
+                            <span className="rounded bg-zinc-100 px-1.5 py-0.2 text-[10px] font-medium text-zinc-600">
+                              {faq.category || "General"}
+                            </span>
+                          </div>
+                          <p className="text-zinc-600 leading-relaxed text-[11px]">A: {faq.answer}</p>
+                          {faq.alternate_phrasings && faq.alternate_phrasings.length > 0 && (
+                            <div className="flex items-center gap-1 text-[10px] text-zinc-400 font-mono">
+                              <span>Synonyms:</span>
+                              <span>{faq.alternate_phrasings.join(", ")}</span>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleDeleteFaq(faq.id || faq.question)}
+                          className="p-1.5 rounded text-zinc-400 hover:text-rose-600 hover:bg-rose-50 transition shrink-0"
+                          title="Delete FAQ"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Column (5 cols): Sub-50ms RAG Query & Simulator */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+                <div className="border-b border-zinc-100 pb-3">
+                  <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
+                    <Search className="h-4 w-4 text-indigo-600" />
+                    Sub-50ms Grounding Simulator
+                  </h4>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Test live queries against your indexed business info to verify citation accuracy before real callers connect.
+                  </p>
+                </div>
+
+                <form onSubmit={handleTestRag} className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={ragQuery}
+                      onChange={(e) => setRagQuery(e.target.value)}
+                      placeholder="e.g. How much is your diagnostic fee?"
+                      required
+                      className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={ragSearching}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition disabled:opacity-50 shrink-0 shadow-2xs"
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                      {ragSearching ? "Searching..." : "Test Query"}
+                    </button>
+                  </div>
+                </form>
+
+                {ragResult && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-zinc-700">Retrieval Outcome:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-zinc-500">
+                          {ragResult.latency_ms} ms
+                        </span>
+                        {ragResult.out_of_scope ? (
+                          <span className="rounded bg-amber-100 text-amber-900 px-2 py-0.5 font-semibold text-[11px]">
+                            Out of Scope / Follow-Up Required
+                          </span>
+                        ) : (
+                          <span className="rounded bg-emerald-100 text-emerald-900 px-2 py-0.5 font-semibold text-[11px]">
+                            Grounded ({Math.round(ragResult.confidence_score * 100)}% Match)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {ragResult.top_matches && ragResult.top_matches.length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-[11px] font-semibold uppercase text-zinc-500 tracking-wider">
+                          Top Cited Documents:
+                        </span>
+                        {ragResult.top_matches.map((m, idx) => (
+                          <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 text-xs space-y-1">
+                            <div className="flex items-center justify-between font-mono text-[11px]">
+                              <span className="font-bold text-zinc-800">{m.filename}</span>
+                              <span className="text-emerald-700 font-semibold">{Math.round(m.score * 100)}%</span>
+                            </div>
+                            <p className="text-zinc-700 font-serif italic text-[11px] leading-relaxed">
+                              &quot;{m.content}&quot;
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="space-y-1 pt-1">
+                      <span className="text-[11px] font-semibold uppercase text-zinc-500 tracking-wider">
+                        Agent Grounding Prompt Directive:
+                      </span>
+                      <pre className="rounded-lg bg-zinc-900 p-3 text-[10px] font-mono text-zinc-200 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                        {ragResult.grounding_prompt}
+                      </pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Inspect Document Modal */}
+          {inspectingDoc && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl border border-zinc-200 overflow-hidden max-h-[80vh] flex flex-col">
+                <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50">
+                  <div>
+                    <h4 className="text-sm font-bold text-zinc-900">{inspectingDoc.document.filename}</h4>
+                    <p className="text-xs text-zinc-500 font-mono">
+                      {inspectingDoc.chunks.length} sentence-aware chunks • {(inspectingDoc.document.file_size_bytes / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setInspectingDoc(null)}
+                    className="p-1 rounded text-zinc-400 hover:text-zinc-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="p-4 overflow-y-auto space-y-3 flex-1 text-xs">
+                  {inspectingDoc.chunks.map((chk) => (
+                    <div key={chk.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-3 space-y-1">
+                      <div className="flex items-center justify-between font-mono text-[10px] text-zinc-500">
+                        <span>Chunk #{chk.chunk_index}</span>
+                        <span>{chk.token_count} tokens</span>
+                      </div>
+                      <p className="text-zinc-800 leading-relaxed font-serif text-[11px]">
+                        {chk.content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tab 3: Live Voice & Text Sandbox */}
       {activeTab === "sandbox" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1103,6 +1663,19 @@ export default function IndustryPacksPage() {
                       </div>
                     )}
                     <p>{msg.text}</p>
+                    {msg.cited_source && (
+                      <div className="mt-2 pt-1.5 border-t border-zinc-200/80 flex items-center justify-between text-[11px] text-emerald-800 bg-emerald-50/80 rounded-md px-2 py-1">
+                        <div className="flex items-center gap-1.5 font-medium truncate">
+                          <FileText className="h-3 w-3 text-emerald-600 shrink-0" />
+                          <span>Cited Source: {msg.cited_source}</span>
+                        </div>
+                        {typeof msg.cited_score === "number" && (
+                          <span className="text-[10px] bg-emerald-200/70 text-emerald-900 px-1.5 py-0.5 rounded font-mono shrink-0 ml-2">
+                            {Math.round(msg.cited_score * 100)}% match
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1255,6 +1828,40 @@ export default function IndustryPacksPage() {
                   <div className="rounded-lg border border-dashed border-zinc-200 p-4 text-center text-xs text-zinc-400">
                     No intake fields extracted yet. Speak or type answers (e.g. trade type, urgency level, property type) to watch live CRM extraction.
                   </div>
+                )}
+              </div>
+
+              {/* Grounded Business Info Cited (Milestone M10a) */}
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-700">
+                    <FileText className="h-3.5 w-3.5 text-emerald-600" />
+                    Grounded Document Citation
+                  </span>
+                  {typeof hudState.citedScore === "number" && (
+                    <span className="text-[10px] font-mono font-semibold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                      {Math.round(hudState.citedScore * 100)}% match
+                    </span>
+                  )}
+                </div>
+                {hudState.citedSource ? (
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex items-center gap-1 font-semibold text-zinc-900">
+                      <span className="text-zinc-500 font-normal">Source:</span>
+                      <span className="font-mono text-[11px] text-emerald-800 bg-white border border-emerald-200 px-1.5 py-0.5 rounded">
+                        {hudState.citedSource}
+                      </span>
+                    </div>
+                    {hudState.citedSnippet && (
+                      <div className="rounded bg-white p-2 text-[11px] text-zinc-700 border border-zinc-200 font-serif italic max-h-24 overflow-y-auto leading-relaxed">
+                        &quot;{hudState.citedSnippet}&quot;
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-zinc-400 italic">
+                    No specific business document chunk was cited in the latest turn.
+                  </p>
                 )}
               </div>
 
