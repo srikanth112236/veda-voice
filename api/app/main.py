@@ -1466,6 +1466,16 @@ def init_db() -> None:
                 ),
                 (
                     "calls",
+                    "emergency_alert_dispatched",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS emergency_alert_dispatched BOOLEAN DEFAULT FALSE NOT NULL;",
+                ),
+                (
+                    "calls",
+                    "emergency_recipient_phone",
+                    "ALTER TABLE calls ADD COLUMN IF NOT EXISTS emergency_recipient_phone VARCHAR(64) NULL;",
+                ),
+                (
+                    "calls",
                     "qa_score",
                     "ALTER TABLE calls ADD COLUMN IF NOT EXISTS qa_score FLOAT DEFAULT 100.0 NOT NULL;",
                 ),
