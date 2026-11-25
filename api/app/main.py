@@ -662,6 +662,25 @@ def init_db() -> None:
         logging.getLogger("uvicorn.error").warning(f"Database init skipped or deferred: {exc}")
         return
 
+    if not str(engine.url).startswith("sqlite"):
+        with engine.connect() as conn:
+            from sqlalchemy import text
+
+            for stage_col in (
+                "eou_p50_ms",
+                "eou_p95_ms",
+                "ttft_p50_ms",
+                "ttft_p95_ms",
+                "ttfb_p50_ms",
+                "ttfb_p95_ms",
+            ):
+                conn.execute(
+                    text(
+                        f"ALTER TABLE calls ADD COLUMN IF NOT EXISTS {stage_col} DOUBLE PRECISION NOT NULL DEFAULT 0.0"
+                    )
+                )
+            conn.commit()
+
     if str(engine.url).startswith("sqlite"):
         with engine.connect() as conn:
             from sqlalchemy import text
