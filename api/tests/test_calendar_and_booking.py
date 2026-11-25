@@ -1,7 +1,7 @@
 """Comprehensive tests for CalendarProvider, Google Meet integration, availability engine, and double-booking guard (Milestone M3)."""
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -27,6 +27,15 @@ from api.app.services.calendar.booking import (
 from api.app.services.calendar.google import MockSandboxCalendarProvider
 
 client = TestClient(app)
+
+
+def _next_weekday(weekday: int) -> date:
+    """Return the next strictly future date matching Python weekday (0=Mon..6=Sun)."""
+    today = date.today()
+    days_ahead = (weekday - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    return today + timedelta(days=days_ahead)
 
 
 def test_envelope_encryption_roundtrip() -> None:
@@ -61,7 +70,7 @@ def test_availability_engine_operating_hours_and_buffers() -> None:
         db.commit()
 
         # Choose a future Monday
-        future_monday = date(2026, 11, 23)
+        future_monday = _next_weekday(0)
 
         response = compute_available_slots(
             tenant=tenant,
@@ -102,8 +111,8 @@ def test_availability_engine_sunday_closed() -> None:
         db.add(tenant)
         db.commit()
 
-        # Sunday date
-        sunday = date(2026, 11, 22)
+        # Future Sunday date
+        sunday = _next_weekday(6)
         response = compute_available_slots(tenant=tenant, target_date=sunday, db=db)
         assert response.available_count == 0
         assert len(response.slots) == 0
@@ -126,7 +135,7 @@ def test_availability_engine_filters_external_google_calendar_busy_blocks() -> N
         db.commit()
 
         tz = ZoneInfo("America/New_York")
-        target_date = date(2026, 11, 24)  # Tuesday
+        target_date = _next_weekday(1)  # Future Tuesday
 
         # Mock an external Google Calendar event from 10:00 AM to 11:30 AM
         sandbox_provider = MockSandboxCalendarProvider()
