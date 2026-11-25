@@ -75,6 +75,17 @@ async def end_call(
     return f"Call ended: {reason}"
 
 
+def _build_turn_detector() -> Any:
+    """Load LiveKit semantic turn detector when available, falling back cleanly."""
+    try:
+        from livekit.plugins.turn_detector.multilingual import MultilingualModel
+
+        return MultilingualModel()
+    except Exception as exc:
+        logger.warning("Semantic turn detector unavailable; falling back to VAD: %s", exc)
+        return None
+
+
 async def entrypoint(ctx: JobContext) -> None:
     """Main worker entrypoint for LiveKit Agent session with multi-tenant resolution."""
     room_name = ctx.room.name
@@ -211,17 +222,28 @@ async def entrypoint(ctx: JobContext) -> None:
     # Initialize take_message tool bound to this session's collector
     take_message_tool = create_take_message_tool(message_collector)
 
-    # Initialize AgentSession with tuned VAD and LiveKit Inference model strings
-    session: AgentSession = AgentSession(
-        stt=settings.stt_model,
-        llm=settings.llm_model,
-        tts=settings.tts_model,
-        vad=silero.VAD.load(
+    # Initialize AgentSession with tuned VAD, semantic turn detection, and barge-in guardrails
+    turn_detector = _build_turn_detector()
+    session_kwargs: dict[str, Any] = {
+        "stt": settings.stt_model,
+        "llm": settings.llm_model,
+        "tts": settings.tts_model,
+        "vad": silero.VAD.load(
             min_silence_duration=settings.vad_min_silence_duration,
             prefix_padding_duration=settings.vad_prefix_padding_duration,
         ),
-        user_away_timeout=10.0,
-    )
+        "min_endpointing_delay": 0.6,
+        "max_endpointing_delay": 3.0,
+        "min_interruption_duration": 0.6,
+        "min_interruption_words": 2,
+        "false_interruption_timeout": 1.5,
+        "resume_false_interruption": True,
+        "user_away_timeout": 15.0,
+    }
+    if turn_detector is not None:
+        session_kwargs["turn_detection"] = turn_detector
+
+    session: AgentSession = AgentSession(**session_kwargs)
 
     # Safety Monitor (Inactivity prompts + max call length)
     clock = SystemClock()
@@ -296,7 +318,7 @@ async def entrypoint(ctx: JobContext) -> None:
         elif isinstance(m, TTSMetrics):
             chars_cnt = getattr(m, "characters_count", 0) or 0
             tracker.record_tts_characters(chars_cnt)
-            if m.audio_duration <= 0 or m.characters_count == 0 or m.ttfb <= 0:
+            if chars_cnt <= 0 or m.ttfb <= 0:
                 return
 
             tts_ttfb_ms = m.ttfb * 1000.0
@@ -357,11 +379,13 @@ async def entrypoint(ctx: JobContext) -> None:
         if isinstance(item, ChatMessage):
             text_str = item.text_content or ""
             entry_time = datetime.now(UTC).isoformat()
+            was_interrupted = bool(getattr(item, "interrupted", False))
             transcript_log.append(
                 TranscriptEntry(
                     role=item.role,
                     text=text_str,
                     time=entry_time,
+                    interrupted=was_interrupted,
                 )
             )
 
@@ -374,6 +398,7 @@ async def entrypoint(ctx: JobContext) -> None:
                         "role": item.role,
                         "text": text_str,
                         "time": entry_time,
+                        "interrupted": was_interrupted,
                     }
                 ).encode("utf-8")
                 asyncio.create_task(
@@ -425,7 +450,7 @@ async def entrypoint(ctx: JobContext) -> None:
                     "bye now",
                 )
                 if any(trigger in low_text for trigger in goodbye_triggers):
-                    if call_outcome not in ("spam", "transferred"):
+                    if call_outcome not in ("spam", "wrong_number", "transferred"):
                         call_outcome = "completed"
                     logger.info(
                         "Assistant delivered goodbye closing phrase; scheduling graceful room disconnect in 2.5s"
@@ -569,6 +594,12 @@ async def entrypoint(ctx: JobContext) -> None:
             turn_count=int(summary["turn_count"]),
             latency_p50_ms=float(summary["pipeline_median_ms"]),
             latency_p95_ms=float(summary["pipeline_p95_ms"]),
+            eou_p50_ms=float(summary["eou_p50_ms"]),
+            eou_p95_ms=float(summary["eou_p95_ms"]),
+            ttft_p50_ms=float(summary["ttft_p50_ms"]),
+            ttft_p95_ms=float(summary["ttft_p95_ms"]),
+            ttfb_p50_ms=float(summary["ttfb_p50_ms"]),
+            ttfb_p95_ms=float(summary["ttfb_p95_ms"]),
             turn_latencies_ms=tracker.pipeline_latencies_ms,
             llm_prompt_tokens=int(summary.get("prompt_tokens", 0)),
             llm_completion_tokens=int(summary.get("completion_tokens", 0)),
@@ -681,7 +712,8 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     async def end_call_tool(
         reason: Annotated[
-            str, "Reason the call is ending (e.g. 'completed', 'caller_goodbye', 'spam')"
+            str,
+            "Reason the call is ending (e.g. 'completed', 'caller_goodbye', 'spam', 'wrong_number')",
         ] = "completed",
     ) -> str:
         nonlocal call_outcome
@@ -781,11 +813,23 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     greeting_text = config.greeting
-    if config.recording_disclosure and "recorded" not in greeting_text.lower():
-        greeting_text = f"This call may be recorded for quality assurance. {greeting_text}"
-
-    logger.info("Speaking greeting for tenant '%s': '%s'", config.tenant_id, greeting_text)
-    await session.say(greeting_text, allow_interruptions=True)
+    if config.recording_disclosure:
+        if "recorded" not in greeting_text.lower():
+            disclosure_text = "This call may be recorded for quality assurance."
+            logger.info("Speaking mandatory disclosure for tenant '%s'", config.tenant_id)
+            await session.say(disclosure_text, allow_interruptions=False)
+            logger.info("Speaking greeting for tenant '%s': '%s'", config.tenant_id, greeting_text)
+            await session.say(greeting_text, allow_interruptions=True)
+        else:
+            logger.info(
+                "Speaking combined disclosure+greeting for tenant '%s': '%s'",
+                config.tenant_id,
+                greeting_text,
+            )
+            await session.say(greeting_text, allow_interruptions=False)
+    else:
+        logger.info("Speaking greeting for tenant '%s': '%s'", config.tenant_id, greeting_text)
+        await session.say(greeting_text, allow_interruptions=True)
 
 
 def run_app() -> None:

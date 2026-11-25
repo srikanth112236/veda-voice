@@ -20,12 +20,13 @@ from fastapi.testclient import TestClient
 
 from api.app.core.security import create_access_token
 from api.app.db.session import SessionLocal
-from api.app.main import app
+from api.app.main import app, init_db
 from api.app.models.call import Call
 from api.app.models.tenant import Tenant
 from api.app.models.user import User
 from api.app.services.qa_scoring import evaluate_call_qa
 
+init_db()
 client = TestClient(app)
 
 
@@ -348,3 +349,119 @@ def test_portal_qa_analytics_api(qa_setup):
     assert data["average_csat_score"] >= 4.0
     assert data["qa_pass_rate_pct"] >= 80.0
     assert isinstance(data["top_flags"], list)
+
+
+def test_portal_call_detail_evaluates_missing_qa_rubric(qa_setup):
+    """Ensure calls with empty qa_rubric are evaluated lazily instead of returning fake 100/5.0."""
+    db = qa_setup["db"]
+    tenant = qa_setup["tenant_a"]
+    token = qa_setup["token_a"]
+
+    unscored_call = Call(
+        tenant_id=tenant.id,
+        call_id=f"console-94f843be-{uuid.uuid4().hex[:6]}",
+        caller_number="+15125559999",
+        dialed_number="+15125550100",
+        duration_s=0.0,
+        outcome="completed",
+        urgency="normal",
+        turn_count=4,
+        latency_p50_ms=0.0,
+        latency_p95_ms=0.0,
+        transcript=[
+            {"role": "assistant", "text": "Thanks for calling Apex Plumbing. I'm an automated"},
+            {"role": "user", "text": "It's like a graphic Mario GTA."},
+        ],
+    )
+    db.add(unscored_call)
+    db.commit()
+
+    resp = client.get(
+        f"/api/v1/portal/calls/{unscored_call.call_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["qa_score"] < 100.0
+    assert "missing_disclosure" in data["qa_flags"]
+    assert data["csat_score"] <= 2.0
+    assert "disclosure" in data["qa_rubric"]
+
+
+def test_internal_complete_call_persists_stage_latencies_and_duration_fallback(qa_setup):
+    """Ensure /internal/calls/complete computes duration_s fallback and stores per-stage latencies."""
+    from api.app.core.security import create_access_token
+
+    db = qa_setup["db"]
+    tenant = qa_setup["tenant_a"]
+    call = Call(
+        tenant_id=tenant.id,
+        call_id=f"call-stage-lat-{uuid.uuid4().hex[:6]}",
+        caller_number="+15125558888",
+        dialed_number="+15125550100",
+        outcome="in_progress",
+    )
+    db.add(call)
+    db.commit()
+
+    agent_token = create_access_token(
+        {"sub": "livekit-agent", "role": "agent", "tenant_id": tenant.id, "call_id": call.call_id}
+    )
+
+    resp = client.post(
+        "/api/v1/internal/calls/complete",
+        headers={"Authorization": f"Bearer {agent_token}"},
+        json={
+            "call_id": call.call_id,
+            "dialed_number": "+15125550100",
+            "caller_number": "+15125558888",
+            "started_at": "2026-11-25T17:50:40+00:00",
+            "ended_at": "2026-11-25T17:51:25+00:00",
+            "duration_s": 0.0,
+            "outcome": "completed",
+            "turn_count": 2,
+            "latency_p50_ms": 980.0,
+            "latency_p95_ms": 1240.0,
+            "eou_p50_ms": 480.0,
+            "eou_p95_ms": 620.0,
+            "ttft_p50_ms": 310.0,
+            "ttft_p95_ms": 410.0,
+            "ttfb_p50_ms": 190.0,
+            "ttfb_p95_ms": 230.0,
+            "transcript": [
+                {"role": "assistant", "text": "This call is recorded. Thanks for calling Apex."},
+                {"role": "user", "text": "Hi, I need a plumber."},
+            ],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    db.refresh(call)
+    assert call.duration_s == 45.0
+    assert call.eou_p50_ms == 480.0
+    assert call.ttft_p50_ms == 310.0
+    assert call.ttfb_p50_ms == 190.0
+    assert call.eou_p95_ms == 620.0
+
+
+def test_evaluate_call_qa_wrong_number_and_missing_telemetry() -> None:
+    """Wrong-number calls should not fail intake details, and 0ms latency should flag missing_telemetry."""
+    res = evaluate_call_qa(
+        transcript=[
+            {
+                "role": "assistant",
+                "text": "This call may be recorded for quality assurance. Thanks for calling Apex Plumbing.",
+            },
+            {"role": "user", "text": "It's like a graphic Mario GTA."},
+            {"role": "assistant", "text": "I believe you may have the wrong number. Goodbye."},
+        ],
+        business_name="Apex Plumbing",
+        recording_disclosure=True,
+        outcome="wrong_number",
+        latency_p50_ms=0.0,
+    )
+    assert "incomplete_caller_details" not in res["qa_flags"]
+    assert "missing_caller_phone" not in res["qa_flags"]
+    assert "missing_telemetry" in res["qa_flags"]
+    assert res["rubric_breakdown"]["data_collection"]["non_intake_call"] is True
+    assert res["rubric_breakdown"]["data_collection"]["score"] == 25.0
+    assert res["rubric_breakdown"]["tone_and_manner"]["score"] < 15.0

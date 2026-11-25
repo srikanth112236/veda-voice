@@ -69,8 +69,14 @@ export interface CallDetail {
   turn_count: number;
   latency_p50_ms: number;
   latency_p95_ms: number;
+  eou_p50_ms?: number;
+  eou_p95_ms?: number;
+  ttft_p50_ms?: number;
+  ttft_p95_ms?: number;
+  ttfb_p50_ms?: number;
+  ttfb_p95_ms?: number;
   turn_latencies_ms: number[];
-  transcript: Array<{ role: string; text: string; time: string }>;
+  transcript: Array<{ role: string; text: string; time: string; interrupted?: boolean; latency_ms?: number }>;
   message: {
     name?: string;
     phone?: string;

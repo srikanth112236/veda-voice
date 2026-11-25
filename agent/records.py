@@ -27,6 +27,8 @@ class TranscriptEntry(BaseModel):
     role: str
     text: str
     time: str
+    interrupted: bool = False
+    latency_ms: float | None = None
 
 
 class MessagePayload(BaseModel):
@@ -61,6 +63,12 @@ class CallRecord(BaseModel):
     turn_count: int = 0
     latency_p50_ms: float = 0.0
     latency_p95_ms: float = 0.0
+    eou_p50_ms: float = 0.0
+    eou_p95_ms: float = 0.0
+    ttft_p50_ms: float = 0.0
+    ttft_p95_ms: float = 0.0
+    ttfb_p50_ms: float = 0.0
+    ttfb_p95_ms: float = 0.0
     turn_latencies_ms: list[float] = Field(default_factory=list)
     llm_prompt_tokens: int = 0
     llm_completion_tokens: int = 0
@@ -193,6 +201,12 @@ def sync_call_record_to_api(
         "turn_count": record.turn_count,
         "latency_p50_ms": record.latency_p50_ms,
         "latency_p95_ms": record.latency_p95_ms,
+        "eou_p50_ms": record.eou_p50_ms,
+        "eou_p95_ms": record.eou_p95_ms,
+        "ttft_p50_ms": record.ttft_p50_ms,
+        "ttft_p95_ms": record.ttft_p95_ms,
+        "ttfb_p50_ms": record.ttfb_p50_ms,
+        "ttfb_p95_ms": record.ttfb_p95_ms,
         "turn_latencies_ms": record.turn_latencies_ms,
         "tags": record.tags,
         "llm_prompt_tokens": record.llm_prompt_tokens,

@@ -125,3 +125,11 @@ async def test_end_call_tool() -> None:
     """Verify end_call function tool runs cleanly."""
     result = await end_call(reason="completed")
     assert "completed" in result
+
+
+def test_wrong_number_fast_exit_rule_in_prompt() -> None:
+    """Verify system prompt instructs fast polite hangup on repeated wrong-number turns."""
+    config = load_business_config("default")
+    prompt = build_system_prompt(config)
+    assert "WRONG-NUMBER" in prompt
+    assert "end_call_tool(reason='wrong_number')" in prompt

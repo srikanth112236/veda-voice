@@ -23,6 +23,7 @@ from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
 from api.app.models.user import User
 from api.app.services.compliance import evaluate_compliance_gate_v2, normalize_e164_phone
 from api.app.services.livekit_sync import sync_tenant_to_livekit
+from api.app.services.qa_scoring import evaluate_call_qa
 from api.app.services.supervisor import handle_supervisor_action, supervisor_manager
 
 router = APIRouter(prefix="/portal", tags=["portal"])
@@ -110,6 +111,12 @@ class CallDetailResponse(BaseModel):
     turn_count: int
     latency_p50_ms: float
     latency_p95_ms: float
+    eou_p50_ms: float = 0.0
+    eou_p95_ms: float = 0.0
+    ttft_p50_ms: float = 0.0
+    ttft_p95_ms: float = 0.0
+    ttfb_p50_ms: float = 0.0
+    ttfb_p95_ms: float = 0.0
     turn_latencies_ms: list[float]
     transcript: list[dict[str, Any]]
     message: dict[str, Any] | None
@@ -531,9 +538,9 @@ def list_calls(
                 sentiment_label=getattr(c, "sentiment_label", "neutral") or "neutral",
                 lead_score=getattr(c, "lead_score", 50.0) or 50.0,
                 lost_reason=getattr(c, "lost_reason", None),
-                qa_score=getattr(c, "qa_score", 100.0) or 100.0,
+                qa_score=float(getattr(c, "qa_score", 0.0) or 0.0),
                 qa_flags=getattr(c, "qa_flags", []) or [],
-                csat_score=getattr(c, "csat_score", 5.0) or 5.0,
+                csat_score=float(getattr(c, "csat_score", 0.0) or 0.0),
                 contact_id=c.contact_id,
             )
         )
@@ -576,6 +583,29 @@ def get_call_detail(
                 summary = text.strip()[:140]
                 break
 
+    if not getattr(call, "qa_rubric", None) and call.transcript:
+        agent_prof = getattr(tenant, "agent_profile", None)
+        disclosure_needed = (
+            getattr(agent_prof, "recording_disclosure", True) if agent_prof else True
+        )
+        qa_eval = evaluate_call_qa(
+            transcript=call.transcript,
+            business_name=tenant.name,
+            recording_disclosure=disclosure_needed,
+            message=call.message,
+            outcome=call.outcome,
+            urgency=call.urgency,
+            latency_p50_ms=call.latency_p50_ms,
+            sentiment_label=getattr(call, "sentiment_label", "neutral") or "neutral",
+        )
+        call.qa_score = qa_eval["qa_score"]
+        call.qa_rubric = qa_eval["rubric_breakdown"]
+        call.qa_flags = qa_eval["qa_flags"]
+        call.csat_score = qa_eval["csat_score"]
+        call.csat_rationale = qa_eval["csat_rationale"]
+        db.commit()
+        db.refresh(call)
+
     return CallDetailResponse(
         id=call.id,
         contact_id=call.contact_id,
@@ -590,6 +620,12 @@ def get_call_detail(
         turn_count=call.turn_count,
         latency_p50_ms=call.latency_p50_ms,
         latency_p95_ms=call.latency_p95_ms,
+        eou_p50_ms=getattr(call, "eou_p50_ms", 0.0) or 0.0,
+        eou_p95_ms=getattr(call, "eou_p95_ms", 0.0) or 0.0,
+        ttft_p50_ms=getattr(call, "ttft_p50_ms", 0.0) or 0.0,
+        ttft_p95_ms=getattr(call, "ttft_p95_ms", 0.0) or 0.0,
+        ttfb_p50_ms=getattr(call, "ttfb_p50_ms", 0.0) or 0.0,
+        ttfb_p95_ms=getattr(call, "ttfb_p95_ms", 0.0) or 0.0,
         turn_latencies_ms=call.turn_latencies_ms,
         transcript=call.transcript,
         message=call.message,
@@ -611,10 +647,10 @@ def get_call_detail(
         whisper_briefing=getattr(call, "whisper_briefing", None),
         emergency_alert_dispatched=bool(getattr(call, "emergency_alert_dispatched", False)),
         emergency_recipient_phone=getattr(call, "emergency_recipient_phone", None),
-        qa_score=getattr(call, "qa_score", 100.0) or 100.0,
+        qa_score=float(getattr(call, "qa_score", 0.0) or 0.0),
         qa_rubric=getattr(call, "qa_rubric", {}) or {},
         qa_flags=getattr(call, "qa_flags", []) or [],
-        csat_score=getattr(call, "csat_score", 5.0) or 5.0,
+        csat_score=float(getattr(call, "csat_score", 0.0) or 0.0),
         csat_rationale=getattr(call, "csat_rationale", None),
         qa_reviewed_by=getattr(call, "qa_reviewed_by", None),
         qa_reviewed_at=getattr(call, "qa_reviewed_at", None),

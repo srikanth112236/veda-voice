@@ -141,6 +141,7 @@ def evaluate_call_qa(
     # -------------------------------------------------------------
     # 3. Information Extraction Completeness (Weight: 25 pts)
     # -------------------------------------------------------------
+    is_non_intake_call = outcome in ("wrong_number", "spam")
     data_score = 0.0
     msg = message or {}
     captured_name = bool(
@@ -159,22 +160,26 @@ def evaluate_call_qa(
     )
     captured_issue = bool(msg.get("message") or len(caller_texts) >= 1)
 
-    if captured_name:
-        data_score += 6.0
-    if captured_phone:
-        data_score += 8.0
+    if is_non_intake_call:
+        # Wrong-number or spam calls do not require customer intake capture
+        data_score = 25.0
     else:
-        # If call is completed / booked / message taken, missing phone is a critical failure
-        if outcome in ("booked", "appointment_booked", "message_taken"):
-            flags.append("missing_caller_phone")
+        if captured_name:
+            data_score += 6.0
+        if captured_phone:
+            data_score += 8.0
+        else:
+            # If call is completed / booked / message taken, missing phone is a critical failure
+            if outcome in ("booked", "appointment_booked", "message_taken"):
+                flags.append("missing_caller_phone")
 
-    if captured_address:
-        data_score += 6.0
-    if captured_issue:
-        data_score += 5.0
+        if captured_address:
+            data_score += 6.0
+        if captured_issue:
+            data_score += 5.0
 
-    if data_score < 12.0 and len(transcript) >= 4:
-        flags.append("incomplete_caller_details")
+        if data_score < 12.0 and len(transcript) >= 4:
+            flags.append("incomplete_caller_details")
 
     rubric_breakdown["data_collection"] = {
         "score": data_score,
@@ -184,6 +189,7 @@ def evaluate_call_qa(
         "captured_phone": captured_phone,
         "captured_address": captured_address,
         "captured_issue": captured_issue,
+        "non_intake_call": is_non_intake_call,
     }
 
     # -------------------------------------------------------------
@@ -222,7 +228,9 @@ def evaluate_call_qa(
         flags.append("unprofessional_tone")
 
     # Latency efficiency
-    if latency_p50_ms <= 1500:
+    if latency_p50_ms <= 0 and len(transcript) >= 2:
+        flags.append("missing_telemetry")
+    elif 0 < latency_p50_ms <= 1500:
         tone_score += 2.0
     elif latency_p50_ms > 2500:
         tone_score -= 3.0

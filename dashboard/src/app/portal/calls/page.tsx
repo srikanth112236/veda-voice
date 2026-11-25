@@ -1902,8 +1902,25 @@ export default function CallsPage() {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}{" "}
-                  • Duration: {Math.floor(detailCall.duration_s / 60)}m{" "}
-                  {Math.floor(detailCall.duration_s % 60)}s ({detailCall.turn_count} turns)
+                  • Duration:{" "}
+                  {(() => {
+                    const effectiveDur = (() => {
+                      if (detailCall.duration_s > 0) return detailCall.duration_s;
+                      if (detailCall.started_at && detailCall.ended_at) {
+                        const diff = (new Date(detailCall.ended_at).getTime() - new Date(detailCall.started_at).getTime()) / 1000;
+                        if (diff > 0) return diff;
+                      }
+                      if (detailCall.transcript && detailCall.transcript.length >= 2) {
+                        const firstT = new Date(detailCall.transcript[0].time).getTime();
+                        const lastT = new Date(detailCall.transcript[detailCall.transcript.length - 1].time).getTime();
+                        if (!Number.isNaN(firstT) && !Number.isNaN(lastT) && lastT > firstT) {
+                          return (lastT - firstT) / 1000;
+                        }
+                      }
+                      return 0;
+                    })();
+                    return `${Math.floor(effectiveDur / 60)}m ${Math.floor(effectiveDur % 60)}s`;
+                  })()} ({detailCall.turn_count || detailCall.transcript?.length || 0} turns)
                 </div>
               )}
             </div>
@@ -2083,22 +2100,41 @@ export default function CallsPage() {
                 </div>
 
                 {/* Micro Waterfall Graphic */}
-                <div className="space-y-1.5 font-mono text-xs">
-                  <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
-                    <span className="text-zinc-600 text-[11px]">1. End-of-Utterance (Silero VAD)</span>
-                    <span className="text-zinc-900 font-bold">~750 ms</span>
+                {detailCall.latency_p50_ms <= 0 &&
+                !(detailCall.eou_p50_ms && detailCall.eou_p50_ms > 0) &&
+                !(detailCall.ttft_p50_ms && detailCall.ttft_p50_ms > 0) &&
+                !(detailCall.ttfb_p50_ms && detailCall.ttfb_p50_ms > 0) ? (
+                  <div className="p-3 rounded-lg bg-white border border-zinc-200 text-[11px] font-mono text-zinc-500">
+                    No per-turn latency telemetry recorded for this call.
                   </div>
-                  <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
-                    <span className="text-zinc-600 text-[11px]">2. LLM First Token (Gemini 2.5 Flash)</span>
-                    <span className="text-zinc-900 font-bold">
-                      ~{Math.max(120, Math.round(detailCall.latency_p50_ms - 950))} ms
-                    </span>
+                ) : (
+                  <div className="space-y-1.5 font-mono text-xs">
+                    <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
+                      <span className="text-zinc-600 text-[11px]">1. End-of-Utterance (Silero VAD)</span>
+                      <span className="text-zinc-900 font-bold">
+                        {detailCall.eou_p50_ms && detailCall.eou_p50_ms > 0
+                          ? `${Math.round(detailCall.eou_p50_ms)} ms`
+                          : "~750 ms (est)"}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
+                      <span className="text-zinc-600 text-[11px]">2. LLM First Token (Gemini 2.5 Flash)</span>
+                      <span className="text-zinc-900 font-bold">
+                        {detailCall.ttft_p50_ms && detailCall.ttft_p50_ms > 0
+                          ? `${Math.round(detailCall.ttft_p50_ms)} ms`
+                          : `~${Math.max(0, Math.round(detailCall.latency_p50_ms - 950))} ms (est)`}
+                      </span>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
+                      <span className="text-zinc-600 text-[11px]">3. Voice Synthesis TTFB (Inworld TTS)</span>
+                      <span className="text-zinc-900 font-bold">
+                        {detailCall.ttfb_p50_ms && detailCall.ttfb_p50_ms > 0
+                          ? `${Math.round(detailCall.ttfb_p50_ms)} ms`
+                          : "~200 ms (est)"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
-                    <span className="text-zinc-600 text-[11px]">3. Voice Synthesis TTFB (Inworld TTS)</span>
-                    <span className="text-zinc-900 font-bold">~200 ms</span>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Extracted Caller Request Card */}
@@ -2250,6 +2286,13 @@ export default function CallsPage() {
                 </div>
 
                 {/* Score & CSAT Gauges */}
+                {(() => {
+                  const hasQaRubric = Boolean(
+                    detailCall.qa_rubric && Object.keys(detailCall.qa_rubric).length > 0
+                  );
+                  const qaScoreVal = hasQaRubric ? (detailCall.qa_score ?? 0) : null;
+                  const csatScoreVal = hasQaRubric ? (detailCall.csat_score ?? 0) : null;
+                  return (
                 <div className="grid grid-cols-2 gap-3">
                   {/* QA Score Card */}
                   <div className="p-3 rounded-xl bg-zinc-50/70 border border-zinc-200 space-y-1.5">
@@ -2259,31 +2302,37 @@ export default function CallsPage() {
                     <div className="flex items-baseline gap-2">
                       <span
                         className={`text-2xl font-bold font-mono ${
-                          (detailCall.qa_score ?? 100) >= 85
+                          qaScoreVal === null
+                            ? "text-zinc-400"
+                            : qaScoreVal >= 85
                             ? "text-emerald-600"
-                            : (detailCall.qa_score ?? 100) >= 70
+                            : qaScoreVal >= 70
                             ? "text-amber-600"
                             : "text-red-600"
                         }`}
                       >
-                        {detailCall.qa_score !== undefined ? Math.round(detailCall.qa_score) : 100}%
+                        {qaScoreVal !== null ? `${Math.round(qaScoreVal)}%` : "—"}
                       </span>
                       <span
                         className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded uppercase ${
-                          detailCall.qa_flags && detailCall.qa_flags.some((f) => ["safety_escalation_breach", "missing_disclosure", "missing_caller_phone"].includes(f))
+                          qaScoreVal === null
+                            ? "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                            : detailCall.qa_flags && detailCall.qa_flags.some((f) => ["safety_escalation_breach", "missing_disclosure", "missing_caller_phone"].includes(f))
                             ? "bg-red-50 text-red-700 border border-red-200"
-                            : (detailCall.qa_score ?? 100) >= 85
+                            : qaScoreVal >= 85
                             ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                            : (detailCall.qa_score ?? 100) >= 70
+                            : qaScoreVal >= 70
                             ? "bg-amber-50 text-amber-700 border border-amber-200"
                             : "bg-red-50 text-red-700 border border-red-200"
                         }`}
                       >
-                        {detailCall.qa_flags && detailCall.qa_flags.some((f) => ["safety_escalation_breach", "missing_disclosure", "missing_caller_phone"].includes(f))
+                        {qaScoreVal === null
+                          ? "Not Evaluated"
+                          : detailCall.qa_flags && detailCall.qa_flags.some((f) => ["safety_escalation_breach", "missing_disclosure", "missing_caller_phone"].includes(f))
                           ? "Failed"
-                          : (detailCall.qa_score ?? 100) >= 85
+                          : qaScoreVal >= 85
                           ? "Passed"
-                          : (detailCall.qa_score ?? 100) >= 70
+                          : qaScoreVal >= 70
                           ? "Satisfactory"
                           : "Needs Review"}
                       </span>
@@ -2292,13 +2341,15 @@ export default function CallsPage() {
                     <div className="w-full bg-zinc-200 h-1.5 rounded-full overflow-hidden">
                       <div
                         className={`h-full transition-all ${
-                          (detailCall.qa_score ?? 100) >= 85
+                          qaScoreVal === null
+                            ? "bg-zinc-300"
+                            : qaScoreVal >= 85
                             ? "bg-emerald-500"
-                            : (detailCall.qa_score ?? 100) >= 70
+                            : qaScoreVal >= 70
                             ? "bg-amber-500"
                             : "bg-red-500"
                         }`}
-                        style={{ width: `${Math.max(5, detailCall.qa_score ?? 100)}%` }}
+                        style={{ width: `${qaScoreVal !== null ? Math.max(5, qaScoreVal) : 0}%` }}
                       />
                     </div>
                   </div>
@@ -2310,16 +2361,18 @@ export default function CallsPage() {
                     </span>
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-2xl font-bold font-mono text-zinc-900 flex items-center gap-1">
-                        <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
-                        {detailCall.csat_score !== undefined ? detailCall.csat_score.toFixed(1) : "5.0"}
+                        <Star className={`w-5 h-5 ${csatScoreVal !== null ? "text-amber-400 fill-amber-400" : "text-zinc-300"}`} />
+                        {csatScoreVal !== null ? csatScoreVal.toFixed(1) : "—"}
                       </span>
                       <span className="text-[11px] font-mono text-zinc-400">/ 5.0</span>
                     </div>
-                    <p className="text-[10px] text-zinc-500 font-sans truncate" title={detailCall.csat_rationale || "Standard conversational baseline"}>
-                      {detailCall.csat_rationale || "Standard conversational baseline"}
+                    <p className="text-[10px] text-zinc-500 font-sans truncate" title={detailCall.csat_rationale || "Not evaluated"}>
+                      {detailCall.csat_rationale || (hasQaRubric ? "Standard conversational baseline" : "Not evaluated")}
                     </p>
                   </div>
                 </div>
+                  );
+                })()}
 
                 {/* Critical Flags Alert */}
                 {detailCall.qa_flags && detailCall.qa_flags.length > 0 && (
@@ -2339,7 +2392,7 @@ export default function CallsPage() {
                 )}
 
                 {/* 5-Rubric Breakdown Cards */}
-                {detailCall.qa_rubric && (
+                {detailCall.qa_rubric && Object.keys(detailCall.qa_rubric).length > 0 && (
                   <div className="space-y-1.5 font-mono text-[11px]">
                     <div className="text-[10px] font-bold text-zinc-600 uppercase">
                       Rubric Component Breakdown
@@ -2535,11 +2588,8 @@ export default function CallsPage() {
                   <div className="flex items-center gap-2 text-[11px] px-3 py-1.5 rounded-xl bg-zinc-50 border border-zinc-200">
                     {detailCall.transcript.slice(0, 2).some((t) => {
                       const txt = ((t.text || (t as any).content || "") as string).toLowerCase();
-                      return (
-                        txt.includes("recorded") ||
-                        txt.includes("recording") ||
-                        txt.includes("quality assurance") ||
-                        txt.includes("automated assistant")
+                      return /\b(recorded|recording|monitored|quality assurance|training purposes|ai assistant|virtual receptionist|automated assistant|ai receptionist)\b/i.test(
+                        txt
                       );
                     }) ? (
                       <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">

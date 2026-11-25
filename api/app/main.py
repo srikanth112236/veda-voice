@@ -573,23 +573,69 @@ def seed_initial_data() -> None:
                             except Exception:
                                 return datetime.now(UTC)
 
+                        started_dt = _parse_dt(data.get("started_at"))
+                        ended_dt = _parse_dt(data.get("ended_at"))
+                        raw_duration_s = float(data.get("duration_s", 0.0))
+                        if raw_duration_s <= 0 and ended_dt > started_dt:
+                            raw_duration_s = round((ended_dt - started_dt).total_seconds(), 2)
+
+                        from api.app.services.call_intelligence import (
+                            extract_post_call_intelligence,
+                        )
+                        from api.app.services.qa_scoring import evaluate_call_qa
+
+                        transcript_data = data.get("transcript", [])
+                        outcome_val = data.get("outcome", "abandoned")
+                        latency_p50_val = float(data.get("latency_p50_ms", 0.0))
+                        intel = extract_post_call_intelligence(
+                            transcript=transcript_data,
+                            outcome=outcome_val,
+                            urgency=urgency,
+                        )
+                        qa_eval = evaluate_call_qa(
+                            transcript=transcript_data,
+                            business_name=tenant.name,
+                            recording_disclosure=True,
+                            message=data.get("message"),
+                            outcome=outcome_val,
+                            urgency=urgency,
+                            latency_p50_ms=latency_p50_val,
+                            sentiment_label=intel["sentiment_label"],
+                        )
+
                         db_call = Call(
                             tenant_id=tenant.id,
                             call_id=data.get("call_id", call_file.stem),
                             caller_number=data.get("caller_number", ""),
                             dialed_number=data.get("dialed_number", "+18005550199"),
-                            started_at=_parse_dt(data.get("started_at")),
-                            ended_at=_parse_dt(data.get("ended_at")),
-                            duration_s=float(data.get("duration_s", 0.0)),
-                            outcome=data.get("outcome", "abandoned"),
+                            started_at=started_dt,
+                            ended_at=ended_dt,
+                            duration_s=raw_duration_s,
+                            outcome=outcome_val,
                             urgency=urgency,
                             turn_count=int(data.get("turn_count", 0)),
-                            latency_p50_ms=float(data.get("latency_p50_ms", 0.0)),
+                            latency_p50_ms=latency_p50_val,
                             latency_p95_ms=float(data.get("latency_p95_ms", 0.0)),
+                            eou_p50_ms=float(data.get("eou_p50_ms", 0.0)),
+                            eou_p95_ms=float(data.get("eou_p95_ms", 0.0)),
+                            ttft_p50_ms=float(data.get("ttft_p50_ms", 0.0)),
+                            ttft_p95_ms=float(data.get("ttft_p95_ms", 0.0)),
+                            ttfb_p50_ms=float(data.get("ttfb_p50_ms", 0.0)),
+                            ttfb_p95_ms=float(data.get("ttfb_p95_ms", 0.0)),
                             turn_latencies_ms=data.get("turn_latencies_ms", []),
-                            transcript=data.get("transcript", []),
+                            transcript=transcript_data,
                             message=data.get("message"),
                             tags=data.get("tags", []),
+                            sentiment_score=intel["sentiment_score"],
+                            sentiment_label=intel["sentiment_label"],
+                            lead_score=intel["lead_score"],
+                            lost_reason=intel["lost_reason"],
+                            key_objections=intel["key_objections"],
+                            qa_score=qa_eval["qa_score"],
+                            qa_rubric=qa_eval["rubric_breakdown"],
+                            qa_flags=qa_eval["qa_flags"],
+                            csat_score=qa_eval["csat_score"],
+                            csat_rationale=qa_eval["csat_rationale"],
                         )
                         db.add(db_call)
                     except Exception:
@@ -876,6 +922,18 @@ def init_db() -> None:
             # Calls table columns
             cursor = conn.execute(text("PRAGMA table_info(calls)"))
             existing_call_cols = {row[1] for row in cursor.fetchall()}
+            for stage_col in (
+                "eou_p50_ms",
+                "eou_p95_ms",
+                "ttft_p50_ms",
+                "ttft_p95_ms",
+                "ttfb_p50_ms",
+                "ttfb_p95_ms",
+            ):
+                if stage_col not in existing_call_cols:
+                    conn.execute(
+                        text(f"ALTER TABLE calls ADD COLUMN {stage_col} FLOAT DEFAULT 0.0 NOT NULL")
+                    )
             if "direction" not in existing_call_cols:
                 conn.execute(
                     text(

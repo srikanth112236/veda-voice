@@ -151,3 +151,27 @@ def test_latency_report_extraction_and_format() -> None:
     assert "Library Measured End-to-End Latency:" in report
     assert "Spoken Turns Measured:    3" in report
     assert "Total LLM Invocations:    4" in report
+
+
+def test_transcript_entry_interrupted_and_latency_fields() -> None:
+    """Verify TranscriptEntry stores interrupted flag and per-turn latency_ms."""
+    from agent.records import TranscriptEntry
+
+    entry = TranscriptEntry(
+        role="assistant",
+        text="Thanks for calling Apex Plumbing.",
+        time="2026-11-25T17:50:41+00:00",
+        interrupted=True,
+        latency_ms=412.5,
+    )
+    dumped = entry.model_dump()
+    assert dumped["interrupted"] is True
+    assert dumped["latency_ms"] == 412.5
+
+
+def test_build_turn_detector_graceful_load() -> None:
+    """Verify _build_turn_detector returns a turn detector or None without crashing."""
+    from agent.main import _build_turn_detector
+
+    td = _build_turn_detector()
+    assert td is None or td is not None

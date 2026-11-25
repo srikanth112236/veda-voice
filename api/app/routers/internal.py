@@ -123,6 +123,12 @@ class CallCompletionPayload(BaseModel):
     turn_count: int = 0
     latency_p50_ms: float = 0.0
     latency_p95_ms: float = 0.0
+    eou_p50_ms: float = 0.0
+    eou_p95_ms: float = 0.0
+    ttft_p50_ms: float = 0.0
+    ttft_p95_ms: float = 0.0
+    ttfb_p50_ms: float = 0.0
+    ttfb_p95_ms: float = 0.0
     turn_latencies_ms: list[float] = []
     llm_prompt_tokens: int = 0
     llm_completion_tokens: int = 0
@@ -975,12 +981,16 @@ def save_call_record_from_agent(
     started_dt = _parse_iso(payload.started_at) or call.started_at
     ended_dt = _parse_iso(payload.ended_at) or datetime.now(UTC)
 
+    effective_duration_s = payload.duration_s
+    if effective_duration_s <= 0 and ended_dt > started_dt:
+        effective_duration_s = round((ended_dt - started_dt).total_seconds(), 2)
+
     # Update call record and close active session (freeing concurrency slot)
     call.caller_number = payload.caller_number or call.caller_number
     call.dialed_number = payload.dialed_number or call.dialed_number
     call.started_at = started_dt
     call.ended_at = ended_dt
-    call.duration_s = payload.duration_s
+    call.duration_s = effective_duration_s
     call.outcome = (
         payload.outcome if payload.outcome not in ("in_progress", "active", "") else "completed"
     )
@@ -988,6 +998,12 @@ def save_call_record_from_agent(
     call.turn_count = payload.turn_count
     call.latency_p50_ms = payload.latency_p50_ms
     call.latency_p95_ms = payload.latency_p95_ms
+    call.eou_p50_ms = payload.eou_p50_ms
+    call.eou_p95_ms = payload.eou_p95_ms
+    call.ttft_p50_ms = payload.ttft_p50_ms
+    call.ttft_p95_ms = payload.ttft_p95_ms
+    call.ttfb_p50_ms = payload.ttfb_p50_ms
+    call.ttfb_p95_ms = payload.ttfb_p95_ms
     call.turn_latencies_ms = payload.turn_latencies_ms
     call.transcript = payload.transcript
     call.message = payload.message
@@ -1002,14 +1018,16 @@ def save_call_record_from_agent(
     billing_increment = getattr(sub, "billing_increment", "minute") if sub else "minute"
 
     if billing_increment == "second":
-        billable_minutes = round(payload.duration_s / 60.0, 2) if payload.duration_s > 0 else 0.0
+        billable_minutes = (
+            round(effective_duration_s / 60.0, 2) if effective_duration_s > 0 else 0.0
+        )
     else:
         billable_minutes = (
-            float(math.ceil(payload.duration_s / 60.0)) if payload.duration_s > 0 else 0.0
+            float(math.ceil(effective_duration_s / 60.0)) if effective_duration_s > 0 else 0.0
         )
 
     # Per-call COGS calculation
-    stt_cost = (payload.duration_s / 60.0) * 0.0048
+    stt_cost = (effective_duration_s / 60.0) * 0.0048
     llm_cost = ((payload.llm_prompt_tokens + payload.llm_completion_tokens) / 1_000_000.0) * 0.06
     tts_cost = (payload.tts_characters / 1_000_000.0) * 20.00
     carrier_cost = float(billable_minutes) * 0.0040
