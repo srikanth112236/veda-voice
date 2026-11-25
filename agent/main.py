@@ -224,12 +224,17 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Initialize AgentSession with tuned VAD, semantic turn detection, and barge-in guardrails
     turn_detector = _build_turn_detector()
+    effective_min_silence = (
+        settings.vad_min_silence_duration
+        if turn_detector is not None
+        else max(settings.vad_min_silence_duration, 0.65)
+    )
     session_kwargs: dict[str, Any] = {
         "stt": settings.stt_model,
         "llm": settings.llm_model,
         "tts": settings.tts_model,
         "vad": silero.VAD.load(
-            min_silence_duration=settings.vad_min_silence_duration,
+            min_silence_duration=effective_min_silence,
             prefix_padding_duration=settings.vad_prefix_padding_duration,
         ),
         "min_endpointing_delay": 0.6,
@@ -318,11 +323,10 @@ async def entrypoint(ctx: JobContext) -> None:
         elif isinstance(m, TTSMetrics):
             chars_cnt = getattr(m, "characters_count", 0) or 0
             tracker.record_tts_characters(chars_cnt)
-            if chars_cnt <= 0 or m.ttfb <= 0:
-                return
-
-            tts_ttfb_ms = m.ttfb * 1000.0
+            tts_ttfb_ms = max(0.0, float(getattr(m, "ttfb", 0.0) or 0.0) * 1000.0)
             pipeline_latency_ms = round(current_eou_delay_ms + current_llm_ttft_ms + tts_ttfb_ms, 2)
+            if chars_cnt <= 0 or pipeline_latency_ms <= 0:
+                return
 
             lib_e2e_ms: float | None = None
             early_metrics = getattr(session, "_early_assistant_metrics", None)

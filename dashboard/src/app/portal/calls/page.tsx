@@ -1969,8 +1969,22 @@ export default function CallsPage() {
                     </button>
                     <span className="text-xs font-bold text-zinc-900">Call Audio Recording</span>
                     <span className="text-[10px] font-mono text-zinc-500">
-                      ({Math.floor(detailCall.duration_s / 60)}:
-                      {Math.floor(detailCall.duration_s % 60).toString().padStart(2, "0")})
+                      {(() => {
+                        const dur = (() => {
+                          if (detailCall.duration_s > 0) return detailCall.duration_s;
+                          if (detailCall.started_at && detailCall.ended_at) {
+                            const d = (new Date(detailCall.ended_at).getTime() - new Date(detailCall.started_at).getTime()) / 1000;
+                            if (d > 0) return d;
+                          }
+                          if (detailCall.transcript && detailCall.transcript.length >= 2) {
+                            const fT = new Date(detailCall.transcript[0].time).getTime();
+                            const lT = new Date(detailCall.transcript[detailCall.transcript.length - 1].time).getTime();
+                            if (!Number.isNaN(fT) && !Number.isNaN(lT) && lT > fT) return (lT - fT) / 1000;
+                          }
+                          return 0;
+                        })();
+                        return `(${Math.floor(dur / 60)}:${Math.floor(dur % 60).toString().padStart(2, "0")})`;
+                      })()}
                     </span>
 
                     {/* Dynamic Sound Source Badge */}
@@ -2078,7 +2092,22 @@ export default function CallsPage() {
                   <span className="text-[11px] font-mono text-zinc-600 font-semibold min-w-[85px] text-right">
                     {activePlayingTurnIndex !== null && detailCall.transcript?.length
                       ? `Turn ${activePlayingTurnIndex + 1}/${detailCall.transcript.length}`
-                      : `${Math.floor(audioCurrentTime)}s / ${Math.round(detailCall.duration_s)}s`}
+                      : (() => {
+                          const dur = (() => {
+                            if (detailCall.duration_s > 0) return detailCall.duration_s;
+                            if (detailCall.started_at && detailCall.ended_at) {
+                              const d = (new Date(detailCall.ended_at).getTime() - new Date(detailCall.started_at).getTime()) / 1000;
+                              if (d > 0) return d;
+                            }
+                            if (detailCall.transcript && detailCall.transcript.length >= 2) {
+                              const fT = new Date(detailCall.transcript[0].time).getTime();
+                              const lT = new Date(detailCall.transcript[detailCall.transcript.length - 1].time).getTime();
+                              if (!Number.isNaN(fT) && !Number.isNaN(lT) && lT > fT) return (lT - fT) / 1000;
+                            }
+                            return 0;
+                          })();
+                          return `${Math.floor(audioCurrentTime)}s / ${Math.round(dur)}s`;
+                        })()}
                   </span>
                 </div>
               </div>

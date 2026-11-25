@@ -981,9 +981,22 @@ def save_call_record_from_agent(
     started_dt = _parse_iso(payload.started_at) or call.started_at
     ended_dt = _parse_iso(payload.ended_at) or datetime.now(UTC)
 
-    effective_duration_s = payload.duration_s
-    if effective_duration_s <= 0 and ended_dt > started_dt:
-        effective_duration_s = round((ended_dt - started_dt).total_seconds(), 2)
+    wall_duration_s = (
+        round((ended_dt - started_dt).total_seconds(), 2) if ended_dt > started_dt else 0.0
+    )
+    transcript_span_s = 0.0
+    turn_times: list[datetime] = []
+    for entry in payload.transcript or []:
+        t_raw = entry.get("time") if isinstance(entry, dict) else None
+        if isinstance(t_raw, str) and t_raw:
+            try:
+                turn_times.append(datetime.fromisoformat(t_raw))
+            except Exception:
+                pass
+    if len(turn_times) >= 2 and turn_times[-1] > turn_times[0]:
+        transcript_span_s = round((turn_times[-1] - turn_times[0]).total_seconds(), 2)
+
+    effective_duration_s = round(max(payload.duration_s, wall_duration_s, transcript_span_s), 2)
 
     # Update call record and close active session (freeing concurrency slot)
     call.caller_number = payload.caller_number or call.caller_number

@@ -25,4 +25,7 @@ RUN mkdir -p /app/data && chown -R appuser:appgroup /app
 
 USER appuser
 
+# Pre-download Silero VAD and LiveKit semantic turn-detector model weights
+RUN python -m agent.main download-files || true
+
 CMD ["python", "-m", "agent.main", "start"]
