@@ -114,7 +114,7 @@ def test_portal_calls_endpoints(
 ) -> None:
     print("--> [5/5] Testing Portal Calls endpoints (/api/v1/portal/calls)...")
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    for path in ("/api/v1/portal/calls?limit=1", "/api/v1/portal/calls/active-calls"):
+    for path in ("/api/v1/portal/calls?limit=1", "/api/v1/portal/copilot/active-calls"):
         resp = client.get(f"{base_url.rstrip('/')}{path}", headers=headers)
         assert (
             resp.status_code < 500
