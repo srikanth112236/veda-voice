@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { PublicHeader } from "@/components/public/PublicHeader";
 import { PublicFooter } from "@/components/public/PublicFooter";
+import { CuratedScenarioTicker } from "@/components/public/CuratedScenarioTicker";
 import { INDUSTRY_CONCEPTS } from "@/data/industries";
 
 type ScenarioKey = "booking" | "emergency" | "wrong_number";
@@ -142,6 +143,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[var(--surface-canvas)] text-[var(--ink-primary)] flex flex-col">
       <PublicHeader />
+      <CuratedScenarioTicker />
 
       {/* Screen 1: Software Hero + Interactive Live HTML App Frame */}
       <section className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-6 py-12 lg:grid-cols-12 lg:py-20">
