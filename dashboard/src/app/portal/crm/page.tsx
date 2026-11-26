@@ -263,7 +263,7 @@ export default function CRMPipelinePage() {
   const [kanbanFilter, setKanbanFilter] = useState<"all" | "callable" | "emergency" | "booked" | "uncontacted">("all");
   const [callingContactId, setCallingContactId] = useState<string | null>(null);
 
-  // 1-Click AI Speed-to-Lead Callback Dispatcher
+  // 1-Click AI Speed-to-Lead Callback Dispatcher (enforces TCPA compliance gate strictly)
   const handleTriggerAiCallback = async (contact: {
     id: string;
     name?: string;
@@ -271,16 +271,17 @@ export default function CRMPipelinePage() {
     is_callable?: boolean;
   }) => {
     if (!contact.phone) {
-      alert("This contact does not have a valid phone number.");
+      setErrorMessage("This contact does not have a valid phone number.");
       return;
     }
-    if (contact.is_callable === false) {
-      const proceed = confirm(
-        "Notice: This contact is marked as non-callable or missing express consent. TCPA gate v2 may suppress this call. Do you still wish to submit the dispatch request?"
+    if (!contact.is_callable) {
+      setErrorMessage(
+        "Blocked by TCPA compliance gate: contact is suppressed, opted out, or missing verified consent."
       );
-      if (!proceed) return;
+      return;
     }
     setCallingContactId(contact.id);
+    setErrorMessage(null);
     try {
       const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const campaign = await api.createVoiceCampaign({
@@ -300,7 +301,7 @@ export default function CRMPipelinePage() {
       const dispatchRes = await api.runVoiceCampaign(campaign.id);
       if (dispatchRes.dispatches_succeeded > 0) {
         setActionMessage(
-          `AI speed-to-lead call dispatched to ${contact.name || contact.phone}! Carrier acknowledged SIP trunk invite.`
+          `AI speed-to-lead call dispatched to ${contact.name || contact.phone}. Carrier acknowledged SIP trunk invite.`
         );
       } else {
         setActionMessage(
@@ -313,8 +314,8 @@ export default function CRMPipelinePage() {
         const updated = await api.getCRMContactDetail(contact.id);
         setContactDetail(updated);
       }
-    } catch (err: any) {
-      alert(`Could not trigger AI callback: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Could not trigger AI callback: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setCallingContactId(null);
     }
@@ -345,12 +346,12 @@ export default function CRMPipelinePage() {
       setActionMessage(
         isEmergency
           ? "Emergency status cleared. Contact returned to standard priority."
-          : "🚨 Lead marked for EMERGENCY priority technician dispatch!"
+          : "Lead marked for EMERGENCY priority technician dispatch."
       );
       setTimeout(() => setActionMessage(null), 4000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Failed to update emergency status: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Failed to update emergency status: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -382,8 +383,13 @@ export default function CRMPipelinePage() {
     return true;
   };
 
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const initialQueryHandledRef = useRef(false);
+
   const fetchCRMData = async () => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const [pipe, contactsRes, camps, rev, dups] = await Promise.all([
         api.getCRMPipeline(),
@@ -393,10 +399,10 @@ export default function CRMPipelinePage() {
         api.getCRMDuplicates().catch(() => []),
       ]);
       setPipelineData(pipe);
-      const contactList = Array.isArray(contactsRes)
+      const contactList: ContactItem[] = Array.isArray(contactsRes)
         ? contactsRes
-        : contactsRes && Array.isArray((contactsRes as any).contacts)
-        ? (contactsRes as any).contacts
+        : contactsRes && "contacts" in (contactsRes as object) && Array.isArray((contactsRes as { contacts: ContactItem[] }).contacts)
+        ? (contactsRes as { contacts: ContactItem[] }).contacts
         : [];
       setAllContacts(contactList);
       setCampaigns(Array.isArray(camps) ? camps : []);
@@ -406,8 +412,9 @@ export default function CRMPipelinePage() {
       }
       setDuplicates(Array.isArray(dups) ? dups : []);
 
-      // Cross-navigation from Calls Explorer (?contact_id=... or ?phone=...)
-      if (typeof window !== "undefined") {
+      // Cross-navigation from Calls Explorer (?contact_id=... or ?phone=...) on initial load only
+      if (!initialQueryHandledRef.current && typeof window !== "undefined") {
+        initialQueryHandledRef.current = true;
         const params = new URLSearchParams(window.location.search);
         const targetContactId = params.get("contact_id");
         const targetPhone = params.get("phone");
@@ -424,8 +431,8 @@ export default function CRMPipelinePage() {
           }
         }
       }
-    } catch (err: any) {
-      console.error("Failed to load CRM data:", err);
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to load CRM data.");
     } finally {
       setLoading(false);
     }
@@ -463,11 +470,12 @@ export default function CRMPipelinePage() {
 
   const handleLoadConsentAudit = async (contactId: string) => {
     setLoadingConsent(true);
+    setConsentError(null);
     try {
       const audit = await api.getCRMConsentAudit(contactId);
       setContactConsent(audit);
-    } catch (err: any) {
-      console.error("Failed to load consent audit:", err);
+    } catch (err: unknown) {
+      setConsentError(err instanceof Error ? err.message : "Failed to load consent audit.");
     } finally {
       setLoadingConsent(false);
     }
@@ -502,8 +510,8 @@ export default function CRMPipelinePage() {
       }
       setActionMessage(`Moved ${pendingMove.contactName} to ${pendingMove.toStageLabel}`);
       setTimeout(() => setActionMessage(null), 3500);
-    } catch (err: any) {
-      alert(`Could not move contact: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Could not move contact: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setMovingStage(false);
       setPendingMove(null);
@@ -567,8 +575,8 @@ export default function CRMPipelinePage() {
       if (contactDetail && contactDetail.id === contactId) {
         setContactDetail({ ...contactDetail, stage: newStage });
       }
-    } catch (err: any) {
-      alert(`Could not move contact: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Could not move contact: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -600,11 +608,11 @@ export default function CRMPipelinePage() {
         tags: "Interested",
         notes: "",
       });
-      setActionMessage("Contact created successfully!");
+      setActionMessage("Contact created successfully.");
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Error creating contact: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Error creating contact: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -616,25 +624,24 @@ export default function CRMPipelinePage() {
       setNewStage({
         stage_key: "",
         label: "",
-        color: "border-indigo-300 bg-indigo-50/50 text-indigo-700",
+        color: "border-zinc-300 bg-zinc-50 text-zinc-700",
       });
-      setActionMessage("Custom pipeline stage added!");
+      setActionMessage("Custom pipeline stage added.");
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Error adding stage: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Error adding stage: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleDeleteStage = async (stageKey: string) => {
-    if (!confirm(`Are you sure you want to delete stage '${stageKey}'?`)) return;
     try {
       await api.deleteCRMStage(stageKey, "new_lead");
       setActionMessage(`Stage '${stageKey}' deleted.`);
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Could not delete stage: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Could not delete stage: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -642,7 +649,7 @@ export default function CRMPipelinePage() {
     e.preventDefault();
     const val = parseFloat(avgDealInput);
     if (isNaN(val) || val <= 0) {
-      alert("Please enter a valid positive number");
+      setErrorMessage("Please enter a valid positive deal value.");
       return;
     }
     try {
@@ -651,22 +658,19 @@ export default function CRMPipelinePage() {
       setActionMessage(`Average deal value updated to $${val.toFixed(2)}`);
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Failed to update settings: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Failed to update settings: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleMergeDuplicate = async (survivorId: string, sourceId: string) => {
-    if (!confirm("Merge these contacts? Call records, notes, and tags will be consolidated into the primary profile.")) {
-      return;
-    }
     try {
       await api.mergeCRMContacts(survivorId, { source_id: sourceId });
-      setActionMessage("Contacts merged successfully!");
+      setActionMessage("Contacts merged successfully.");
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Merge failed: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Merge failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -681,30 +685,26 @@ export default function CRMPipelinePage() {
         target_stage: newCampaign.target_stage || undefined,
       });
       setShowAddCampaignModal(false);
-      setActionMessage("Email campaign created!");
+      setActionMessage("Email campaign created.");
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Error creating campaign: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Error creating campaign: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleSendBroadcast = async (campaignId: string) => {
-    if (!confirm("Are you sure you want to trigger this email broadcast to contacts in this stage?")) {
-      return;
-    }
     try {
       const res = await api.sendCRMCampaign(campaignId);
       setActionMessage(res.message);
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Error sending broadcast: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Error sending broadcast: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleDeleteContact = async (contactId: string) => {
-    if (!confirm("Are you sure you want to delete this contact and all its history?")) return;
     try {
       await api.deleteCRMContact(contactId);
       setSelectedContactId(null);
@@ -712,8 +712,8 @@ export default function CRMPipelinePage() {
       setActionMessage("Contact deleted.");
       setTimeout(() => setActionMessage(null), 3000);
       fetchCRMData();
-    } catch (err: any) {
-      alert(`Could not delete contact: ${err.message}`);
+    } catch (err: unknown) {
+      setErrorMessage(`Could not delete contact: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -761,64 +761,69 @@ export default function CRMPipelinePage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
+            type="button"
             onClick={() => fetchCRMData()}
-            className="p-2 border border-zinc-200 rounded-xl hover:bg-zinc-100 text-zinc-600 transition"
+            className="p-2 border border-[var(--border-hairline)] bg-[var(--surface-panel)] rounded-lg hover:bg-[var(--surface-subtle)] text-[var(--ink-secondary)] transition"
             title="Refresh CRM data"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => setShowStagesModal(true)}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-700 shadow-xs transition"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] hover:bg-[var(--surface-subtle)] text-xs font-semibold text-[var(--ink-primary)] transition"
           >
-            <Layers className="w-4 h-4 text-zinc-500" />
+            <Layers className="w-4 h-4 text-[var(--ink-muted)]" />
             Configure Stages
           </button>
           <button
+            type="button"
             onClick={() => setShowAddCampaignModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-700 shadow-xs transition"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] hover:bg-[var(--surface-subtle)] text-xs font-semibold text-[var(--ink-primary)] transition"
           >
-            <Mail className="w-4 h-4 text-zinc-500" />
-            + New Campaign
+            <Mail className="w-4 h-4 text-[var(--ink-muted)]" />
+            New Campaign
           </button>
           <button
+            type="button"
             onClick={() => setShowAddContactModal(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-2xs transition active:scale-[0.98]"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[var(--accent-signal)] hover:opacity-90 text-xs font-semibold text-[var(--accent-signal-ink)] transition active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" />
-            + Add Contact
+            Add Contact
           </button>
         </div>
       </div>
 
       {/* KPI Cards: Revenue Recovered, Conversions, and Deduplication */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* KPI 1: Revenue Recovered (FR-CRM-18) */}
-        <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs relative overflow-hidden">
+        {/* KPI 1: Revenue Recovered */}
+        <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-4 relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase text-zinc-400 font-bold flex items-center gap-1.5">
+            <span className="text-[11px] font-mono uppercase text-[var(--ink-muted)] font-bold flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
               Revenue Recovered
             </span>
             <button
+              type="button"
               onClick={() => setShowAvgDealModal(true)}
-              className="text-[10px] text-zinc-500 hover:text-zinc-900 flex items-center gap-1 bg-zinc-100 hover:bg-zinc-200 px-2 py-0.5 rounded transition"
+              className="text-[10px] font-mono tabular-nums text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] flex items-center gap-1 bg-[var(--surface-subtle)] px-2 py-0.5 rounded transition"
               title="Configure average deal value"
             >
               <Edit3 className="w-3 h-3" />
               ${revenueAnalytics?.average_deal_value || 250}/deal
             </button>
           </div>
-          <div className="text-2xl font-black text-zinc-900 mt-2 font-mono">
+          <div className="text-2xl font-bold text-[var(--ink-primary)] mt-2 font-mono tabular-nums">
             ${(revenueAnalytics?.total_revenue_recovered || 0).toLocaleString("en-US", {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-1 flex items-center gap-1.5">
-            <span className="font-semibold text-emerald-700">
+          <div className="text-[11px] text-[var(--ink-secondary)] mt-1 flex items-center gap-1.5">
+            <span className="font-semibold text-emerald-700 font-mono tabular-nums">
               {revenueAnalytics?.total_conversions || 0} Deals Won / Booked
             </span>
             <span>across pipeline</span>
@@ -826,53 +831,63 @@ export default function CRMPipelinePage() {
         </div>
 
         {/* KPI 2: AI Voice Conversions */}
-        <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
-          <span className="text-[11px] font-mono uppercase text-zinc-400 font-bold flex items-center gap-1.5">
-            <Phone className="w-3.5 h-3.5 text-indigo-600" />
+        <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-4">
+          <span className="text-[11px] font-mono uppercase text-[var(--ink-muted)] font-bold flex items-center gap-1.5">
+            <Phone className="w-3.5 h-3.5 text-[var(--accent-signal)]" />
             AI Voice Conversions
           </span>
-          <div className="text-2xl font-black text-zinc-900 mt-2 font-mono">
+          <div className="text-2xl font-bold text-[var(--ink-primary)] mt-2 font-mono tabular-nums">
             {revenueAnalytics?.ai_booked_calls || 0}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-1">
+          <div className="text-[11px] text-[var(--ink-secondary)] mt-1">
             Appointments booked directly via voice triage calls
           </div>
         </div>
 
         {/* KPI 3: Deduplication & Legal Status */}
-        <div className="bg-white border border-zinc-200 rounded-2xl p-4 shadow-xs">
+        <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono uppercase text-zinc-400 font-bold flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-              Compliance & Hygiene
+            <span className="text-[11px] font-mono uppercase text-[var(--ink-muted)] font-bold flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              Compliance &amp; Hygiene
             </span>
             {duplicates.length > 0 && (
               <button
+                type="button"
                 onClick={() => setShowDuplicatesModal(true)}
-                className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 font-semibold px-2 py-0.5 rounded-full hover:bg-amber-100 transition"
+                className="text-[10px] font-mono tabular-nums text-amber-700 bg-amber-500/10 border border-amber-500/20 font-semibold px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition"
               >
                 Review ({duplicates.length})
               </button>
             )}
           </div>
-          <div className="text-2xl font-black text-zinc-900 mt-2 font-mono">
-            {allContacts.filter((c) => c.is_callable !== false).length} / {allContacts.length}
+          <div className="text-2xl font-bold text-[var(--ink-primary)] mt-2 font-mono tabular-nums">
+            {allContacts.filter((c) => Boolean(c.is_callable)).length} / {allContacts.length}
           </div>
-          <div className="text-[11px] text-zinc-500 mt-1 flex items-center gap-1">
-            <span className="text-emerald-700 font-semibold">TCPA Gate v2 Validated</span>
-            <span>• {duplicates.length} duplicate groups</span>
+          <div className="text-[11px] text-[var(--ink-secondary)] mt-1 flex items-center gap-1">
+            <span className="text-emerald-700 font-semibold">TCPA Gate v2 Verified</span>
+            <span className="font-mono tabular-nums">&bull; {duplicates.length} duplicate groups</span>
           </div>
         </div>
       </div>
 
+      {errorMessage && (
+        <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 text-xs font-mono flex items-center justify-between gap-3">
+          <span>{errorMessage}</span>
+          <button type="button" onClick={() => setErrorMessage(null)} aria-label="Dismiss error">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Action Notification */}
       {actionMessage && (
-        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-center justify-between animate-in fade-in">
+        <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 text-xs font-medium flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             {actionMessage}
           </div>
-          <button onClick={() => setActionMessage(null)}>
+          <button type="button" onClick={() => setActionMessage(null)}>
             <X className="w-3.5 h-3.5 text-emerald-600" />
           </button>
         </div>
@@ -880,16 +895,17 @@ export default function CRMPipelinePage() {
 
       {/* Duplicate Warning Banner if any */}
       {duplicates.length > 0 && (
-        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between">
+        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800 text-xs flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
             <span>
-              <strong>{duplicates.length} duplicate contact cluster(s) detected.</strong> Consolidate records to maintain continuous call logs and unified timeline history.
+              <strong>{duplicates.length} duplicate contact cluster(s) detected.</strong> Consolidate records to maintain unified timeline history.
             </span>
           </div>
           <button
+            type="button"
             onClick={() => setShowDuplicatesModal(true)}
-            className="flex items-center gap-1 font-bold text-amber-900 underline hover:no-underline ml-4 whitespace-nowrap"
+            className="flex items-center gap-1 font-bold text-amber-800 underline hover:no-underline whitespace-nowrap"
           >
             <GitMerge className="w-3.5 h-3.5" />
             Merge Duplicates
@@ -898,34 +914,37 @@ export default function CRMPipelinePage() {
       )}
 
       {/* Navigation Tabs */}
-      <div className="flex items-center justify-between border-b border-zinc-200">
-        <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border-hairline)]">
+        <div className="flex gap-4 overflow-x-auto">
           <button
+            type="button"
             onClick={() => setActiveTab("pipeline")}
-            className={`pb-3 text-xs font-bold transition-colors border-b-2 ${
+            className={`pb-3 text-xs font-bold transition-colors border-b-2 shrink-0 ${
               activeTab === "pipeline"
-                ? "border-indigo-600 text-indigo-700 font-bold"
-                : "border-transparent text-slate-500 hover:text-slate-700"
+                ? "border-[var(--accent-signal)] text-[var(--ink-primary)]"
+                : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
             }`}
           >
             Visual Kanban Board
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("contacts")}
-            className={`pb-3 text-xs font-bold transition-colors border-b-2 ${
+            className={`pb-3 text-xs font-bold transition-colors border-b-2 shrink-0 font-mono tabular-nums ${
               activeTab === "contacts"
-                ? "border-indigo-600 text-indigo-700 font-bold"
-                : "border-transparent text-slate-500 hover:text-slate-700"
+                ? "border-[var(--accent-signal)] text-[var(--ink-primary)]"
+                : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
             }`}
           >
             All Contacts ({Array.isArray(allContacts) ? allContacts.length : 0})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab("campaigns")}
-            className={`pb-3 text-xs font-bold transition-colors border-b-2 ${
+            className={`pb-3 text-xs font-bold transition-colors border-b-2 shrink-0 font-mono tabular-nums ${
               activeTab === "campaigns"
-                ? "border-indigo-600 text-indigo-700 font-bold"
-                : "border-transparent text-slate-500 hover:text-slate-700"
+                ? "border-[var(--accent-signal)] text-[var(--ink-primary)]"
+                : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
             }`}
           >
             Email Campaigns ({Array.isArray(campaigns) ? campaigns.length : 0})
@@ -934,13 +953,16 @@ export default function CRMPipelinePage() {
 
         {activeTab !== "campaigns" && (
           <div className="relative mb-2">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-400" />
+            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-[var(--ink-muted)]" />
             <input
               type="text"
               placeholder="Search contacts..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs bg-white border border-zinc-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-zinc-400 w-48 sm:w-64"
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setContactPage(1);
+              }}
+              className="pl-8 pr-3 py-1.5 text-xs bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-lg focus:outline-none focus:border-[var(--accent-signal)] w-full sm:w-64"
             />
           </div>
         )}
@@ -949,55 +971,63 @@ export default function CRMPipelinePage() {
       {/* Quick Filter Toolbar for Pipeline & Contacts */}
       {activeTab !== "campaigns" && (
         <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-          <span className="text-[10.5px] font-mono text-zinc-400 font-bold uppercase shrink-0">Filter:</span>
-          {[
-            { id: "all", label: "All Contacts", icon: Layers, count: allContacts.length },
-            {
-              id: "callable",
-              label: "TCPA Callable",
-              icon: ShieldCheck,
-              count: allContacts.filter((c) => c.is_callable !== false).length,
-            },
-            {
-              id: "emergency",
-              label: "Emergency Triage",
-              icon: Siren,
-              count: allContacts.filter((c) =>
-                (c.tags || []).some((t) => {
-                  const lower = t.toLowerCase();
-                  return lower.includes("emerg") || lower.includes("urgent");
-                })
-              ).length,
-            },
-            {
-              id: "booked",
-              label: "Booked Slots",
-              icon: Calendar,
-              count: allContacts.filter(
-                (c) => c.stage === "booked" || (c.tags || []).some((t) => t.toLowerCase().includes("book"))
-              ).length,
-            },
-            {
-              id: "uncontacted",
-              label: "Zero Calls",
-              icon: PhoneCall,
-              count: allContacts.filter((c) => !c.call_count || c.call_count === 0).length,
-            },
-          ].map((pill) => (
+          <span className="text-[10.5px] font-mono text-[var(--ink-muted)] font-bold uppercase shrink-0">Filter:</span>
+          {(
+            [
+              { id: "all", label: "All Contacts", icon: Layers, count: allContacts.length },
+              {
+                id: "callable",
+                label: "TCPA Callable",
+                icon: ShieldCheck,
+                count: allContacts.filter((c) => Boolean(c.is_callable)).length,
+              },
+              {
+                id: "emergency",
+                label: "Emergency Triage",
+                icon: Siren,
+                count: allContacts.filter((c) =>
+                  (c.tags || []).some((t) => {
+                    const lower = t.toLowerCase();
+                    return lower.includes("emerg") || lower.includes("urgent");
+                  })
+                ).length,
+              },
+              {
+                id: "booked",
+                label: "Booked Slots",
+                icon: Calendar,
+                count: allContacts.filter(
+                  (c) => c.stage === "booked" || (c.tags || []).some((t) => t.toLowerCase().includes("book"))
+                ).length,
+              },
+              {
+                id: "uncontacted",
+                label: "Zero Calls",
+                icon: PhoneCall,
+                count: allContacts.filter((c) => !c.call_count || c.call_count === 0).length,
+              },
+            ] as const
+          ).map((pill) => (
             <button
               key={pill.id}
-              onClick={() => setKanbanFilter(pill.id as any)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all shrink-0 ${
+              type="button"
+              onClick={() => {
+                setKanbanFilter(pill.id);
+                setContactPage(1);
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors shrink-0 ${
                 kanbanFilter === pill.id
-                  ? "bg-indigo-50 border border-indigo-200 text-indigo-700 shadow-2xs font-bold"
-                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  ? "bg-[var(--ink-primary)] text-[var(--surface-panel)] font-semibold"
+                  : "bg-[var(--surface-panel)] border border-[var(--border-hairline)] text-[var(--ink-secondary)] hover:bg-[var(--surface-subtle)]"
               }`}
             >
               <pill.icon className="w-3 h-3" />
               <span>{pill.label}</span>
               <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  kanbanFilter === pill.id ? "bg-indigo-100 text-indigo-800 font-bold" : "bg-slate-100 text-slate-500"
+                className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono tabular-nums ${
+                  kanbanFilter === pill.id
+                    ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] font-bold"
+                    : "bg-[var(--surface-subtle)] text-[var(--ink-muted)]"
                 }`}
               >
                 {pill.count}
@@ -1910,8 +1940,19 @@ export default function CRMPipelinePage() {
                 {/* TAB: CONSENT EVIDENTIARY PANEL (FR-CRM-14) */}
                 {drawerTab === "consent" && (
                   <div className="space-y-4">
-                    {loadingConsent || !contactConsent ? (
-                      <div className="text-center py-10 text-xs font-mono text-zinc-400">
+                    {consentError ? (
+                      <div className="p-4 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-700 text-xs font-mono flex items-center justify-between gap-3">
+                        <span>{consentError}</span>
+                        <button
+                          type="button"
+                          onClick={() => selectedContactId && handleLoadConsentAudit(selectedContactId)}
+                          className="underline font-semibold shrink-0"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : loadingConsent || !contactConsent ? (
+                      <div className="text-center py-10 text-xs font-mono text-[var(--ink-muted)]">
                         Querying evidentiary compliance records...
                       </div>
                     ) : (

@@ -78,15 +78,19 @@ export default function VoiceCampaignsPage() {
   // Quick Action Pending Map
   const [actionPendingId, setActionPendingId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Load Campaigns List
   const fetchCampaigns = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const data = await api.getVoiceCampaigns();
       setCampaigns(data || []);
-    } catch (err: any) {
-      console.error("Failed to load voice campaigns:", err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to load voice campaigns.";
+      setLoadError(msg);
     } finally {
       setLoading(false);
     }
@@ -170,6 +174,7 @@ export default function VoiceCampaignsPage() {
     e?.stopPropagation();
     try {
       setActionPendingId(id);
+      setActionError(null);
       await api.pauseVoiceCampaign(id);
       setActionFeedback("Campaign paused immediately.");
       await fetchCampaigns();
@@ -177,8 +182,8 @@ export default function VoiceCampaignsPage() {
         const updated = await api.getVoiceCampaign(id);
         setDetailCampaign(updated);
       }
-    } catch (err: any) {
-      alert(`Failed to pause: ${err.message || "Unknown error"}`);
+    } catch (err: unknown) {
+      setActionError(`Failed to pause: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setActionPendingId(null);
       setTimeout(() => setActionFeedback(null), 3000);
@@ -190,6 +195,7 @@ export default function VoiceCampaignsPage() {
     e?.stopPropagation();
     try {
       setActionPendingId(id);
+      setActionError(null);
       await api.resumeVoiceCampaign(id);
       setActionFeedback("Campaign resumed. Dialer will pick up eligible contacts.");
       await fetchCampaigns();
@@ -197,8 +203,8 @@ export default function VoiceCampaignsPage() {
         const updated = await api.getVoiceCampaign(id);
         setDetailCampaign(updated);
       }
-    } catch (err: any) {
-      alert(`Failed to resume: ${err.message || "Unknown error"}`);
+    } catch (err: unknown) {
+      setActionError(`Failed to resume: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setActionPendingId(null);
       setTimeout(() => setActionFeedback(null), 3000);
@@ -210,6 +216,7 @@ export default function VoiceCampaignsPage() {
     e?.stopPropagation();
     try {
       setActionPendingId(id);
+      setActionError(null);
       const res = await api.runVoiceCampaign(id);
       setActionFeedback(
         `Dispatched ${res.dispatches_attempted} calls (${res.dispatches_succeeded} accepted by carrier).`
@@ -219,8 +226,8 @@ export default function VoiceCampaignsPage() {
         const updated = await api.getVoiceCampaign(id);
         setDetailCampaign(updated);
       }
-    } catch (err: any) {
-      alert(`Failed to run step: ${err.message || "Unknown error"}`);
+    } catch (err: unknown) {
+      setActionError(`Failed to run step: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setActionPendingId(null);
       setTimeout(() => setActionFeedback(null), 4000);
@@ -231,6 +238,11 @@ export default function VoiceCampaignsPage() {
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
+
+    if (formWindowStart < "08:00" || formWindowEnd > "21:00" || formWindowStart >= formWindowEnd) {
+      setFormError("TCPA calling window must stay between 08:00 and 21:00 with start before end.");
+      return;
+    }
 
     if (!formName.trim()) {
       setFormError("Please enter a campaign name.");
@@ -382,46 +394,75 @@ export default function VoiceCampaignsPage() {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8 font-sans">
+    <div className="max-w-7xl mx-auto space-y-6 font-sans">
       {/* Toast Feedback */}
       {actionFeedback && (
-        <div className="fixed bottom-6 right-6 z-50 bg-zinc-900 text-white text-xs font-medium px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 border border-zinc-800 animate-in fade-in slide-in-from-bottom-3 duration-200">
+        <div className="fixed bottom-6 right-6 z-50 bg-[var(--ink-primary)] text-[var(--surface-panel)] text-xs font-medium px-4 py-3 rounded-xl shadow-xl flex items-center gap-2 border border-[var(--border-hairline)]">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{actionFeedback}</span>
         </div>
       )}
 
+      {(loadError || actionError) && (
+        <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs font-mono text-rose-700 flex items-center justify-between gap-3">
+          <span>{loadError || actionError}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {loadError && (
+              <button
+                type="button"
+                onClick={fetchCampaigns}
+                className="underline font-semibold"
+              >
+                Retry
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setLoadError(null);
+                setActionError(null);
+              }}
+              aria-label="Dismiss error"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Banner & Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200 pb-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border-hairline)] pb-6">
         <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="p-2 rounded-lg bg-[var(--surface-panel)] border border-[var(--border-hairline)] text-[var(--accent-signal)]">
               <Radio className="w-5 h-5" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
+            <h1 className="text-2xl font-bold tracking-tight text-[var(--ink-primary)]">
               Outbound Voice Campaigns
             </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Milestone M5
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-700 border border-emerald-500/20">
+              TCPA Gate Active
             </span>
           </div>
-          <p className="mt-1.5 text-sm text-zinc-500">
-            TCPA-compliant automated appointment reminders, customer callbacks, and sub-2s speed-to-lead voice dialing.
+          <p className="mt-1.5 text-sm text-[var(--ink-secondary)]">
+            Automated appointment reminders, customer callbacks, and sub-2s speed-to-lead voice dialing.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
           <button
+            type="button"
             onClick={fetchCampaigns}
             disabled={loading}
-            className="p-2.5 rounded-xl border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 transition-colors shadow-sm disabled:opacity-50"
+            className="p-2.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] text-[var(--ink-secondary)] hover:bg-[var(--surface-subtle)] hover:text-[var(--ink-primary)] transition-colors disabled:opacity-50"
             title="Refresh Campaigns"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
           <button
+            type="button"
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 active:scale-[0.98] transition-all shadow-2xs"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] text-xs font-semibold hover:opacity-90 active:scale-[0.98] transition-all"
           >
             <Plus className="w-4 h-4" />
             Create Campaign
@@ -430,34 +471,34 @@ export default function VoiceCampaignsPage() {
       </div>
 
       {/* TCPA Guardrail Banner */}
-      <div className="bg-gradient-to-r from-emerald-50/80 via-white to-sky-50/50 border border-emerald-200/80 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-sm">
+      <div className="bg-[var(--surface-panel)] border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-emerald-100/80 rounded-xl text-emerald-800 shrink-0">
+          <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-700 shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <span className="font-bold text-zinc-900">10-Point TCPA & FCC Outbound Guardrail Active</span>
-            <p className="text-zinc-600 mt-0.5">
-              Enforcing recipient timezone calling windows (8:00 AM – 9:00 PM), verified caller ID, max frequency caps, and real-time in-call opt-out suppression.
+            <span className="font-bold text-[var(--ink-primary)]">10-Point TCPA &amp; FCC Outbound Guardrail Active</span>
+            <p className="text-[var(--ink-secondary)] mt-0.5">
+              Enforcing recipient timezone calling windows (8:00 AM – 9:00 PM), verified caller ID, frequency caps, and instant opt-out suppression.
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500 shrink-0">
-          <span className="px-2 py-1 bg-white rounded-lg border border-zinc-200 font-semibold text-zinc-700">
-            SIP Trunk: Twilio Elastic / LiveKit
+        <div className="flex items-center gap-2 font-mono text-[11px] text-[var(--ink-muted)] shrink-0">
+          <span className="px-2 py-1 bg-[var(--surface-canvas)] rounded-lg border border-[var(--border-hairline)] font-semibold text-[var(--ink-primary)]">
+            SIP Trunk: LiveKit Cloud
           </span>
         </div>
       </div>
 
       {/* KPI Metrics Ribbon */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white border border-zinc-200/80 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+        <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-4">
+          <div className="flex items-center justify-between text-[var(--ink-muted)] text-xs font-medium">
             <span>Total Campaigns</span>
-            <Radio className="w-4 h-4 text-zinc-400" />
+            <Radio className="w-4 h-4" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold tracking-tight text-zinc-900">{metrics.total}</span>
+            <span className="text-2xl font-bold font-mono tabular-nums tracking-tight text-[var(--ink-primary)]">{metrics.total}</span>
             {metrics.running > 0 && (
               <span className="text-xs font-semibold text-emerald-600">
                 {metrics.running} active
@@ -514,23 +555,29 @@ export default function VoiceCampaignsPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white border border-zinc-200/80 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+      <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-[var(--ink-muted)] absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCampPage(1);
+            }}
             placeholder="Search campaigns by name, ID, or caller ID..."
-            className="w-full pl-9 pr-4 py-2 bg-zinc-50/70 border border-zinc-200 rounded-xl text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+            className="w-full pl-9 pr-4 py-2 bg-[var(--surface-canvas)] border border-[var(--border-hairline)] rounded-lg text-xs text-[var(--ink-primary)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:border-[var(--accent-signal)] transition-colors"
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-2 bg-zinc-50/70 border border-zinc-200 rounded-xl text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            onChange={(e) => {
+              setFilterStatus(e.target.value);
+              setCampPage(1);
+            }}
+            className="px-3 py-2 bg-[var(--surface-canvas)] border border-[var(--border-hairline)] rounded-lg text-xs text-[var(--ink-primary)] focus:outline-none"
           >
             <option value="all">All Statuses</option>
             <option value="running">Running</option>
@@ -541,8 +588,11 @@ export default function VoiceCampaignsPage() {
 
           <select
             value={filterPurpose}
-            onChange={(e) => setFilterPurpose(e.target.value)}
-            className="px-3 py-2 bg-zinc-50/70 border border-zinc-200 rounded-xl text-xs text-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            onChange={(e) => {
+              setFilterPurpose(e.target.value);
+              setCampPage(1);
+            }}
+            className="px-3 py-2 bg-[var(--surface-canvas)] border border-[var(--border-hairline)] rounded-lg text-xs text-[var(--ink-primary)] focus:outline-none"
           >
             <option value="all">All Purposes</option>
             <option value="appointment_reminder">Appointment Reminders</option>
@@ -554,10 +604,10 @@ export default function VoiceCampaignsPage() {
       </div>
 
       {/* Campaigns Table */}
-      <div className="bg-white border border-zinc-200/80 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center text-xs text-zinc-400 font-mono">
-            <RefreshCw className="w-6 h-6 mx-auto animate-spin mb-2 text-zinc-300" />
+          <div className="p-12 text-center text-xs text-[var(--ink-muted)] font-mono">
+            <RefreshCw className="w-6 h-6 mx-auto animate-spin mb-2 text-[var(--ink-muted)]" />
             Loading outbound campaigns...
           </div>
         ) : filteredCampaigns.length === 0 ? (
@@ -565,13 +615,14 @@ export default function VoiceCampaignsPage() {
             <div className="flex justify-center mb-4">
               <ComplianceShieldIllustration className="w-16 h-16" />
             </div>
-            <h3 className="text-sm font-bold text-slate-900">No campaigns found</h3>
-            <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
+            <h3 className="text-sm font-bold text-[var(--ink-primary)]">No campaigns found</h3>
+            <p className="mt-1 text-xs text-[var(--ink-secondary)] max-w-sm mx-auto">
               Create your first voice campaign to automate customer appointment reminders or sub-2s speed-to-lead triage.
             </p>
             <button
+              type="button"
               onClick={() => setShowCreateModal(true)}
-              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-colors shadow-2xs"
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] text-xs font-semibold hover:opacity-90 transition-opacity"
             >
               <Plus className="w-3.5 h-3.5" />
               New Campaign
@@ -734,43 +785,48 @@ export default function VoiceCampaignsPage() {
 
       {/* Slide-over Contact Inspector Drawer */}
       {selectedCampaignId && (
-        <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 backdrop-blur-sm flex justify-end animate-in fade-in duration-200">
+        <div
+          onClick={() => setSelectedCampaignId(null)}
+          className="fixed inset-0 z-50 overflow-hidden bg-black/40 backdrop-blur-sm flex justify-end"
+        >
           <div
-            className="w-full max-w-xl bg-white h-full shadow-2xl flex flex-col border-l border-zinc-200 animate-in slide-in-from-right duration-300"
+            className="w-full max-w-xl bg-[var(--surface-panel)] h-full shadow-2xl flex flex-col border-l border-[var(--border-hairline)]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Drawer Header */}
-            <div className="p-6 border-b border-zinc-200 flex items-start justify-between bg-zinc-50/50">
-              <div>
+            <div className="p-6 border-b border-[var(--border-hairline)] flex flex-wrap items-start justify-between gap-3 bg-[var(--surface-canvas)]">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-zinc-400">Campaign Inspector</span>
+                  <span className="font-mono text-xs text-[var(--ink-muted)]">Campaign Inspector</span>
                   {detailCampaign && formatStatus(detailCampaign.status)}
                 </div>
-                <h2 className="text-lg font-bold text-zinc-900 mt-1">
+                <h2 className="text-lg font-bold text-[var(--ink-primary)] mt-1 truncate">
                   {detailCampaign?.name || "Loading..."}
                 </h2>
-                <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-500 font-mono">
+                <div className="flex items-center gap-3 mt-1.5 text-xs text-[var(--ink-secondary)] font-mono tabular-nums">
                   <span>Caller: {detailCampaign?.caller_id || "Default"}</span>
                   <span>•</span>
                   <span>
-                    Contacts: {detailCampaign?.completed_contacts} / {detailCampaign?.total_contacts}
+                    Contacts: {detailCampaign?.completed_contacts ?? 0} / {detailCampaign?.total_contacts ?? 0}
                   </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                {detailCampaign?.status === "running" ? (
+                {detailCampaign && detailCampaign.status === "running" ? (
                   <button
+                    type="button"
                     onClick={() => handlePause(detailCampaign.id)}
-                    className="px-3 py-1.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-700 font-semibold text-xs flex items-center gap-1.5 hover:bg-amber-100 transition-colors"
+                    className="px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-700 font-semibold text-xs flex items-center gap-1.5 hover:bg-amber-500/20 transition-colors"
                   >
                     <Pause className="w-3.5 h-3.5" />
                     Pause
                   </button>
-                ) : detailCampaign?.status !== "completed" ? (
+                ) : detailCampaign && detailCampaign.status !== "completed" ? (
                   <button
-                    onClick={() => handleResume(detailCampaign!.id)}
-                    className="px-3 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
+                    type="button"
+                    onClick={() => handleResume(detailCampaign.id)}
+                    className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 font-semibold text-xs flex items-center gap-1.5 hover:bg-emerald-500/20 transition-colors"
                   >
                     <Play className="w-3.5 h-3.5" />
                     Resume
@@ -779,8 +835,9 @@ export default function VoiceCampaignsPage() {
 
                 {detailCampaign?.status === "running" && (
                   <button
+                    type="button"
                     onClick={() => handleRunStep(detailCampaign.id)}
-                    className="px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 font-semibold text-xs flex items-center gap-1.5 hover:bg-indigo-100 transition-colors"
+                    className="px-3 py-1.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] text-[var(--accent-signal)] font-semibold text-xs flex items-center gap-1.5 hover:bg-[var(--surface-subtle)] transition-colors"
                   >
                     <Zap className="w-3.5 h-3.5" />
                     Dispatch Now
@@ -788,8 +845,9 @@ export default function VoiceCampaignsPage() {
                 )}
 
                 <button
+                  type="button"
                   onClick={() => setSelectedCampaignId(null)}
-                  className="p-2 rounded-xl text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                  className="p-2 rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-primary)] hover:bg-[var(--surface-subtle)] transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -878,27 +936,31 @@ export default function VoiceCampaignsPage() {
 
       {/* Create Campaign Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div
+          onClick={() => setShowCreateModal(false)}
+          className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div
-            className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden animate-in zoom-in-95 duration-200"
+            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--surface-panel)] rounded-2xl shadow-2xl border border-[var(--border-hairline)]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="p-6 border-b border-zinc-200 flex items-center justify-between bg-zinc-50/70">
+            <div className="p-6 border-b border-[var(--border-hairline)] flex items-center justify-between bg-[var(--surface-canvas)] sticky top-0 z-10">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600">
+                <div className="p-2 rounded-lg bg-[var(--surface-panel)] border border-[var(--border-hairline)] text-[var(--accent-signal)]">
                   <Radio className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-zinc-900">Create Outbound Voice Campaign</h3>
-                  <p className="text-xs text-zinc-500">
-                    Milestone M5 dialer with automated TCPA consent & calling window enforcement.
+                  <h3 className="text-base font-bold text-[var(--ink-primary)]">Create Outbound Voice Campaign</h3>
+                  <p className="text-xs text-[var(--ink-secondary)]">
+                    Automated TCPA consent &amp; calling-window enforcement enabled.
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="p-2 rounded-xl text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors"
+                className="p-2 rounded-lg text-[var(--ink-muted)] hover:text-[var(--ink-primary)] hover:bg-[var(--surface-subtle)] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -979,18 +1041,22 @@ export default function VoiceCampaignsPage() {
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div className="space-y-1">
-                    <label className="text-zinc-600 font-medium">Window Start</label>
+                    <label className="text-[var(--ink-secondary)] font-medium">Window Start</label>
                     <input
                       type="time"
+                      min="08:00"
+                      max="21:00"
                       value={formWindowStart}
                       onChange={(e) => setFormWindowStart(e.target.value)}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono"
+                      className="w-full px-3 py-2 bg-[var(--surface-canvas)] border border-[var(--border-hairline)] rounded-lg text-xs font-mono tabular-nums"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-zinc-600 font-medium">Window End</label>
+                    <label className="text-[var(--ink-secondary)] font-medium">Window End</label>
                     <input
                       type="time"
+                      min="08:00"
+                      max="21:00"
                       value={formWindowEnd}
                       onChange={(e) => setFormWindowEnd(e.target.value)}
                       className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono"

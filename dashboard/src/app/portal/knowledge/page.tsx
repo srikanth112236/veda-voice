@@ -183,6 +183,7 @@ export default function KnowledgeBasePage() {
 
   // Speech Synthesis Audio Simulator State
   const [currentlySpeaking, setCurrentlySpeaking] = useState<string | null>(null);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
   // Loaders
   const loadProfile = async () => {
@@ -195,8 +196,8 @@ export default function KnowledgeBasePage() {
       setSelectedTone(p.tone || "Warm & Professional");
       setPhoneticList(p.phonetic_glossary || []);
       setPromptInstructions(DEFAULT_PROMPT_VARIANTS[0].instructions);
-    } catch (err) {
-      console.error("Failed to load agent profile:", err);
+    } catch (err: unknown) {
+      setKnowledgeError(err instanceof Error ? err.message : "Failed to load agent profile.");
     } finally {
       setLoadingProfile(false);
     }
@@ -207,7 +208,9 @@ export default function KnowledgeBasePage() {
     api
       .listKnowledgeDocuments()
       .then((docs) => setDocuments(docs))
-      .catch((err) => console.error("Failed to load documents:", err))
+      .catch((err: unknown) =>
+        setKnowledgeError(err instanceof Error ? err.message : "Failed to load knowledge documents.")
+      )
       .finally(() => setLoadingDocs(false));
   };
 
@@ -216,7 +219,9 @@ export default function KnowledgeBasePage() {
     api
       .listDirectFAQs()
       .then((items) => setFaqs(items || []))
-      .catch((err) => console.error("Failed to load FAQs:", err))
+      .catch((err: unknown) =>
+        setKnowledgeError(err instanceof Error ? err.message : "Failed to load direct FAQs.")
+      )
       .finally(() => setLoadingFaqs(false));
   };
 
@@ -229,7 +234,7 @@ export default function KnowledgeBasePage() {
   // Voice Audio Simulator Handler
   const handleSpeakText = (text: string, identifier: string) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      alert("Speech synthesis is not supported in this browser.");
+      setKnowledgeError("Speech synthesis is not supported in this browser.");
       return;
     }
 
@@ -295,10 +300,11 @@ export default function KnowledgeBasePage() {
     }
   };
 
-  // Deploy Prompt & Persona to LiveKit
+  // Deploy Persona, Greeting & Tone to LiveKit
   const handleDeployPrompt = async () => {
     setSavingPrompt(true);
     setPromptDeploySuccess(null);
+    setKnowledgeError(null);
     try {
       await api.updatePortalProfile({
         agent_name: agentName.trim(),
@@ -306,11 +312,11 @@ export default function KnowledgeBasePage() {
         tone: selectedTone,
       });
       setPromptDeploySuccess(
-        `Prompt persona and greeting deployed to LiveKit SIP trunk workers! Runtime synchronized.`
+        `Agent name, greeting, and tone synced to LiveKit voice workers.`
       );
       setTimeout(() => setPromptDeploySuccess(null), 5000);
-    } catch (err: any) {
-      alert(`Failed to deploy prompt: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setKnowledgeError(`Failed to deploy persona: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSavingPrompt(false);
     }
@@ -322,6 +328,7 @@ export default function KnowledgeBasePage() {
     if (!newPhoneticTerm.trim() || !newPhoneticSpoken.trim()) return;
 
     setSavingPhonetics(true);
+    setKnowledgeError(null);
     const updated = [
       ...phoneticList.filter((p) => p.term.toLowerCase() !== newPhoneticTerm.trim().toLowerCase()),
       {
@@ -340,23 +347,23 @@ export default function KnowledgeBasePage() {
       setNewPhoneticSpoken("");
       setNewPhoneticNote("");
       setTimeout(() => setPhoneticActionMsg(null), 4000);
-    } catch (err: any) {
-      alert(`Failed to save phonetic term: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setKnowledgeError(`Failed to save phonetic term: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSavingPhonetics(false);
     }
   };
 
   const handleDeletePhoneticEntry = async (term: string) => {
-    if (!confirm(`Delete pronunciation rule for "${term}"?`)) return;
     const updated = phoneticList.filter((p) => p.term !== term);
+    setKnowledgeError(null);
     try {
       await api.updatePortalProfile({ phonetic_glossary: updated });
       setPhoneticList(updated);
       setPhoneticActionMsg(`Removed pronunciation rule for "${term}".`);
       setTimeout(() => setPhoneticActionMsg(null), 3000);
-    } catch (err: any) {
-      alert(`Failed to delete rule: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setKnowledgeError(`Failed to delete rule: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -398,9 +405,8 @@ export default function KnowledgeBasePage() {
     }
   };
 
-  const handleDeleteDocument = async (docId: string, filename: string) => {
-    if (!confirm(`Are you sure you want to delete "${filename}" and all its indexed chunks?`)) return;
-
+  const handleDeleteDocument = async (docId: string) => {
+    setKnowledgeError(null);
     try {
       await api.deleteKnowledgeDocument(docId);
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
@@ -408,19 +414,20 @@ export default function KnowledgeBasePage() {
         setSelectedDoc(null);
         setDocChunks([]);
       }
-    } catch (err: any) {
-      alert(`Failed to delete document: ${err.message || err}`);
+    } catch (err: unknown) {
+      setKnowledgeError(`Failed to delete document: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleInspectChunks = async (doc: KnowledgeDocument) => {
     setSelectedDoc(doc);
     setLoadingChunks(true);
+    setKnowledgeError(null);
     try {
       const res = await api.getKnowledgeDocument(doc.id);
       setDocChunks(res.chunks);
-    } catch (err) {
-      console.error("Failed to inspect chunks:", err);
+    } catch (err: unknown) {
+      setKnowledgeError(`Failed to inspect chunks: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoadingChunks(false);
     }
@@ -454,25 +461,24 @@ export default function KnowledgeBasePage() {
       setNewAlternatePhrasings("");
       setTimeout(() => setFaqActionSuccess(null), 5000);
       loadDocuments();
-    } catch (err: any) {
-      alert(`Failed to create FAQ: ${err.message || err}`);
+    } catch (err: unknown) {
+      setKnowledgeError(`Failed to create FAQ: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSubmittingFaq(false);
     }
   };
 
   const handleDeleteFaq = async (faq: FAQItem) => {
-    const identifier = faq.question;
-    if (!confirm(`Are you sure you want to delete this FAQ: "${identifier}"?`)) return;
-
+    const identifier = faq.id || faq.question;
+    setKnowledgeError(null);
     try {
       await api.deleteDirectFAQ(identifier);
-      setFaqs((prev) => prev.filter((f) => f.question !== identifier));
+      setFaqs((prev) => prev.filter((f) => (f.id || f.question) !== identifier));
       setFaqActionSuccess(`FAQ removed and vector chunks updated.`);
       setTimeout(() => setFaqActionSuccess(null), 4000);
       loadDocuments();
-    } catch (err: any) {
-      alert(`Failed to delete FAQ: ${err.message || err}`);
+    } catch (err: unknown) {
+      setKnowledgeError(`Failed to delete FAQ: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -480,11 +486,12 @@ export default function KnowledgeBasePage() {
   const handleRunRAGQuery = async () => {
     if (!testQuery.trim()) return;
     setTestingRAG(true);
+    setKnowledgeError(null);
     try {
       const res = await api.testRAGQuery(testQuery, topK, confidenceCutoff);
       setRagResult(res);
-    } catch (err: any) {
-      alert(`Query failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      setKnowledgeError(`Query failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setTestingRAG(false);
     }
@@ -614,50 +621,55 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
       </div>
 
       {/* KPI Intelligence Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        {/* KPI 1: LiveKit Voice Persona */}
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-4 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] space-y-1">
+          <div className="flex items-center justify-between text-[var(--ink-muted)] text-xs font-medium">
             <span>Voice Agent Persona</span>
-            <Bot className="w-4 h-4 text-purple-600" />
+            <Bot className="w-4 h-4 text-[var(--accent-signal)]" />
           </div>
-          <div className="text-2xl font-extrabold text-zinc-900 font-mono">{agentName}</div>
-          <div className="text-[10px] text-purple-700 font-mono font-medium flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <div className="text-2xl font-bold text-[var(--ink-primary)] font-mono">{agentName}</div>
+          <div className="text-[10px] text-emerald-700 font-mono font-medium flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
             LiveKit Cloud SIP Synced
           </div>
         </div>
 
-        {/* KPI 2: Phonetic Glossary */}
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+        <div className="p-4 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] space-y-1">
+          <div className="flex items-center justify-between text-[var(--ink-muted)] text-xs font-medium">
             <span>Phonetic Lexicon</span>
-            <Mic className="w-4 h-4 text-indigo-600" />
+            <Mic className="w-4 h-4 text-[var(--accent-signal)]" />
           </div>
-          <div className="text-2xl font-extrabold text-zinc-900 font-mono">{phoneticList.length} Rules</div>
-          <div className="text-[10px] text-zinc-400 font-mono">Brand &amp; Jargon Pronunciation</div>
+          <div className="text-2xl font-bold text-[var(--ink-primary)] font-mono tabular-nums">{phoneticList.length} Rules</div>
+          <div className="text-[10px] text-[var(--ink-muted)] font-mono">Brand &amp; Jargon Pronunciation</div>
         </div>
 
-        {/* KPI 3: Direct FAQs */}
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+        <div className="p-4 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] space-y-1">
+          <div className="flex items-center justify-between text-[var(--ink-muted)] text-xs font-medium">
             <span>Direct Business FAQs</span>
-            <HelpCircle className="w-4 h-4 text-blue-500" />
+            <HelpCircle className="w-4 h-4 text-[var(--accent-signal)]" />
           </div>
-          <div className="text-2xl font-extrabold text-zinc-900 font-mono">{faqs.length}</div>
-          <div className="text-[10px] text-zinc-400 font-mono">Sub-15ms Vector Chunks</div>
+          <div className="text-2xl font-bold text-[var(--ink-primary)] font-mono tabular-nums">{faqs.length}</div>
+          <div className="text-[10px] text-[var(--ink-muted)] font-mono">Sub-15ms Vector Chunks</div>
         </div>
 
-        {/* KPI 4: Knowledge Documents & Chunks */}
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200 shadow-sm space-y-1">
-          <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
+        <div className="p-4 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] space-y-1">
+          <div className="flex items-center justify-between text-[var(--ink-muted)] text-xs font-medium">
             <span>Grounding Documents</span>
-            <Layers className="w-4 h-4 text-emerald-500" />
+            <Layers className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-2xl font-extrabold text-zinc-900 font-mono">{documents.length} docs</div>
-          <div className="text-[10px] text-emerald-600 font-mono font-medium">{totalChunks} sentence chunks</div>
+          <div className="text-2xl font-bold text-[var(--ink-primary)] font-mono tabular-nums">{documents.length} docs</div>
+          <div className="text-[10px] text-emerald-700 font-mono tabular-nums font-medium">{totalChunks} sentence chunks</div>
         </div>
       </div>
+
+      {knowledgeError && (
+        <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-700 text-xs font-mono flex items-center justify-between gap-3">
+          <span>{knowledgeError}</span>
+          <button type="button" onClick={() => setKnowledgeError(null)} aria-label="Dismiss error">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Notifications */}
       {promptDeploySuccess && (
@@ -721,14 +733,14 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
       )}
 
       {/* 4-Tab Studio Navigation */}
-      <div className="flex items-center border-b border-zinc-200 overflow-x-auto">
+      <div className="flex items-center border-b border-[var(--border-hairline)] overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab("prompts")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 ${
             activeTab === "prompts"
-              ? "border-purple-600 text-purple-700 font-bold"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300"
+              ? "border-[var(--accent-signal)] text-[var(--ink-primary)] font-bold"
+              : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
           }`}
         >
           <Bot className="w-4 h-4" />
@@ -737,10 +749,10 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
         <button
           type="button"
           onClick={() => setActiveTab("phonetics")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 font-mono tabular-nums ${
             activeTab === "phonetics"
-              ? "border-indigo-600 text-indigo-700 font-bold"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300"
+              ? "border-[var(--accent-signal)] text-[var(--ink-primary)] font-bold"
+              : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
           }`}
         >
           <Mic className="w-4 h-4" />
@@ -749,10 +761,10 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
         <button
           type="button"
           onClick={() => setActiveTab("faqs")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 font-mono tabular-nums ${
             activeTab === "faqs"
-              ? "border-indigo-600 text-indigo-700 font-bold"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300"
+              ? "border-[var(--accent-signal)] text-[var(--ink-primary)] font-bold"
+              : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
           }`}
         >
           <HelpCircle className="w-4 h-4" />
@@ -761,10 +773,10 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
         <button
           type="button"
           onClick={() => setActiveTab("documents")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap shrink-0 font-mono tabular-nums ${
             activeTab === "documents"
-              ? "border-indigo-600 text-indigo-700 font-bold"
-              : "border-transparent text-zinc-500 hover:text-zinc-700 hover:border-zinc-300"
+              ? "border-[var(--accent-signal)] text-[var(--ink-primary)] font-bold"
+              : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
           }`}
         >
           <FileText className="w-4 h-4" />
@@ -1383,7 +1395,7 @@ ${guardrails.map((g) => `- [STRICT] ${g}`).join("\n")}`;
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteDocument(doc.id, doc.filename)}
+                              onClick={() => handleDeleteDocument(doc.id)}
                               className="p-1.5 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 text-xs font-semibold"
                               title="Delete Document"
                             >
