@@ -145,6 +145,8 @@ def sync_call_record_to_api(
     record: CallRecord,
     call_token: str = "",
     api_base_url: str | None = None,
+    max_attempts: int = 3,
+    backoff_base_s: float = 0.5,
 ) -> bool:
     """Post completed CallRecord to the control plane /api/v1/internal/calls/complete.
 
@@ -220,33 +222,61 @@ def sync_call_record_to_api(
     synced_any = False
     for base_url in targets:
         url = f"{base_url}/api/v1/internal/calls/complete"
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {token}" if token else "",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "LiveKit-Agent-Worker/1.0",
-            },
-            method="POST",
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=8.0) as resp:
-                if resp.status == 200:
-                    logger.info(
-                        "Successfully synced call record %s to control plane API at %s",
-                        record.call_id,
-                        base_url,
-                    )
-                    synced_any = True
-        except Exception as e:
-            logger.debug(
-                "HTTP call to %s failed (%s); trying fallback",
+        for attempt in range(max(1, max_attempts)):
+            req = urllib.request.Request(
                 url,
-                e,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {token}" if token else "",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "LiveKit-Agent-Worker/1.0",
+                },
+                method="POST",
             )
+
+            try:
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    if resp.status == 200:
+                        logger.info(
+                            "Successfully synced call record %s to control plane API at %s",
+                            record.call_id,
+                            base_url,
+                        )
+                        synced_any = True
+                        break
+            except urllib.error.HTTPError as http_err:
+                # Do not retry deterministic 4xx client errors (except 408/429)
+                if 400 <= http_err.code < 500 and http_err.code not in (408, 429):
+                    logger.debug(
+                        "HTTP %s from %s; skipping retries",
+                        http_err.code,
+                        url,
+                    )
+                    break
+                logger.debug(
+                    "HTTP %s from %s (attempt %d/%d)",
+                    http_err.code,
+                    url,
+                    attempt + 1,
+                    max_attempts,
+                )
+            except Exception as e:
+                logger.debug(
+                    "HTTP call to %s failed (%s, attempt %d/%d)",
+                    url,
+                    e,
+                    attempt + 1,
+                    max_attempts,
+                )
+
+            if attempt + 1 < max_attempts and backoff_base_s > 0:
+                import time
+
+                time.sleep(backoff_base_s * (2**attempt))
+
+        if synced_any:
+            break
 
     if synced_any:
         return True

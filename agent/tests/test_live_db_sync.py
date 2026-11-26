@@ -11,6 +11,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from agent.records import (
     CallRecord,
     FileCallStore,
@@ -168,3 +170,54 @@ def test_offline_resilience_preserves_local_file_call_store(tmp_path: Path) -> N
     )
     # Falls back gracefully or returns True/False without crashing
     assert isinstance(synced, bool)
+
+
+def test_sync_call_record_retries_transient_502_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify sync_call_record_to_api retries transient 5xx errors and succeeds on retry."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    attempts = {"count": 0}
+
+    class _FakeResp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _fake_urlopen(req, timeout=8.0):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise urllib.error.HTTPError(
+                req.full_url, 502, "Bad Gateway", hdrs=None, fp=io.BytesIO(b"bad gateway")
+            )
+        return _FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    record = CallRecord(
+        tenant_id="retry_tenant",
+        call_id="call-retry-502",
+        dialed_number="+18005550199",
+        caller_number="+15125550100",
+        started_at=datetime.now(UTC).isoformat(),
+        ended_at=datetime.now(UTC).isoformat(),
+        duration_s=30.0,
+        outcome="completed",
+    )
+
+    synced = sync_call_record_to_api(
+        record,
+        call_token="test-token",
+        api_base_url="http://127.0.0.1:8000",
+        max_attempts=3,
+        backoff_base_s=0.0,
+    )
+    assert synced is True
+    assert attempts["count"] == 3

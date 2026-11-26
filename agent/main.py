@@ -516,37 +516,51 @@ async def entrypoint(ctx: JobContext) -> None:
             except Exception as d_err:
                 logger.debug("LiveKit data channel publish notice: %s", d_err)
 
-            # 2. Asynchronously notify control plane API for database sync and WebSocket streaming
+            # 2. Enqueue turn for ordered non-blocking control-plane sync
             canonical_call_id = sip_info.get("call_id") or room_name
             api_base = getattr(default_api_client, "base_url", None)
             if api_base:
+                turn_queue = getattr(session, "_veda_turn_sync_queue", None)
+                if turn_queue is None:
+                    turn_queue = asyncio.Queue()
+                    session._veda_turn_sync_queue = turn_queue
 
-                async def _sync_turn_to_api(t_role: str, t_text: str, t_time: str) -> None:
-                    try:
+                    async def _turn_sync_worker() -> None:
                         import urllib.request
 
-                        turn_body = json.dumps(
-                            {
-                                "call_id": canonical_call_id,
-                                "role": t_role,
-                                "text": t_text,
-                                "time": t_time,
-                            }
-                        ).encode("utf-8")
-                        req = urllib.request.Request(
-                            f"{api_base}/api/v1/internal/calls/{canonical_call_id}/turn",
-                            data=turn_body,
-                            headers={
-                                "Content-Type": "application/json",
-                                "Accept": "application/json",
-                            },
-                            method="POST",
-                        )
-                        urllib.request.urlopen(req, timeout=1.5)
-                    except Exception as s_err:
-                        logger.debug("Turn API broadcast notice: %s", s_err)
+                        while True:
+                            payload_item = await turn_queue.get()
+                            if payload_item is None:
+                                turn_queue.task_done()
+                                break
+                            c_id, t_role, t_text, t_time = payload_item
+                            try:
+                                turn_body = json.dumps(
+                                    {
+                                        "call_id": c_id,
+                                        "role": t_role,
+                                        "text": t_text,
+                                        "time": t_time,
+                                    }
+                                ).encode("utf-8")
+                                req = urllib.request.Request(
+                                    f"{api_base}/api/v1/internal/calls/{c_id}/turn",
+                                    data=turn_body,
+                                    headers={
+                                        "Content-Type": "application/json",
+                                        "Accept": "application/json",
+                                    },
+                                    method="POST",
+                                )
+                                await asyncio.to_thread(urllib.request.urlopen, req, timeout=2.0)
+                            except Exception as s_err:
+                                logger.debug("Turn API broadcast notice: %s", s_err)
+                            finally:
+                                turn_queue.task_done()
 
-                asyncio.create_task(_sync_turn_to_api(item.role, text_str, entry_time))
+                    asyncio.create_task(_turn_sync_worker())
+
+                turn_queue.put_nowait((canonical_call_id, item.role, text_str, entry_time))
 
             # Auto-disconnect watchdog: when assistant delivers goodbye, cleanly terminate room after TTS finishes
             if item.role in ("assistant", "agent"):

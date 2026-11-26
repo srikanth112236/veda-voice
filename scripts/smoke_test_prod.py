@@ -109,6 +109,21 @@ def test_internal_call_lifecycle(client: httpx.Client, base_url: str) -> None:
         print(f"    [INFO] Internal call start status {resp.status_code} (Tenant may require seed)")
 
 
+def test_portal_calls_endpoints(
+    client: httpx.Client, base_url: str, token: str | None = None
+) -> None:
+    print("--> [5/5] Testing Portal Calls endpoints (/api/v1/portal/calls)...")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    for path in ("/api/v1/portal/calls?limit=1", "/api/v1/portal/calls/active-calls"):
+        resp = client.get(f"{base_url.rstrip('/')}{path}", headers=headers)
+        assert (
+            resp.status_code < 500
+        ), f"Portal calls endpoint {path} returned {resp.status_code}: {resp.text}"
+        if token:
+            assert resp.status_code in (200, 403), f"Unexpected status {resp.status_code} on {path}"
+    print("    [PASS] Portal calls endpoints healthy (no 500 errors).")
+
+
 def main() -> None:
     args = parse_args()
     print("=" * 60)
@@ -119,9 +134,10 @@ def main() -> None:
     with httpx.Client(timeout=args.timeout) as client:
         try:
             test_health(client, args.base_url)
-            test_admin_login(client, args.base_url)
+            admin_token = test_admin_login(client, args.base_url)
             test_internal_number_lookup(client, args.base_url)
             test_internal_call_lifecycle(client, args.base_url)
+            test_portal_calls_endpoints(client, args.base_url, token=admin_token)
             print("\n>>> ALL PRODUCTION SMOKE CHECKS PASSED SUCCESSFULLY! <<<")
             sys.exit(0)
         except Exception as err:
