@@ -2201,6 +2201,65 @@ export const api = {
     request<CustomerInvoiceRecord>(`/api/v1/portal/invoices/${invoiceId}/void`, {
       method: "POST",
     }),
+
+  // Public Self-Service Endpoints (No Auth Required)
+  getPublicQuote: (token: string) =>
+    request<{ business_name: string; quote: CustomerQuoteRecord }>(
+      `/api/v1/public/quote/${encodeURIComponent(token)}`
+    ),
+
+  respondPublicQuote: (token: string, decision: "approve" | "decline") =>
+    request<CustomerQuoteRecord>(
+      `/api/v1/public/quote/${encodeURIComponent(token)}/respond`,
+      {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      }
+    ),
+
+  getPublicInvoice: (token: string) =>
+    request<{ business_name: string; invoice: CustomerInvoiceRecord }>(
+      `/api/v1/public/invoice/${encodeURIComponent(token)}`
+    ),
+
+  getPublicBookingAvailability: (slug: string, targetDate?: string) =>
+    request<{
+      business_name: string;
+      timezone: string;
+      availability: {
+        slots?: Array<{ start: string; end: string; label?: string; available?: boolean }>;
+        available_slots?: Array<{ start: string; end: string; label?: string }>;
+        message?: string;
+      };
+    }>(
+      `/api/v1/public/booking/${encodeURIComponent(slug)}/availability${
+        targetDate ? `?target_date=${encodeURIComponent(targetDate)}` : ""
+      }`
+    ),
+
+  createPublicBooking: (
+    slug: string,
+    payload: {
+      customer_name: string;
+      customer_phone: string;
+      customer_email?: string | null;
+      service_type?: string;
+      slot_start: string;
+      duration_minutes?: number;
+      notes?: string;
+    }
+  ) =>
+    request<{
+      booking_id: string;
+      business_name: string;
+      status: string;
+      start_at: string;
+      end_at: string;
+      reschedule_token: string;
+    }>(`/api/v1/public/booking/${encodeURIComponent(slug)}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
 
 export interface KnowledgeDocument {
