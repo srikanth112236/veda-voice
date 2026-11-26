@@ -24,6 +24,8 @@ import {
   X,
   Sparkles,
   Mic,
+  FileCheck2,
+  Receipt,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { LiveRadarRing } from "@/components/ui/motion";
@@ -87,6 +89,8 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     { label: "Integrations & Sync", href: "/portal/integrations", icon: Share2 },
     { label: "Knowledge Base RAG", href: "/portal/knowledge", icon: BookOpen },
     { label: "Staff & Dispatch", href: "/portal/calendar", icon: Calendar },
+    { label: "Quotes & Estimates", href: "/portal/quotes", icon: FileCheck2 },
+    { label: "Customer Invoices", href: "/portal/invoices", icon: Receipt },
     { label: "Locations & Branches", href: "/portal/locations", icon: MapPin },
     { label: "Industry Packs", href: "/portal/packs", icon: Briefcase },
     { label: "Receptionist Config", href: "/portal/profile", icon: Settings2 },

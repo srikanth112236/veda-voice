@@ -2135,6 +2135,72 @@ export const api = {
     }>(`/api/v1/portal/campaigns/${campaignId}/run`, {
       method: "POST",
     }),
+
+  // Customer Quotes & Invoices
+  listPortalQuotes: (statusFilter?: string) =>
+    request<CustomerQuoteRecord[]>(
+      `/api/v1/portal/quotes${statusFilter && statusFilter !== "all" ? `?status=${encodeURIComponent(statusFilter)}` : ""}`
+    ),
+
+  createPortalQuote: (payload: QuoteCreatePayload) =>
+    request<CustomerQuoteRecord>("/api/v1/portal/quotes", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updatePortalQuote: (quoteId: string, payload: Partial<QuoteCreatePayload>) =>
+    request<CustomerQuoteRecord>(`/api/v1/portal/quotes/${quoteId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  sendPortalQuote: (quoteId: string) =>
+    request<CustomerQuoteRecord>(`/api/v1/portal/quotes/${quoteId}/send`, {
+      method: "POST",
+    }),
+
+  convertQuoteToInvoice: (quoteId: string) =>
+    request<CustomerInvoiceRecord>(`/api/v1/portal/quotes/${quoteId}/convert-to-invoice`, {
+      method: "POST",
+    }),
+
+  convertQuoteToBooking: (
+    quoteId: string,
+    payload: { start_at: string; duration_minutes?: number; service_type?: string; notes?: string }
+  ) =>
+    request<{ booking_id: string; quote_id: string; status: string; start_at: string }>(
+      `/api/v1/portal/quotes/${quoteId}/convert-to-booking`,
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  listPortalInvoices: (statusFilter?: string) =>
+    request<CustomerInvoiceRecord[]>(
+      `/api/v1/portal/invoices${statusFilter && statusFilter !== "all" ? `?status=${encodeURIComponent(statusFilter)}` : ""}`
+    ),
+
+  createPortalInvoice: (payload: InvoiceCreatePayload) =>
+    request<CustomerInvoiceRecord>("/api/v1/portal/invoices", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  issuePortalInvoice: (invoiceId: string) =>
+    request<CustomerInvoiceRecord>(`/api/v1/portal/invoices/${invoiceId}/issue`, {
+      method: "POST",
+    }),
+
+  markPortalInvoicePaid: (invoiceId: string) =>
+    request<CustomerInvoiceRecord>(`/api/v1/portal/invoices/${invoiceId}/mark-paid`, {
+      method: "POST",
+    }),
+
+  voidPortalInvoice: (invoiceId: string) =>
+    request<CustomerInvoiceRecord>(`/api/v1/portal/invoices/${invoiceId}/void`, {
+      method: "POST",
+    }),
 };
 
 export interface KnowledgeDocument {
@@ -2650,5 +2716,99 @@ export interface CreateVoiceCampaignInput {
     contact_id?: string;
     metadata_json?: Record<string, any>;
   }>;
+}
+
+export interface LineItemInput {
+  description: string;
+  qty: number;
+  unit_price_cents: number;
+  line_total_cents?: number;
+  category?: string;
+}
+
+export interface CustomerQuoteRecord {
+  id: string;
+  tenant_id: string;
+  contact_id: string | null;
+  booking_id: string | null;
+  quote_number: string;
+  title: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string | null;
+  line_items: LineItemInput[];
+  subtotal_cents: number;
+  tax_rate_bps: number;
+  tax_cents: number;
+  total_cents: number;
+  currency: string;
+  status: "draft" | "sent" | "approved" | "declined" | "expired" | "converted";
+  public_token: string;
+  notes: string;
+  valid_until: string | null;
+  sent_at: string | null;
+  approved_at: string | null;
+  declined_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerInvoiceRecord {
+  id: string;
+  tenant_id: string;
+  contact_id: string | null;
+  quote_id: string | null;
+  booking_id: string | null;
+  invoice_number: string;
+  title: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string | null;
+  line_items: LineItemInput[];
+  subtotal_cents: number;
+  tax_rate_bps: number;
+  tax_cents: number;
+  total_cents: number;
+  amount_paid_cents: number;
+  currency: string;
+  status: "draft" | "issued" | "paid" | "overdue" | "void";
+  public_token: string;
+  payment_link_url: string | null;
+  notes: string;
+  due_at: string | null;
+  issued_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuoteCreatePayload {
+  contact_id?: string | null;
+  booking_id?: string | null;
+  title: string;
+  customer_name: string;
+  customer_phone?: string;
+  customer_email?: string | null;
+  line_items: LineItemInput[];
+  tax_rate_bps?: number;
+  currency?: string;
+  notes?: string;
+  valid_until?: string | null;
+}
+
+export interface InvoiceCreatePayload {
+  contact_id?: string | null;
+  quote_id?: string | null;
+  booking_id?: string | null;
+  title: string;
+  customer_name: string;
+  customer_phone?: string;
+  customer_email?: string | null;
+  line_items: LineItemInput[];
+  tax_rate_bps?: number;
+  currency?: string;
+  payment_link_url?: string | null;
+  notes?: string;
+  due_at?: string | null;
 }
 
