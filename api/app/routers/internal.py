@@ -51,6 +51,12 @@ class InternalTenantConfigResponse(BaseModel):
     voice_id: str = "Alex"
     tts_model: str = "inworld/inworld-tts-1"
     recording_disclosure: bool = True
+    bilingual_spanish_enabled: bool = False
+    patience_cadence: str = "balanced"
+    silence_timeout_ms: int = 500
+    speech_barge_in: bool = True
+    phonetic_glossary: list[dict[str, Any]] = Field(default_factory=list)
+    service_cities: list[str] = Field(default_factory=list)
     services: list[str]
     pricing_policy: str
     pricing_details: dict[str, Any]
@@ -214,6 +220,20 @@ def _build_tenant_config(
         voice_id=voice_id,
         tts_model=tts_model,
         recording_disclosure=rec_disclosure,
+        bilingual_spanish_enabled=bool(getattr(profile, "bilingual_spanish_enabled", False))
+        if profile
+        else False,
+        patience_cadence=(getattr(profile, "patience_cadence", None) or "balanced")
+        if profile
+        else "balanced",
+        silence_timeout_ms=int(getattr(profile, "silence_timeout_ms", 500) or 500)
+        if profile
+        else 500,
+        speech_barge_in=True
+        if (not profile or getattr(profile, "speech_barge_in", None) is None)
+        else bool(profile.speech_barge_in),
+        phonetic_glossary=(getattr(profile, "phonetic_glossary", None) or []) if profile else [],
+        service_cities=(getattr(profile, "service_cities", None) or []) if profile else [],
         services=profile.services if profile else [],
         pricing_policy=profile.pricing_policy if profile else "diagnostic_fee_only",
         pricing_details=profile.pricing_details if profile else {},

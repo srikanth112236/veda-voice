@@ -175,3 +175,43 @@ def test_build_turn_detector_graceful_load() -> None:
 
     td = _build_turn_detector()
     assert td is None or td is not None
+
+
+def test_collect_stt_keyterms_and_endpointing_profiles() -> None:
+    """Verify STT keyterm deduplication and per-tenant patience_cadence endpointing profiles."""
+    from agent.config import get_agent_settings, load_business_config
+    from agent.main import (
+        _build_noise_cancellation,
+        _build_stt,
+        _collect_stt_keyterms,
+        _resolve_endpointing_profile,
+    )
+
+    cfg = load_business_config("default")
+    cfg.phonetic_glossary = [
+        {"term": "Navien", "pronunciation": "NAH-vee-en"},
+        {"word": "Bradford White"},
+    ]
+    cfg.service_cities = ["Austin", "Round Rock", "austin"]
+    cfg.bilingual_spanish_enabled = True
+    cfg.patience_cadence = "patient"
+    cfg.speech_barge_in = False
+
+    terms = _collect_stt_keyterms(cfg)
+    assert "Navien" in terms
+    assert "Bradford White" in terms
+    assert "Austin" in terms
+    assert "Round Rock" in terms
+    assert len([t for t in terms if t.lower() == "austin"]) == 1
+
+    settings = get_agent_settings()
+    ep = _resolve_endpointing_profile(cfg, settings, has_turn_detector=True)
+    assert ep["min_endpointing_delay"] == 0.9
+    assert ep["max_endpointing_delay"] == 4.5
+    assert ep["allow_interruptions"] is False
+
+    stt = _build_stt(settings, cfg)
+    assert stt is not None
+
+    nc = _build_noise_cancellation(is_sip=True)
+    assert nc is None or nc is not None

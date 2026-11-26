@@ -29,6 +29,7 @@ class TranscriptEntry(BaseModel):
     time: str
     interrupted: bool = False
     latency_ms: float | None = None
+    confidence: float | None = None
 
 
 class MessagePayload(BaseModel):

@@ -73,6 +73,14 @@ def parse_tenant_config_from_dict(data: dict[str, Any], dialed_number: str = "")
         tone=tone,
         voice_id=data.get("voice_id", "Alex"),
         recording_disclosure=data.get("recording_disclosure", True),
+        bilingual_spanish_enabled=bool(data.get("bilingual_spanish_enabled", False)),
+        patience_cadence=str(data.get("patience_cadence") or "balanced"),
+        silence_timeout_ms=int(data.get("silence_timeout_ms") or 500),
+        speech_barge_in=True
+        if data.get("speech_barge_in") is None
+        else bool(data.get("speech_barge_in")),
+        phonetic_glossary=data.get("phonetic_glossary") or [],
+        service_cities=data.get("service_cities") or [],
         pricing_mode=pricing_mode,
         price_items=price_items,
         services=data.get("services", []),

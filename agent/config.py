@@ -64,6 +64,10 @@ class TenantConfig(BaseModel):
     tone: Literal["direct", "warm", "formal"] = "direct"
     voice_id: str = "Alex"
     recording_disclosure: bool | str = True
+    bilingual_spanish_enabled: bool = False
+    patience_cadence: str = "balanced"
+    silence_timeout_ms: int = 500
+    speech_barge_in: bool = True
     phonetic_glossary: list[dict[str, str]] = Field(default_factory=list)
     pricing_mode: Literal["no_quote", "listed", "range"] = "no_quote"
     price_items: list[Any] = Field(default_factory=list)

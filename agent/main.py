@@ -86,6 +86,102 @@ def _build_turn_detector() -> Any:
         return None
 
 
+def _build_noise_cancellation(is_sip: bool) -> Any:
+    """Load LiveKit BVC / BVCTelephony noise cancellation filter when available."""
+    try:
+        from livekit.plugins import noise_cancellation
+
+        return noise_cancellation.BVCTelephony() if is_sip else noise_cancellation.BVC()
+    except Exception as exc:
+        logger.debug("Noise cancellation plugin unavailable: %s", exc)
+        return None
+
+
+def _collect_stt_keyterms(config: Any) -> list[str]:
+    """Collect deduplicated domain keyterms from phonetic glossary and service cities."""
+    seen: set[str] = set()
+    terms: list[str] = []
+
+    def _add(val: str) -> None:
+        clean = val.strip()
+        if clean and len(clean) >= 2 and clean.lower() not in seen:
+            seen.add(clean.lower())
+            terms.append(clean)
+
+    for item in getattr(config, "phonetic_glossary", []) or []:
+        if isinstance(item, dict):
+            for k in ("term", "word", "phrase", "target"):
+                if isinstance(item.get(k), str):
+                    _add(item[k])
+        elif isinstance(item, str):
+            _add(item)
+
+    for city in getattr(config, "service_cities", []) or []:
+        if isinstance(city, str):
+            _add(city)
+    for city in getattr(config, "location_service_cities", []) or []:
+        if isinstance(city, str):
+            _add(city)
+
+    return terms[:50]
+
+
+def _build_stt(settings: Any, config: Any) -> Any:
+    """Configure LiveKit Inference STT with bilingual multi-language and keyterm boosting."""
+    try:
+        from livekit.agents import inference
+
+        language = "multi" if getattr(config, "bilingual_spanish_enabled", False) else "en"
+        keyterms = _collect_stt_keyterms(config)
+        extra_kwargs: dict[str, Any] = {}
+        if keyterms:
+            extra_kwargs["keyterm"] = keyterms
+        if extra_kwargs:
+            return inference.STT(
+                model=settings.stt_model,
+                language=language,
+                extra_kwargs=extra_kwargs,
+            )
+        return inference.STT(model=settings.stt_model, language=language)
+    except Exception as exc:
+        logger.debug("Falling back to string STT model: %s", exc)
+        return settings.stt_model
+
+
+def _resolve_endpointing_profile(
+    config: Any, settings: Any, has_turn_detector: bool
+) -> dict[str, Any]:
+    """Map tenant patience_cadence and silence_timeout_ms into AgentSession VAD/EOU timings."""
+    cadence = str(getattr(config, "patience_cadence", "balanced") or "balanced").lower()
+    if cadence == "patient":
+        min_ep = 0.9
+        max_ep = 4.5
+        base_silence = 0.75
+    elif cadence == "brisk":
+        min_ep = 0.45
+        max_ep = 2.0
+        base_silence = 0.42
+    else:
+        min_ep = 0.6
+        max_ep = 3.0
+        base_silence = settings.vad_min_silence_duration
+
+    silence_ms = getattr(config, "silence_timeout_ms", None)
+    if isinstance(silence_ms, int | float) and silence_ms > 0 and silence_ms != 500:
+        base_silence = max(0.25, min(2.0, float(silence_ms) / 1000.0))
+
+    if not has_turn_detector:
+        base_silence = max(base_silence, 0.65)
+
+    allow_barge_in = bool(getattr(config, "speech_barge_in", True))
+    return {
+        "min_silence_duration": round(base_silence, 2),
+        "min_endpointing_delay": min_ep,
+        "max_endpointing_delay": max_ep,
+        "allow_interruptions": allow_barge_in,
+    }
+
+
 async def entrypoint(ctx: JobContext) -> None:
     """Main worker entrypoint for LiveKit Agent session with multi-tenant resolution."""
     room_name = ctx.room.name
@@ -222,23 +318,23 @@ async def entrypoint(ctx: JobContext) -> None:
     # Initialize take_message tool bound to this session's collector
     take_message_tool = create_take_message_tool(message_collector)
 
-    # Initialize AgentSession with tuned VAD, semantic turn detection, and barge-in guardrails
+    # Initialize AgentSession with tenant-tuned VAD, STT keyterms, turn detection, and barge-in guardrails
     turn_detector = _build_turn_detector()
-    effective_min_silence = (
-        settings.vad_min_silence_duration
-        if turn_detector is not None
-        else max(settings.vad_min_silence_duration, 0.65)
+    ep_profile = _resolve_endpointing_profile(
+        config, settings, has_turn_detector=turn_detector is not None
     )
+    stt_instance = _build_stt(settings, config)
     session_kwargs: dict[str, Any] = {
-        "stt": settings.stt_model,
+        "stt": stt_instance,
         "llm": settings.llm_model,
         "tts": settings.tts_model,
         "vad": silero.VAD.load(
-            min_silence_duration=effective_min_silence,
+            min_silence_duration=ep_profile["min_silence_duration"],
             prefix_padding_duration=settings.vad_prefix_padding_duration,
         ),
-        "min_endpointing_delay": 0.6,
-        "max_endpointing_delay": 3.0,
+        "min_endpointing_delay": ep_profile["min_endpointing_delay"],
+        "max_endpointing_delay": ep_profile["max_endpointing_delay"],
+        "allow_interruptions": ep_profile["allow_interruptions"],
         "min_interruption_duration": 0.6,
         "min_interruption_words": 2,
         "false_interruption_timeout": 1.5,
@@ -384,12 +480,21 @@ async def entrypoint(ctx: JobContext) -> None:
             text_str = item.text_content or ""
             entry_time = datetime.now(UTC).isoformat()
             was_interrupted = bool(getattr(item, "interrupted", False))
+            raw_conf = getattr(item, "transcript_confidence", None)
+            conf_val = float(raw_conf) if isinstance(raw_conf, int | float) else None
+            if item.role == "user" and conf_val is not None and conf_val < 0.65:
+                logger.warning(
+                    "Low STT transcript_confidence=%.2f on caller turn in room %s",
+                    conf_val,
+                    room_name,
+                )
             transcript_log.append(
                 TranscriptEntry(
                     role=item.role,
                     text=text_str,
                     time=entry_time,
                     interrupted=was_interrupted,
+                    confidence=conf_val,
                 )
             )
 
@@ -810,11 +915,21 @@ async def entrypoint(ctx: JobContext) -> None:
         tools=active_tools,
     )
 
-    # Start session with greeting
-    await session.start(
-        room=ctx.room,
-        agent=agent,
-    )
+    # Start session with telephony/WebRTC noise cancellation when available
+    is_sip_call = bool(sip_info.get("call_id") or sip_info.get("caller_number"))
+    nc_filter = _build_noise_cancellation(is_sip=is_sip_call)
+    start_kwargs: dict[str, Any] = {
+        "room": ctx.room,
+        "agent": agent,
+    }
+    if nc_filter is not None:
+        from livekit.agents import room_io
+
+        start_kwargs["room_options"] = room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(noise_cancellation=nc_filter)
+        )
+
+    await session.start(**start_kwargs)
 
     greeting_text = config.greeting
     if config.recording_disclosure:
