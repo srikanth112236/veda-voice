@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "@/context/auth-context";
 import { InfoModalProvider } from "@/context/info-modal-context";
+import { LeadModalProvider } from "@/context/lead-modal-context";
 import "./globals.css";
 
 const plusJakarta = Plus_Jakarta_Sans({
@@ -41,7 +42,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-[var(--surface-canvas)] text-[var(--ink-primary)] font-sans antialiased selection:bg-emerald-600/15 selection:text-[var(--ink-primary)]">
         <AuthProvider>
-          <InfoModalProvider>{children}</InfoModalProvider>
+          <InfoModalProvider>
+            <LeadModalProvider>{children}</LeadModalProvider>
+          </InfoModalProvider>
         </AuthProvider>
       </body>
     </html>

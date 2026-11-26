@@ -256,3 +256,39 @@ def test_dispatch_24h_reminders_worker(test_setup_booking: dict[str, Any]) -> No
         assert "reschedule" in sent_text.lower()
     finally:
         db.close()
+
+
+def test_public_website_lead_capture_requires_consent_and_persists(
+    test_setup_booking: dict[str, Any],
+) -> None:
+    """Verify /public/website-leads rejects missing consent and persists Lead + ConsentRecord."""
+    no_consent = client.post(
+        "/api/v1/public/website-leads",
+        json={
+            "name": "Priya Nair",
+            "business_name": "Cedar Dental",
+            "email": "priya@cedardental.example",
+            "phone": "+15125550144",
+            "industry": "dental",
+            "region": "US",
+            "consent_accepted": False,
+        },
+    )
+    assert no_consent.status_code == 422
+
+    ok = client.post(
+        "/api/v1/public/website-leads",
+        json={
+            "name": "Priya Nair",
+            "business_name": "Cedar Dental",
+            "email": "priya@cedardental.example",
+            "phone": "+15125550144",
+            "industry": "dental",
+            "region": "UAE",
+            "consent_accepted": True,
+        },
+    )
+    assert ok.status_code == 201, ok.text
+    data = ok.json()
+    assert data["status"] == "received"
+    assert data["lead_id"]

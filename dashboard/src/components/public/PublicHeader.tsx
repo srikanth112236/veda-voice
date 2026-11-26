@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight } from "lucide-react";
+import { useLeadModal } from "@/context/lead-modal-context";
 
 const NAV_LINKS = [
   { href: "/how-it-works", label: "How it works" },
@@ -14,6 +15,7 @@ const NAV_LINKS = [
 
 export function PublicHeader() {
   const pathname = usePathname();
+  const { openLeadModal } = useLeadModal();
 
   return (
     <header className="border-b border-[var(--border-hairline)] bg-[var(--surface-panel)] sticky top-0 z-30">
@@ -47,6 +49,13 @@ export function PublicHeader() {
         </nav>
 
         <div className="flex items-center gap-1.5 sm:gap-3">
+          <button
+            type="button"
+            onClick={() => openLeadModal()}
+            className="hidden sm:inline-flex touch-target items-center whitespace-nowrap px-3 text-sm font-medium text-[var(--accent-signal)] hover:underline underline-offset-4"
+          >
+            Request Demo
+          </button>
           <Link
             href="/login"
             className="touch-target inline-flex items-center whitespace-nowrap px-2.5 sm:px-3 text-sm font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] transition-colors"

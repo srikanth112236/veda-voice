@@ -6,10 +6,12 @@ import { PublicHeader } from "@/components/public/PublicHeader";
 import { PublicFooter } from "@/components/public/PublicFooter";
 import { VoiceIllustration } from "@/components/public/VoiceIllustration";
 import { INDUSTRY_CONCEPTS } from "@/data/industries";
+import { useLeadModal } from "@/context/lead-modal-context";
 import { ArrowRight, ShieldCheck, Activity } from "lucide-react";
 
 export default function IndustriesPage() {
   const [selectedSlug, setSelectedSlug] = useState(INDUSTRY_CONCEPTS[0].slug);
+  const { openLeadModal } = useLeadModal();
   const active =
     INDUSTRY_CONCEPTS.find((item) => item.slug === selectedSlug) ?? INDUSTRY_CONCEPTS[0];
 
@@ -106,13 +108,22 @@ export default function IndustriesPage() {
                 <span>QA Focus: {active.qaFocus}</span>
               </div>
 
-              <Link
-                href="/onboarding"
-                className="touch-target interactive-lift flex w-full items-center justify-center gap-2 rounded-md bg-[var(--ink-primary)] px-4 text-sm font-medium text-[var(--surface-panel)]"
-              >
-                Deploy {active.name} Pack
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => openLeadModal(active.slug)}
+                  className="touch-target interactive-lift flex items-center justify-center gap-2 rounded-md bg-[var(--accent-signal)] px-4 text-sm font-semibold text-[var(--accent-signal-ink)]"
+                >
+                  Try {active.name} Demo
+                </button>
+                <Link
+                  href="/onboarding"
+                  className="touch-target interactive-lift flex items-center justify-center gap-2 rounded-md bg-[var(--ink-primary)] px-4 text-sm font-medium text-[var(--surface-panel)]"
+                >
+                  Deploy Pack
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
             </div>
           </div>
         </section>

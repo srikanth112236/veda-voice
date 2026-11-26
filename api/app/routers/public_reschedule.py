@@ -398,3 +398,87 @@ async def handle_carrier_inbound_sms(
     logger.info("Processing inbound carrier SMS from %s: '%s'", from_phone, message_body)
     result = process_inbound_sms(from_phone=from_phone, message_body=message_body, db=db)
     return {"status": "processed", "result": result}
+
+
+class WebsiteLeadRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    business_name: str = Field(..., min_length=1, max_length=160)
+    email: str = Field(..., min_length=3, max_length=255)
+    phone: str = Field(..., min_length=5, max_length=32)
+    industry: str = Field(default="plumbing", max_length=64)
+    region: str = Field(default="US", max_length=16)
+    consent_accepted: bool = Field(...)
+
+
+@router.post("/public/website-leads", status_code=status.HTTP_201_CREATED)
+def capture_website_lead(
+    req: WebsiteLeadRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Capture public marketing website lead with explicit regulatory consent."""
+    if not req.consent_accepted:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Explicit contact consent is required before submitting.",
+        )
+
+    from api.app.models.lead_form import Lead
+    from api.app.models.outbound import ConsentRecord
+    from api.app.services.compliance import normalize_e164_phone
+
+    tenant = db.scalar(
+        select(Tenant).where(Tenant.status == "active").order_by(Tenant.created_at.asc())
+    )
+    if not tenant:
+        raise HTTPException(status_code=404, detail="No active workspace available")
+
+    now = datetime.now(UTC)
+    norm_phone = normalize_e164_phone(req.phone) or req.phone.strip()
+
+    consent = ConsentRecord(
+        tenant_id=tenant.id,
+        phone_number=norm_phone,
+        source="website_split_modal",
+        consent_confirmed=True,
+        consent_text=(
+            f"Website visitor ({req.region}) authorized VedaVoice and its automated AI voice "
+            f"receptionist demo callback regarding {req.business_name}."
+        ),
+        category="C",
+        ai_voice_disclosed=True,
+        method="web_form",
+        form_url="/",
+        seller_name="VedaVoice",
+        created_at=now,
+        retention_until=now + timedelta(days=5 * 365),
+    )
+    db.add(consent)
+    db.flush()
+
+    lead = Lead(
+        tenant_id=tenant.id,
+        form_id=None,
+        caller_name=req.name.strip(),
+        caller_phone=norm_phone,
+        urgency="normal",
+        service_requested=f"{req.industry} demo ({req.business_name.strip()})",
+        service_address=req.region.upper(),
+        custom_data={
+            "business_name": req.business_name.strip(),
+            "email": req.email.strip(),
+            "industry": req.industry,
+            "region": req.region.upper(),
+            "source": "website_split_modal",
+        },
+        status="pending",
+        outbound_call_triggered=False,
+    )
+    db.add(lead)
+    db.commit()
+    db.refresh(lead)
+
+    return {
+        "status": "received",
+        "lead_id": lead.id,
+        "message": "Demo request captured. Our team will reach out shortly.",
+    }
