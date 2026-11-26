@@ -381,7 +381,7 @@ def test_voice_agent_calendar_tools_flow() -> None:
             }
         )
 
-        target_date_str = "2026-11-25"  # Future Wednesday
+        target_date_str = _next_weekday(2).isoformat()  # Future Wednesday
 
         # 1. Agent checks availability
         avail = check_availability(call_token=call_token, target_date=target_date_str)

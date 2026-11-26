@@ -310,11 +310,17 @@ def test_internal_agent_booking_with_dispatch() -> None:
         headers = {"Authorization": f"Bearer {agent_token}"}
 
         # 1. Check availability with postal code
+        from datetime import date, timedelta
+
+        future_day = date.today() + timedelta(days=3)
+        while future_day.weekday() >= 5:
+            future_day += timedelta(days=1)
+
         avail_res = client.post(
             "/api/v1/internal/calendar/availability",
             headers=headers,
             json={
-                "target_date": "2026-11-25",
+                "target_date": future_day.isoformat(),
                 "duration_minutes": 60,
                 "service_type": "water_heater",
                 "postal_code": "78704",
