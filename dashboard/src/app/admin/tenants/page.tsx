@@ -35,11 +35,26 @@ export default function AdminTenantsPage() {
   const [tenantPage, setTenantPage] = useState(1);
   const [tenantPageSize, setTenantPageSize] = useState(10);
 
+  const [openingTenantId, setOpeningTenantId] = useState<string | null>(null);
+  const [portalError, setPortalError] = useState<string | null>(null);
+
   // Modals state
   const [showCogsModal, setShowCogsModal] = useState<TenantSummary | null>(null);
   const [showScaleIncreaseModal, setShowScaleIncreaseModal] = useState(false);
   const [scaleIncreaseRequested, setScaleIncreaseRequested] = useState(false);
   const [selectedScaleTier, setSelectedScaleTier] = useState<"scale_100" | "scale_250" | "enterprise">("scale_100");
+
+  const handleOpenTenantPortal = async (tenantId: string) => {
+    setPortalError(null);
+    setOpeningTenantId(tenantId);
+    try {
+      await api.impersonateSubAccount(tenantId, "Admin open portal preview");
+      window.location.href = "/portal/dashboard";
+    } catch (err) {
+      setPortalError(err instanceof Error ? err.message : "Failed to open client portal.");
+      setOpeningTenantId(null);
+    }
+  };
 
   useEffect(() => {
     api.getAdminTenants()
@@ -316,13 +331,15 @@ export default function AdminTenantsPage() {
                   </td>
 
                   <td className="p-3 text-right">
-                    <Link
-                      href="/portal/dashboard"
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-800 text-xs font-sans transition-colors"
+                    <button
+                      type="button"
+                      onClick={() => handleOpenTenantPortal(t.id)}
+                      disabled={openingTenantId === t.id}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-800 text-xs font-sans transition-colors disabled:opacity-50"
                     >
-                      Open Portal
+                      {openingTenantId === t.id ? "Opening..." : "Open Portal"}
                       <ArrowUpRight className="w-3 h-3" />
-                    </Link>
+                    </button>
                   </td>
                 </tr>
               );

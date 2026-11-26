@@ -123,17 +123,17 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Mobile Sticky Header (< 1024px) */}
-      <header className="lg:hidden sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-2xs gap-2">
+      <header className="lg:hidden sticky top-0 z-40 bg-[var(--surface-panel)]/95 backdrop-blur-md border-b border-[var(--border-hairline)] px-4 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 truncate">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center font-bold text-white text-xs shadow-xs shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-[var(--ink-primary)] flex items-center justify-center font-mono font-bold text-[var(--surface-panel)] text-xs shrink-0">
             {user.tenant_name ? user.tenant_name.charAt(0).toUpperCase() : "V"}
           </div>
           <div className="truncate">
-            <h2 className="text-xs font-bold text-slate-900 leading-tight truncate">
+            <h2 className="text-xs font-bold text-[var(--ink-primary)] leading-tight truncate">
               {user.tenant_name || "VedaVoice Client"}
             </h2>
             <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-mono font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <LiveRadarRing color="emerald" size="sm" />
               <span>SIP Active</span>
             </div>
           </div>
@@ -144,12 +144,12 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
             type="button"
             onClick={startTestCall}
             disabled={isConnecting}
-            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 active:scale-[0.98] text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs"
+            className="px-3 py-1.5 rounded-lg bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] active:scale-[0.98] text-xs font-semibold flex items-center gap-1.5"
             title="Launch in-browser WebRTC test call"
           >
-            <Mic className="w-3.5 h-3.5 animate-pulse" />
-            <span className="hidden sm:inline">
-              {isConnecting ? "Connecting..." : isCallActive ? `Call (${duration}s)` : "Test Call"}
+            <Mic className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline font-mono tabular-nums">
+              {isConnecting ? "Connecting..." : isCallActive ? `Live (${duration}s)` : "Test Call"}
             </span>
           </button>
 
@@ -157,7 +157,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
             type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle mobile menu"
-            className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
+            className="p-2 rounded-lg border border-[var(--border-hairline)] text-[var(--ink-primary)] hover:bg-[var(--surface-subtle)] transition-colors"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -275,43 +275,43 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         )}
       </AnimatePresence>
 
-      {/* Desktop Pure Light Sidebar (lg:flex) */}
+      {/* Desktop Sidebar (lg:flex) */}
       <aside
-        className={`hidden lg:flex w-64 fixed inset-y-0 left-0 bg-white border-r border-slate-200/80 z-30 flex-col justify-between ${
+        className={`hidden lg:flex w-64 fixed inset-y-0 left-0 bg-[var(--surface-panel)] border-r border-[var(--border-hairline)] z-30 flex-col justify-between ${
           user.is_impersonated ? "top-10" : ""
         }`}
       >
         <div className="p-4 space-y-6">
           {/* Tenant Identity & Status */}
-          <div className="p-3.5 rounded-2xl bg-slate-50/70 border border-slate-200/70 space-y-2.5">
+          <div className="p-3.5 rounded-xl bg-[var(--surface-canvas)] border border-[var(--border-hairline)] space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5 truncate">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center font-bold text-white text-xs shadow-xs">
+                <div className="w-8 h-8 rounded-lg bg-[var(--ink-primary)] flex items-center justify-center font-mono font-bold text-[var(--surface-panel)] text-xs shrink-0">
                   {user.tenant_name ? user.tenant_name.charAt(0).toUpperCase() : "V"}
                 </div>
                 <div className="truncate">
-                  <h2 className="text-xs font-bold text-slate-900 truncate leading-tight">
+                  <h2 className="text-xs font-bold text-[var(--ink-primary)] truncate leading-tight">
                     {user.tenant_name || "VedaVoice Client"}
                   </h2>
-                  <div className="text-[10px] text-slate-400 font-mono truncate">
+                  <div className="text-[10px] text-[var(--ink-muted)] font-mono truncate">
                     ID: {user.tenant_id}
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 text-[10px] font-mono">
+            <div className="flex items-center justify-between pt-1.5 border-t border-[var(--border-hairline)] text-[10px] font-mono">
               <div className="flex items-center gap-1.5 text-emerald-700 font-semibold">
                 <LiveRadarRing color="emerald" size="sm" />
                 <span>SIP Link Active</span>
               </div>
-              <span className="text-slate-400">LiveKit Scale</span>
+              <span className="text-[var(--ink-muted)]">LiveKit Scale</span>
             </div>
           </div>
 
           {/* Navigation Links */}
           <div className="space-y-1">
-            <div className="px-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
+            <div className="px-2 pb-1 text-[10px] font-mono uppercase tracking-wider text-[var(--ink-muted)] font-bold">
               Operations &amp; Intelligence
             </div>
             <nav className="space-y-0.5">
@@ -322,24 +322,24 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all group active:scale-[0.98] ${
+                    className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors group active:scale-[0.98] ${
                       active
-                        ? "bg-indigo-50 border border-indigo-200/80 text-indigo-700 font-bold shadow-2xs"
-                        : "text-slate-600 hover:bg-slate-100/70 hover:text-slate-900"
+                        ? "bg-[var(--ink-primary)] text-[var(--surface-panel)] font-semibold"
+                        : "text-[var(--ink-secondary)] hover:bg-[var(--surface-subtle)] hover:text-[var(--ink-primary)]"
                     }`}
                   >
                     <div className="flex items-center gap-2.5 truncate">
                       <Icon
                         className={`w-4 h-4 shrink-0 transition-colors ${
                           active
-                            ? "text-indigo-600"
-                            : "text-slate-400 group-hover:text-slate-600"
+                            ? "text-[var(--accent-signal)]"
+                            : "text-[var(--ink-muted)] group-hover:text-[var(--ink-primary)]"
                         }`}
                       />
                       <span className="truncate">{item.label}</span>
                     </div>
                     {active && (
-                      <ChevronRight className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                      <ChevronRight className="w-3.5 h-3.5 text-[var(--accent-signal)] shrink-0" />
                     )}
                   </Link>
                 );
@@ -349,18 +349,18 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Sidebar Footer User Card */}
-        <div className="p-3 border-t border-slate-200/80 bg-slate-50/50">
-          <div className="p-2.5 rounded-xl bg-white border border-slate-200/80 flex items-center justify-between shadow-2xs">
+        <div className="p-3 border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="p-2.5 rounded-lg bg-[var(--surface-panel)] border border-[var(--border-hairline)] flex items-center justify-between">
             <div className="space-y-0.5 truncate pr-2">
-              <div className="text-xs font-semibold text-slate-900 truncate">{user.full_name}</div>
-              <div className="text-[10px] text-slate-500 font-mono capitalize truncate">
+              <div className="text-xs font-semibold text-[var(--ink-primary)] truncate">{user.full_name}</div>
+              <div className="text-[10px] text-[var(--ink-muted)] font-mono capitalize truncate">
                 {user.role.replace("_", " ")}
               </div>
             </div>
             <button
               onClick={logout}
               title="Sign Out"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0 active:scale-[0.95]"
+              className="p-1.5 rounded-lg text-[var(--ink-muted)] hover:text-rose-600 hover:bg-rose-500/10 transition-colors shrink-0 active:scale-[0.95]"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -369,18 +369,18 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main Content Viewport */}
-      <main className="lg:ml-64 flex-1 min-h-screen bg-[#f8fafc] p-4 sm:p-8 lg:p-10">
+      <main className="lg:ml-64 flex-1 min-h-screen bg-[var(--surface-canvas)] p-4 sm:p-8 lg:p-10">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Universal Sticky Action Header across all 12 modules */}
-          <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/80 px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          {/* Universal Sticky Action Header across all modules */}
+          <div className="bg-[var(--surface-panel)]/90 backdrop-blur-md rounded-xl border border-[var(--border-hairline)] px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/70 text-[11px] font-mono font-medium text-emerald-800">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-mono font-medium text-emerald-700">
+                <LiveRadarRing color="emerald" size="sm" />
                 <span>LiveKit Telephony Online</span>
               </div>
-              <span className="text-slate-300 hidden md:inline">•</span>
-              <span className="text-xs text-slate-500 hidden md:inline font-mono">
-                Sub-400ms In-Browser WebRTC
+              <span className="text-[var(--border-hairline)] hidden md:inline">•</span>
+              <span className="text-xs text-[var(--ink-muted)] hidden md:inline font-mono">
+                Sub-second Browser &amp; SIP Voice
               </span>
             </div>
 
@@ -389,16 +389,16 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={startTestCall}
                 disabled={isConnecting}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-[0.98] disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition-all"
+                className="w-full sm:w-auto px-4 py-2 rounded-lg bg-[var(--accent-signal)] hover:opacity-90 active:scale-[0.98] disabled:opacity-50 text-[var(--accent-signal-ink)] text-xs font-semibold flex items-center justify-center gap-2 transition-all"
                 title="Launch instant browser WebRTC test call connected to your AI receptionist"
               >
-                <Mic className="w-4 h-4 animate-pulse text-white" />
-                <span>
+                <Mic className="w-4 h-4" />
+                <span className="font-mono tabular-nums">
                   {isConnecting
                     ? "Connecting LiveKit..."
                     : isCallActive
-                    ? `🎙️ In Test Call (${String(Math.floor(duration / 60)).padStart(2, "0")}:${String(duration % 60).padStart(2, "0")})`
-                    : "🎙️ Test Voice Call (WebRTC)"}
+                    ? `In Test Call (${String(Math.floor(duration / 60)).padStart(2, "0")}:${String(duration % 60).padStart(2, "0")})`
+                    : "Test Voice Call (WebRTC)"}
                 </span>
               </button>
             </div>

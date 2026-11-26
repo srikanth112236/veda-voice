@@ -28,24 +28,24 @@ export function StatCard({
 }: StatCardProps) {
   const accentStyles = {
     indigo: {
-      iconBg: "bg-indigo-50 border-indigo-100 text-indigo-600",
-      indicator: "bg-indigo-600",
+      iconBg: "bg-[var(--surface-subtle)] border-[var(--border-hairline)] text-[var(--accent-signal)]",
+      indicator: "bg-[var(--accent-signal)]",
     },
     emerald: {
-      iconBg: "bg-emerald-50 border-emerald-100 text-emerald-600",
-      indicator: "bg-emerald-500",
+      iconBg: "bg-emerald-500/10 border-emerald-500/20 text-emerald-700",
+      indicator: "bg-emerald-600",
     },
     amber: {
-      iconBg: "bg-amber-50 border-amber-100 text-amber-600",
-      indicator: "bg-amber-500",
+      iconBg: "bg-amber-500/10 border-amber-500/20 text-amber-700",
+      indicator: "bg-amber-600",
     },
     violet: {
-      iconBg: "bg-violet-50 border-violet-100 text-violet-600",
-      indicator: "bg-violet-600",
+      iconBg: "bg-[var(--surface-subtle)] border-[var(--border-hairline)] text-[var(--ink-primary)]",
+      indicator: "bg-[var(--ink-primary)]",
     },
     cyan: {
-      iconBg: "bg-cyan-50 border-cyan-100 text-cyan-600",
-      indicator: "bg-cyan-500",
+      iconBg: "bg-sky-500/10 border-sky-500/20 text-sky-700",
+      indicator: "bg-sky-600",
     },
   };
 
@@ -55,19 +55,19 @@ export function StatCard({
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15, ease: "easeOut" }}
-      className={`p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all flex flex-col justify-between space-y-3 ${className}`}
+      className={`p-5 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] hover:border-[var(--ink-muted)] transition-colors flex flex-col justify-between space-y-3 ${className}`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-slate-500 font-sans tracking-wide">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
           {title}
         </span>
-        <div className={`p-2 rounded-xl border ${style.iconBg} shadow-2xs`}>
+        <div className={`p-2 rounded-lg border ${style.iconBg}`}>
           <Icon className="w-4 h-4" />
         </div>
       </div>
 
       <div className="space-y-1">
-        <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono tracking-tight">
+        <div className="text-2xl sm:text-3xl font-bold text-[var(--ink-primary)] font-mono tabular-nums tracking-tight">
           {value}
         </div>
         <div className="flex items-center gap-2 pt-0.5">

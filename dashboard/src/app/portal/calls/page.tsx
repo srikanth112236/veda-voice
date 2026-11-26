@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { Room, RoomEvent, Track, RemoteTrack, RemoteTrackPublication, RemoteParticipant, ConnectionState } from "livekit-client";
 import { InfoTrigger } from "@/context/info-modal-context";
 import { LatencyWaterfallCard } from "@/components/calls/LatencyWaterfallCard";
+import { LiveActiveCallsPanel } from "@/components/calls/LiveActiveCallsPanel";
 import {
   PhoneCall,
   Search,
@@ -160,6 +161,18 @@ export default function CallsPage() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [callToTransfer, setCallToTransfer] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [actingCallId, setActingCallId] = useState<string | null>(null);
+  const [statusBanner, setStatusBanner] = useState<{
+    type: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
+
+  const showNotice = (type: "success" | "error" | "info", text: string) => {
+    setStatusBanner({ type, text });
+    setTimeout(() => {
+      setStatusBanner((prev) => (prev?.text === text ? null : prev));
+    }, 4500);
+  };
 
   // Audio Player & Web Audio Synthesis State
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -445,13 +458,15 @@ export default function CallsPage() {
   }, [supervisingCall?.call_id]);
 
   const handleBargeIn = async (callId: string) => {
-    if (wsStatus === "disconnected" || supervisingCall?.outcome === "completed" || supervisingCall?.outcome === "ended") {
-      alert("This call session has already concluded and is no longer active for barge-in.");
+    const targetCall = liveCalls.find((c) => c.call_id === callId) || supervisingCall;
+    if (!targetCall || targetCall.outcome === "completed" || targetCall.outcome === "ended") {
+      showNotice("info", "This call session has already concluded.");
       return;
     }
 
+    setActingCallId(callId);
     setActionInProgress("barge_in");
-    const nextMicState = !isBargeMicActive;
+    const nextMicState = !(targetCall.barge_in_active ?? isBargeMicActive);
     setLiveCalls((prev) =>
       prev.map((c) => (c.call_id === callId ? { ...c, barge_in_active: nextMicState } : c))
     );
@@ -465,28 +480,25 @@ export default function CallsPage() {
       }
       setIsBargeMicActive(nextMicState);
       await api.bargeInCall(callId, nextMicState);
+      showNotice("success", nextMicState ? "Barge-in enabled." : "Barge-in muted.");
       fetchLiveCalls();
     } catch (err: any) {
-      console.warn("Notice updating barge-in status:", err?.message || err);
+      showNotice("error", `Failed to update barge-in: ${err?.message || err}`);
       fetchLiveCalls();
     } finally {
       setActionInProgress(null);
+      setActingCallId(null);
     }
   };
 
   const handleTakeover = async (callId: string) => {
-    if (wsStatus === "disconnected" || supervisingCall?.outcome === "completed" || supervisingCall?.outcome === "ended") {
-      alert("This call session has already concluded and cannot be taken over.");
+    const targetCall = liveCalls.find((c) => c.call_id === callId) || supervisingCall;
+    if (!targetCall || targetCall.outcome === "completed" || targetCall.outcome === "ended") {
+      showNotice("info", "This call session has already concluded.");
       return;
     }
 
-    if (
-      !confirm(
-        "Are you sure you want to take over this call? The AI agent will be disconnected from the room and the customer will hear you directly."
-      )
-    ) {
-      return;
-    }
+    setActingCallId(callId);
     setActionInProgress("takeover");
     setLiveCalls((prev) =>
       prev.map((c) => (c.call_id === callId ? { ...c, takeover_active: true } : c))
@@ -501,19 +513,19 @@ export default function CallsPage() {
         }
       }
       await api.takeoverCall(callId);
+      showNotice("success", "Human takeover active on call.");
       fetchLiveCalls();
     } catch (err: any) {
-      console.warn("Notice updating takeover status:", err?.message || err);
+      showNotice("error", `Failed to take over call: ${err?.message || err}`);
       fetchLiveCalls();
     } finally {
       setActionInProgress(null);
+      setActingCallId(null);
     }
   };
 
   const handleEndCall = async (callId: string) => {
-    if (!confirm("Are you sure you want to end and dismiss this call session?")) {
-      return;
-    }
+    setActingCallId(callId);
     // Optimistically remove card and close modal immediately
     setLiveCalls((prev) => prev.filter((c) => c.call_id !== callId && c.id !== callId));
     if (supervisingCall?.call_id === callId) {
@@ -527,14 +539,16 @@ export default function CallsPage() {
         setIsBargeMicActive(false);
       }
       await api.endCall(callId);
+      showNotice("success", "Call session ended.");
       fetchLiveCalls();
       fetchHistoricalCalls();
     } catch (err: any) {
-      console.warn("Notice ending call:", err?.message || err);
+      showNotice("error", `Notice ending call: ${err?.message || err}`);
       fetchLiveCalls();
       fetchHistoricalCalls();
     } finally {
       setActionInProgress(null);
+      setActingCallId(null);
     }
   };
 
@@ -548,7 +562,7 @@ export default function CallsPage() {
       setTimeout(() => setWhisperFeedback(null), 3000);
       fetchLiveCalls();
     } catch (err: any) {
-      alert("Failed to dispatch whisper: " + (err.message || err));
+      showNotice("error", "Failed to dispatch whisper: " + (err.message || err));
     } finally {
       setSendingWhisper(false);
     }
@@ -563,7 +577,7 @@ export default function CallsPage() {
   const handleExecuteTransfer = async () => {
     if (!callToTransfer) return;
     if (!transferTarget.trim()) {
-      alert("Please enter a valid transfer destination phone number.");
+      showNotice("error", "Please enter a valid transfer destination phone number.");
       return;
     }
     setActionInProgress("transfer");
@@ -573,9 +587,9 @@ export default function CallsPage() {
       setCallToTransfer(null);
       setTransferTarget("");
       fetchLiveCalls();
-      alert("Call transferred successfully!");
+      showNotice("success", "Call transferred successfully.");
     } catch (err: any) {
-      alert("Failed to transfer call: " + (err.message || err));
+      showNotice("error", "Failed to transfer call: " + (err.message || err));
     } finally {
       setActionInProgress(null);
     }
@@ -621,9 +635,9 @@ export default function CallsPage() {
         )
       );
       setShowQAOverrideModal(false);
-      alert("QA Scorecard updated successfully!");
+      showNotice("success", "QA Scorecard updated.");
     } catch (err: any) {
-      alert("Failed to update QA score: " + (err.message || err));
+      showNotice("error", "Failed to update QA score: " + (err.message || err));
     } finally {
       setSavingQAOverride(false);
     }
@@ -957,12 +971,11 @@ export default function CallsPage() {
       c.outcome,
     ]);
 
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", url);
     link.setAttribute(
       "download",
       `vedavoice_calls_export_${new Date().toISOString().slice(0, 10)}.csv`
@@ -970,6 +983,7 @@ export default function CallsPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Export to JSON
@@ -1068,208 +1082,38 @@ export default function CallsPage() {
         </div>
       </div>
 
-      {/* Live Active Calls & Real-Time Supervisor Console (Milestone M7a) */}
-      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-100">
-          <div className="flex items-center gap-2.5">
-            <div className="relative flex h-3 w-3">
-              {liveCalls.length > 0 ? (
-                <>
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                </>
-              ) : (
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-zinc-300"></span>
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-zinc-900 tracking-tight flex items-center gap-1.5 font-mono uppercase">
-                  <Radio className="w-4 h-4 text-emerald-600" />
-                  Live Call Supervision Console
-                </h2>
-                <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                    liveCalls.length > 0
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                      : "bg-zinc-100 text-zinc-600 border border-zinc-200"
-                  }`}
-                >
-                  {liveCalls.length > 0
-                    ? `${liveCalls.length} Active Call${liveCalls.length > 1 ? "s" : ""} In-Progress`
-                    : "0 Active Calls (Listening)"}
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-500 mt-0.5">
-                Real-time WebSocket monitoring, silent supervisor whisper coaching, barge-in conferencing, and human warm transfer.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleStartTestCall}
-              disabled={startingTestCall}
-              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
-              title="Launch browser WebRTC test call with microphone directly connected to LiveKit voice agent"
-            >
-              <Mic className="w-3.5 h-3.5" />
-              <span>{startingTestCall ? "Connecting LiveKit..." : "🎙️ Test Voice Call (WebRTC)"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={fetchLiveCalls}
-              className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-600 transition-colors text-xs font-mono flex items-center gap-1"
-              title="Refresh live calls"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Poll</span>
-            </button>
-          </div>
+      {statusBanner && (
+        <div
+          className={`rounded-lg border px-4 py-2.5 text-xs font-mono flex items-center justify-between gap-3 ${
+            statusBanner.type === "error"
+              ? "border-rose-500/30 bg-rose-500/10 text-rose-700"
+              : statusBanner.type === "success"
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
+              : "border-[var(--border-hairline)] bg-[var(--surface-panel)] text-[var(--ink-primary)]"
+          }`}
+        >
+          <span>{statusBanner.text}</span>
+          <button
+            type="button"
+            onClick={() => setStatusBanner(null)}
+            className="text-[var(--ink-muted)] hover:text-[var(--ink-primary)]"
+            aria-label="Dismiss notice"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
+      )}
 
-        {liveCalls.length === 0 ? (
-          <div className="py-6 text-center text-xs text-zinc-500 font-mono flex flex-col items-center justify-center gap-2">
-            <Headphones className="w-6 h-6 text-zinc-300" />
-            <span>No active inbound or outbound calls in progress at this moment.</span>
-            <span className="text-[10px] text-zinc-400">
-              When a caller connects to your AI receptionist, it will automatically appear here with live turn streaming.
-            </span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {liveCalls.map((call) => (
-              <div
-                key={call.id || call.call_id}
-                className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/50 hover:bg-zinc-50 transition-all space-y-3 shadow-2xs relative"
-              >
-                {/* Status Badges Header */}
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="font-bold text-emerald-700 uppercase text-[11px]">
-                      {call.outcome || "active"}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-zinc-600 font-bold bg-white px-2 py-0.5 rounded border border-zinc-200">
-                    ⏱ {Math.floor(call.elapsed_duration_s)}s
-                  </span>
-                </div>
-
-                {/* Call Info */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-500 font-mono text-[11px]">Caller:</span>
-                    <span className="font-bold font-mono text-zinc-900">{call.caller_number}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-500 font-mono text-[11px]">Dialed:</span>
-                    <span className="font-mono text-zinc-700 text-[11px]">{call.dialed_number}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-500 font-mono text-[11px]">Turns:</span>
-                    <span className="font-mono text-zinc-700 text-[11px]">{call.turn_count} turns</span>
-                  </div>
-                </div>
-
-                {/* Interventions Badges */}
-                <div className="flex flex-wrap gap-1">
-                  {call.barge_in_active && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
-                      <Mic className="w-2.5 h-2.5" /> Barge-In On
-                    </span>
-                  )}
-                  {call.takeover_active && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-bold flex items-center gap-1">
-                      <PhoneOff className="w-2.5 h-2.5" /> Takeover Active
-                    </span>
-                  )}
-                  {call.whisper_count > 0 && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-bold">
-                      💬 {call.whisper_count} Whisper{call.whisper_count > 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
-
-                {/* Latest Dialogue Preview */}
-                {(call.latest_user_utterance || call.latest_agent_utterance) && (
-                  <div className="p-2.5 rounded-lg bg-white border border-zinc-200 text-[11px] space-y-1">
-                    {call.latest_user_utterance && (
-                      <p className="truncate text-zinc-700">
-                        <span className="font-bold font-mono text-zinc-900">Caller:</span>{" "}
-                        {call.latest_user_utterance}
-                      </p>
-                    )}
-                    {call.latest_agent_utterance && (
-                      <p className="truncate text-zinc-500">
-                        <span className="font-bold font-mono text-indigo-600">AI:</span>{" "}
-                        {call.latest_agent_utterance}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="grid grid-cols-2 gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setSupervisingCall(call)}
-                    className="col-span-2 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-mono text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
-                  >
-                    <Headphones className="w-3.5 h-3.5 text-emerald-400" />
-                    Open Live Supervision Stream
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleBargeIn(call.call_id)}
-                    disabled={actionInProgress === "barge_in" || call.outcome === "completed" || call.outcome === "ended"}
-                    className={`px-2 py-1 rounded-lg border text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors disabled:opacity-50 ${
-                      call.barge_in_active
-                        ? "bg-purple-100 border-purple-300 text-purple-900 font-bold"
-                        : "border-zinc-300 bg-white hover:bg-zinc-100 text-zinc-700"
-                    }`}
-                  >
-                    <Mic className="w-3 h-3 text-purple-600" />
-                    {call.barge_in_active ? "Barge Active" : "Barge-In"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleTakeover(call.call_id)}
-                    disabled={actionInProgress === "takeover" || call.takeover_active || call.outcome === "completed" || call.outcome === "ended"}
-                    className="px-2 py-1 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors disabled:opacity-50"
-                  >
-                    <PhoneOff className="w-3 h-3" />
-                    Takeover
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleOpenTransferModal(call.call_id)}
-                    className="px-2 py-1 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100 text-zinc-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors"
-                  >
-                    <PhoneForwarded className="w-3 h-3 text-emerald-600" />
-                    Transfer
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleEndCall(call.call_id)}
-                    disabled={actionInProgress === "end_call"}
-                    className="px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-mono font-medium flex items-center justify-center gap-1 transition-colors"
-                  >
-                    <PhoneOff className="w-3 h-3 text-rose-600" />
-                    End / Dismiss
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <LiveActiveCallsPanel
+        liveCalls={liveCalls}
+        actingCallId={actingCallId}
+        onRefresh={fetchLiveCalls}
+        onOpenSupervision={(call) => setSupervisingCall(call)}
+        onBargeIn={handleBargeIn}
+        onTakeover={handleTakeover}
+        onTransfer={handleOpenTransferModal}
+        onEndCall={handleEndCall}
+      />
 
       {/* Quick Filter Presets for Shop Owners */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
@@ -1643,16 +1487,11 @@ export default function CallsPage() {
                         )}
                         <button
                           type="button"
-                          onClick={() => {
-                            handleSelectCall(call.id);
-                            setTimeout(() => {
-                              handleTogglePlay();
-                            }, 300);
-                          }}
-                          className="p-1.5 px-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs transition-colors"
+                          onClick={() => handleSelectCall(call.id, true)}
+                          className="p-1.5 px-2.5 rounded-lg bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-[11px] font-bold flex items-center gap-1 transition-opacity"
                           title="Play Call Audio"
                         >
-                          <Play className="w-3 h-3 fill-current text-white" />
+                          <Play className="w-3 h-3 fill-current" />
                           <span>Play</span>
                         </button>
                         <button
@@ -1822,15 +1661,10 @@ export default function CallsPage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => {
-                      handleSelectCall(call.id);
-                      setTimeout(() => {
-                        handleTogglePlay();
-                      }, 300);
-                    }}
-                    className="py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-1 shadow-xs transition-colors"
+                    onClick={() => handleSelectCall(call.id, true)}
+                    className="py-2 rounded-lg bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] font-bold text-xs flex items-center justify-center gap-1 transition-opacity"
                   >
-                    <Play className="w-3 h-3 fill-current text-white" />
+                    <Play className="w-3 h-3 fill-current" />
                     Play
                   </button>
                   <button

@@ -1619,8 +1619,9 @@ export const api = {
 
   impersonateSubAccount: async (tenantId: string, reason = "support_troubleshooting") => {
     if (typeof window !== "undefined") {
+      const existingAdminToken = localStorage.getItem("vedavoice_admin_token");
       const currentToken = localStorage.getItem("vedavoice_token");
-      if (currentToken) {
+      if (!existingAdminToken && currentToken) {
         localStorage.setItem("vedavoice_admin_token", currentToken);
       }
     }

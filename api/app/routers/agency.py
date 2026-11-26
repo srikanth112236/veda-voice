@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -87,111 +88,16 @@ class AuditLogsResponse(BaseModel):
 # ================= SUB-ACCOUNTS MANAGEMENT & ROLLUP =================
 
 
-@router.get("/sub-accounts", response_model=list[SubAccountListItem])
-def list_agency_sub_accounts(
-    db: Session = Depends(get_db),
-    _admin: User = Depends(require_platform_admin),
-) -> list[SubAccountListItem]:
-    """List all agency client sub-accounts with aggregated operational health, usage, and QA metrics."""
-    tenants = db.scalars(select(Tenant).order_by(Tenant.created_at.desc())).all()
-    results: list[SubAccountListItem] = []
-
-    for t in tenants:
-        phone_nums = [
-            p.e164
-            for p in db.scalars(
-                select(PhoneNumber).where(
-                    PhoneNumber.tenant_id == t.id, PhoneNumber.status == "active"
-                )
-            ).all()
-        ]
-
-        total_calls = db.scalar(select(func.count(Call.id)).where(Call.tenant_id == t.id)) or 0
-        active_calls = (
-            db.scalar(
-                select(func.count(Call.id)).where(Call.tenant_id == t.id, Call.ended_at.is_(None))
-            )
-            or 0
-        )
-        emergency_calls = (
-            db.scalar(
-                select(func.count(Call.id)).where(
-                    Call.tenant_id == t.id, Call.urgency == "emergency"
-                )
-            )
-            or 0
-        )
-
-        total_seconds = (
-            db.scalar(select(func.sum(Call.duration_s)).where(Call.tenant_id == t.id)) or 0.0
-        )
-        minutes_used = round(total_seconds / 60.0, 1)
-
-        quota = t.monthly_minute_quota or 500
-        usage_pct = round((minutes_used / quota) * 100.0, 1) if quota > 0 else 0.0
-
-        qa_avg = (
-            db.scalar(
-                select(func.avg(Call.qa_score)).where(
-                    Call.tenant_id == t.id, Call.qa_score.isnot(None)
-                )
-            )
-            or 100.0
-        )
-        csat_avg = (
-            db.scalar(
-                select(func.avg(Call.csat_score)).where(
-                    Call.tenant_id == t.id, Call.csat_score.isnot(None)
-                )
-            )
-            or 5.0
-        )
-
-        last_call = db.scalar(
-            select(Call.started_at)
-            .where(Call.tenant_id == t.id)
-            .order_by(Call.started_at.desc())
-            .limit(1)
-        )
-
-        sub = db.scalar(select(Subscription).where(Subscription.tenant_id == t.id))
-        plan_tier = sub.tier if sub else "starter"
-
-        results.append(
-            SubAccountListItem(
-                id=t.id,
-                name=t.name,
-                timezone=t.timezone,
-                status=t.status,
-                created_at=t.created_at,
-                plan_tier=plan_tier,
-                monthly_minute_quota=quota,
-                minutes_used=minutes_used,
-                usage_pct=usage_pct,
-                total_calls=total_calls,
-                active_calls=active_calls,
-                emergency_calls=emergency_calls,
-                qa_avg_score=round(float(qa_avg), 1),
-                csat_avg_score=round(float(csat_avg), 2),
-                phone_numbers=phone_nums,
-                last_call_at=last_call,
-            )
-        )
-
-    return results
+def _safe_float(val: Any, fallback: float) -> float:
+    """Coerce numeric aggregate to a finite float without masking genuine zeros."""
+    if val is None:
+        return fallback
+    f = float(val)
+    return f if math.isfinite(f) else fallback
 
 
-@router.get("/sub-accounts/{tenant_id}/summary", response_model=SubAccountListItem)
-def get_sub_account_summary(
-    tenant_id: str,
-    db: Session = Depends(get_db),
-    _admin: User = Depends(require_platform_admin),
-) -> SubAccountListItem:
-    """Get deep-dive metrics for a specific sub-account."""
-    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
-    if not tenant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sub-account not found")
-
+def _build_sub_account_summary(db: Session, tenant: Tenant) -> SubAccountListItem:
+    """Build aggregated operational health, usage, and QA metrics for a tenant."""
     phone_nums = [
         p.e164
         for p in db.scalars(
@@ -217,30 +123,26 @@ def get_sub_account_summary(
         or 0
     )
 
-    total_seconds = (
-        db.scalar(select(func.sum(Call.duration_s)).where(Call.tenant_id == tenant.id)) or 0.0
+    total_seconds = _safe_float(
+        db.scalar(select(func.sum(Call.duration_s)).where(Call.tenant_id == tenant.id)), 0.0
     )
     minutes_used = round(total_seconds / 60.0, 1)
 
     quota = tenant.monthly_minute_quota or 500
     usage_pct = round((minutes_used / quota) * 100.0, 1) if quota > 0 else 0.0
 
-    qa_avg = (
-        db.scalar(
-            select(func.avg(Call.qa_score)).where(
-                Call.tenant_id == tenant.id, Call.qa_score.isnot(None)
-            )
+    qa_raw = db.scalar(
+        select(func.avg(Call.qa_score)).where(
+            Call.tenant_id == tenant.id, Call.qa_score.isnot(None)
         )
-        or 100.0
     )
-    csat_avg = (
-        db.scalar(
-            select(func.avg(Call.csat_score)).where(
-                Call.tenant_id == tenant.id, Call.csat_score.isnot(None)
-            )
+    csat_raw = db.scalar(
+        select(func.avg(Call.csat_score)).where(
+            Call.tenant_id == tenant.id, Call.csat_score.isnot(None)
         )
-        or 5.0
     )
+    qa_avg = _safe_float(qa_raw, 100.0)
+    csat_avg = _safe_float(csat_raw, 5.0)
 
     last_call = db.scalar(
         select(Call.started_at)
@@ -249,27 +151,55 @@ def get_sub_account_summary(
         .limit(1)
     )
 
-    sub = db.scalar(select(Subscription).where(Subscription.tenant_id == tenant.id))
-    plan_tier = sub.tier if sub else "starter"
+    plan_tier = "starter"
+    try:
+        tier_row = db.scalar(select(Subscription.tier).where(Subscription.tenant_id == tenant.id))
+        if tier_row:
+            plan_tier = str(tier_row)
+    except Exception:
+        db.rollback()
 
     return SubAccountListItem(
         id=tenant.id,
-        name=tenant.name,
-        timezone=tenant.timezone,
-        status=tenant.status,
-        created_at=tenant.created_at,
+        name=tenant.name or "Unnamed Organization",
+        timezone=tenant.timezone or "America/New_York",
+        status=tenant.status or "active",
+        created_at=tenant.created_at or datetime.now(UTC),
         plan_tier=plan_tier,
         monthly_minute_quota=quota,
         minutes_used=minutes_used,
         usage_pct=usage_pct,
-        total_calls=total_calls,
-        active_calls=active_calls,
-        emergency_calls=emergency_calls,
-        qa_avg_score=round(float(qa_avg), 1),
-        csat_avg_score=round(float(csat_avg), 2),
+        total_calls=int(total_calls),
+        active_calls=int(active_calls),
+        emergency_calls=int(emergency_calls),
+        qa_avg_score=round(qa_avg, 1),
+        csat_avg_score=round(csat_avg, 2),
         phone_numbers=phone_nums,
         last_call_at=last_call,
     )
+
+
+@router.get("/sub-accounts", response_model=list[SubAccountListItem])
+def list_agency_sub_accounts(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_platform_admin),
+) -> list[SubAccountListItem]:
+    """List all agency client sub-accounts with aggregated operational health, usage, and QA metrics."""
+    tenants = db.scalars(select(Tenant).order_by(Tenant.created_at.desc())).all()
+    return [_build_sub_account_summary(db, t) for t in tenants]
+
+
+@router.get("/sub-accounts/{tenant_id}/summary", response_model=SubAccountListItem)
+def get_sub_account_summary(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_platform_admin),
+) -> SubAccountListItem:
+    """Get deep-dive metrics for a specific sub-account."""
+    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sub-account not found")
+    return _build_sub_account_summary(db, tenant)
 
 
 # ================= SUB-ACCOUNT IMPERSONATION SESSIONS =================
