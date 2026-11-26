@@ -21,6 +21,7 @@ from api.app.models.quote_invoice import CustomerInvoice, CustomerQuote
 from api.app.models.tenant import Tenant
 from api.app.services.calendar.availability import compute_available_slots
 from api.app.services.calendar.booking import SlotUnavailableError, confirm_booking
+from api.app.services.calendar.google import MockSandboxCalendarProvider
 
 logger = logging.getLogger("vedavoice.quotes_invoices")
 
@@ -819,11 +820,24 @@ def get_public_booking_availability(
         if target_date
         else datetime.now(UTC).date()
     )
-    slots = compute_available_slots(
-        tenant=tenant,
-        target_date=parsed_date,
-        db=db,
-    )
+    try:
+        slots = compute_available_slots(
+            tenant=tenant,
+            target_date=parsed_date,
+            db=db,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Public booking availability falling back to local DB slots for tenant=%s: %s",
+            tenant.id,
+            exc,
+        )
+        slots = compute_available_slots(
+            tenant=tenant,
+            target_date=parsed_date,
+            db=db,
+            custom_provider=MockSandboxCalendarProvider(),
+        )
     return {
         "business_name": tenant.name,
         "timezone": tenant.timezone,
