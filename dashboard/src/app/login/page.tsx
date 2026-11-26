@@ -59,23 +59,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#fbfbfd] text-zinc-900 font-sans antialiased flex flex-col justify-between selection:bg-zinc-200 selection:text-zinc-900">
+    <div className="min-h-screen w-full bg-[var(--surface-canvas)] text-[var(--ink-primary)] font-sans antialiased flex flex-col justify-between">
       {/* ================= TOP NAVIGATION ================= */}
-      <header className="w-full border-b border-zinc-200/80 bg-white/80 backdrop-blur-md px-6 sm:px-12 py-4 flex items-center justify-between sticky top-0 z-30">
+      <header className="w-full border-b border-[var(--border-hairline)] bg-[var(--surface-panel)] px-6 sm:px-12 py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-zinc-900 flex items-center justify-center font-bold text-white shadow-sm">
+          <div className="w-9 h-9 rounded-lg bg-[var(--ink-primary)] flex items-center justify-center font-bold text-[var(--surface-panel)]">
             <span className="font-mono text-sm tracking-tight">V</span>
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm tracking-tight text-zinc-900">
+              <span className="font-semibold text-sm tracking-tight text-[var(--ink-primary)]">
                 VedaVoice
               </span>
-              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700 border border-zinc-200">
+              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-[var(--surface-subtle)] text-[var(--ink-secondary)] border border-[var(--border-hairline)]">
                 v2.0
               </span>
             </div>
-            <p className="text-[11px] text-zinc-500 font-medium">
+            <p className="text-[11px] text-[var(--ink-muted)] font-medium">
               Autonomous Telephony &amp; Dispatch Engine
             </p>
           </div>
