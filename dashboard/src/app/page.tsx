@@ -12,6 +12,9 @@ import {
   Database,
   Radio,
 } from "lucide-react";
+import { PublicHeader } from "@/components/public/PublicHeader";
+import { PublicFooter } from "@/components/public/PublicFooter";
+import { INDUSTRY_CONCEPTS } from "@/data/industries";
 
 type ScenarioKey = "booking" | "emergency" | "wrong_number";
 
@@ -137,37 +140,8 @@ export default function Home() {
   const active = SCENARIOS[scenario];
 
   return (
-    <div className="min-h-screen bg-[var(--surface-canvas)] text-[var(--ink-primary)]">
-      {/* Top Bar */}
-      <header className="border-b border-[var(--border-hairline)] bg-[var(--surface-panel)]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4">
-          <Link href="/" className="flex items-center gap-2 shrink-0">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--ink-primary)] font-mono text-sm font-bold text-[var(--surface-panel)]">
-              V
-            </span>
-            <span className="text-sm font-semibold tracking-tight whitespace-nowrap">
-              VedaVoice
-            </span>
-          </Link>
-
-          <nav className="flex items-center gap-1.5 sm:gap-3">
-            <Link
-              href="/login"
-              className="touch-target inline-flex items-center whitespace-nowrap px-2.5 sm:px-3 text-sm font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] transition-colors"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/onboarding"
-              className="touch-target interactive-lift inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-[var(--ink-primary)] px-3 sm:px-4 text-sm font-medium text-[var(--surface-panel)]"
-            >
-              <span className="sm:hidden">Deploy</span>
-              <span className="hidden sm:inline">Deploy receptionist</span>
-              <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-            </Link>
-          </nav>
-        </div>
-      </header>
+    <div className="min-h-screen bg-[var(--surface-canvas)] text-[var(--ink-primary)] flex flex-col">
+      <PublicHeader />
 
       {/* Screen 1: Software Hero + Interactive Live HTML App Frame */}
       <section className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-6 py-12 lg:grid-cols-12 lg:py-20">
@@ -403,23 +377,45 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-6 sm:flex-row sm:items-center sm:justify-between font-mono text-[11px] text-[var(--ink-muted)]">
-          <span>VedaVoice Control Plane · Multi-Tenant SIP &amp; WebRTC</span>
-          <div className="flex items-center gap-4">
-            <Link href="/login" className="hover:text-[var(--ink-primary)]">
-              Sign in
-            </Link>
-            <Link href="/onboarding" className="hover:text-[var(--ink-primary)]">
-              Onboarding
-            </Link>
-            <Link href="/admin/dashboard" className="hover:text-[var(--ink-primary)]">
-              Agency Admin
+      {/* Screen 3: 20 Industry Packs + Early-Bird Offer */}
+      <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 space-y-8">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-2">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
+                20 Pre-Trained Verticals
+              </p>
+              <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                Ready for trades, clinics, salons, and dispatch teams.
+              </h2>
+            </div>
+            <Link
+              href="/industries"
+              className="touch-target inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-[var(--ink-primary)] hover:text-[var(--accent-signal)]"
+            >
+              Inspect all 20 industries
+              <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2.5">
+            {INDUSTRY_CONCEPTS.slice(0, 10).map((ind) => (
+              <Link
+                key={ind.slug}
+                href="/industries"
+                className="interactive-lift rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-3 space-y-1"
+              >
+                <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--ink-muted)]">
+                  {ind.category}
+                </div>
+                <div className="text-xs font-semibold text-[var(--ink-primary)]">{ind.name}</div>
+              </Link>
+            ))}
+          </div>
         </div>
-      </footer>
+      </section>
+
+      <PublicFooter />
     </div>
   );
 }
