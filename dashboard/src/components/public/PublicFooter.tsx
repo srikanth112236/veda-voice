@@ -27,7 +27,22 @@ export function PublicFooter() {
             Industries
           </Link>
           <Link href="/legal" className="hover:text-[var(--ink-primary)]">
-            Legal &amp; Compliance
+            Compliance Hub
+          </Link>
+          <Link href="/legal/privacy" className="hover:text-[var(--ink-primary)]">
+            Privacy
+          </Link>
+          <Link href="/legal/telephony-compliance" className="hover:text-[var(--ink-primary)]">
+            TCPA &amp; Telecom
+          </Link>
+          <Link href="/legal/terms" className="hover:text-[var(--ink-primary)]">
+            Terms
+          </Link>
+          <Link href="/legal/dpa" className="hover:text-[var(--ink-primary)]">
+            DPA
+          </Link>
+          <Link href="/legal/security" className="hover:text-[var(--ink-primary)]">
+            Security
           </Link>
           <Link href="/login" className="hover:text-[var(--ink-primary)]">
             Sign in
