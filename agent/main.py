@@ -398,11 +398,18 @@ async def entrypoint(ctx: JobContext) -> None:
     current_eou_delay_ms: float = 0.0
     current_llm_ttft_ms: float = 0.0
     current_llm_calls_this_turn: int = 0
+    last_turn_latency_ms: float | None = None
+    consecutive_interruptions: int = 0
+    adaptive_ep_applied: bool = False
 
     @session.on("metrics_collected")
     def on_metrics_collected(event: MetricsCollectedEvent) -> None:
         """Track turn stages: EOU delay, LLM TTFT, and TTS TTFB."""
-        nonlocal current_eou_delay_ms, current_llm_ttft_ms, current_llm_calls_this_turn
+        nonlocal \
+            current_eou_delay_ms, \
+            current_llm_ttft_ms, \
+            current_llm_calls_this_turn, \
+            last_turn_latency_ms
         m = event.metrics
         if isinstance(m, EOUMetrics):
             current_eou_delay_ms = m.end_of_utterance_delay * 1000.0
@@ -458,6 +465,15 @@ async def entrypoint(ctx: JobContext) -> None:
             current_eou_delay_ms = 0.0
             current_llm_ttft_ms = 0.0
             current_llm_calls_this_turn = 0
+            last_turn_latency_ms = pipeline_latency_ms
+
+            # Backfill the most recent assistant transcript entry if it arrived before TTSMetrics
+            for t_entry in reversed(transcript_log):
+                if t_entry.role in ("assistant", "agent"):
+                    if t_entry.latency_ms is None:
+                        t_entry.latency_ms = pipeline_latency_ms
+                        last_turn_latency_ms = None
+                    break
 
     @session.on("agent_state_changed")
     def on_agent_state_changed(event: AgentStateChangedEvent) -> None:
@@ -474,7 +490,7 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("conversation_item_added")
     def on_conversation_item_added(event: ConversationItemAddedEvent) -> None:
         """Record transcript entry and broadcast live turn to supervisors in real time."""
-        nonlocal call_outcome
+        nonlocal call_outcome, last_turn_latency_ms, consecutive_interruptions, adaptive_ep_applied
         item = event.item
         if isinstance(item, ChatMessage):
             text_str = item.text_content or ""
@@ -488,12 +504,41 @@ async def entrypoint(ctx: JobContext) -> None:
                     conf_val,
                     room_name,
                 )
+
+            turn_lat_val: float | None = None
+            if item.role in ("assistant", "agent"):
+                if last_turn_latency_ms is not None:
+                    turn_lat_val = last_turn_latency_ms
+                    last_turn_latency_ms = None
+                if was_interrupted:
+                    consecutive_interruptions += 1
+                    if consecutive_interruptions >= 2 and not adaptive_ep_applied:
+                        adaptive_ep_applied = True
+                        try:
+                            session.update_options(
+                                min_endpointing_delay=min(
+                                    1.2, ep_profile["min_endpointing_delay"] + 0.3
+                                ),
+                                max_endpointing_delay=min(
+                                    5.0, ep_profile["max_endpointing_delay"] + 1.0
+                                ),
+                            )
+                            logger.info(
+                                "Widened endpointing delay after %d consecutive interruptions",
+                                consecutive_interruptions,
+                            )
+                        except Exception as ep_err:
+                            logger.debug("Adaptive endpointing update skipped: %s", ep_err)
+                else:
+                    consecutive_interruptions = 0
+
             transcript_log.append(
                 TranscriptEntry(
                     role=item.role,
                     text=text_str,
                     time=entry_time,
                     interrupted=was_interrupted,
+                    latency_ms=turn_lat_val,
                     confidence=conf_val,
                 )
             )
@@ -526,37 +571,30 @@ async def entrypoint(ctx: JobContext) -> None:
                     session._veda_turn_sync_queue = turn_queue
 
                     async def _turn_sync_worker() -> None:
-                        import urllib.request
+                        import httpx
 
-                        while True:
-                            payload_item = await turn_queue.get()
-                            if payload_item is None:
-                                turn_queue.task_done()
-                                break
-                            c_id, t_role, t_text, t_time = payload_item
-                            try:
-                                turn_body = json.dumps(
-                                    {
-                                        "call_id": c_id,
-                                        "role": t_role,
-                                        "text": t_text,
-                                        "time": t_time,
-                                    }
-                                ).encode("utf-8")
-                                req = urllib.request.Request(
-                                    f"{api_base}/api/v1/internal/calls/{c_id}/turn",
-                                    data=turn_body,
-                                    headers={
-                                        "Content-Type": "application/json",
-                                        "Accept": "application/json",
-                                    },
-                                    method="POST",
-                                )
-                                await asyncio.to_thread(urllib.request.urlopen, req, timeout=2.0)
-                            except Exception as s_err:
-                                logger.debug("Turn API broadcast notice: %s", s_err)
-                            finally:
-                                turn_queue.task_done()
+                        with httpx.Client(timeout=2.0) as http_client:
+                            while True:
+                                payload_item = await turn_queue.get()
+                                if payload_item is None:
+                                    turn_queue.task_done()
+                                    break
+                                c_id, t_role, t_text, t_time = payload_item
+                                try:
+                                    await asyncio.to_thread(
+                                        http_client.post,
+                                        f"{api_base}/api/v1/internal/calls/{c_id}/turn",
+                                        json={
+                                            "call_id": c_id,
+                                            "role": t_role,
+                                            "text": t_text,
+                                            "time": t_time,
+                                        },
+                                    )
+                                except Exception as s_err:
+                                    logger.debug("Turn API broadcast notice: %s", s_err)
+                                finally:
+                                    turn_queue.task_done()
 
                     asyncio.create_task(_turn_sync_worker())
 

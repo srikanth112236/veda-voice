@@ -2638,10 +2638,12 @@ export default function CallsPage() {
                   {detailCall.transcript.map((entry, idx) => {
                     const isAssistant = entry.role === "assistant";
                     const isCurrentSpeaking = activePlayingTurnIndex === idx;
-                    const turnLatency =
-                      isAssistant && detailCall.turn_latencies_ms
-                        ? detailCall.turn_latencies_ms[Math.floor(idx / 2)]
-                        : undefined;
+                    const turnLatency = isAssistant
+                      ? entry.latency_ms ??
+                        (detailCall.turn_latencies_ms
+                          ? detailCall.turn_latencies_ms[Math.floor(idx / 2)]
+                          : undefined)
+                      : undefined;
                     const cleanedTurnText = cleanDialogueText(
                       entry.text || (entry as any).content || ""
                     );
