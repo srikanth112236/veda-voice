@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { PublicHeader } from "@/components/public/PublicHeader";
 import { PublicFooter } from "@/components/public/PublicFooter";
-import { ArrowRight, Radio, ShieldCheck, Cpu, Calendar, Award } from "lucide-react";
+import { PricingSection } from "@/components/public/PricingSection";
+import { WhyBestSection } from "@/components/public/WhyBestSection";
+import { ArrowRight, Radio, ShieldCheck, Cpu, Calendar, Award, Lock } from "lucide-react";
 
 const STAGES = [
   {
@@ -52,27 +54,38 @@ export default function HowItWorksPage() {
       <PublicHeader />
 
       <main className="flex-1">
-        <section className="mx-auto max-w-6xl px-4 sm:px-6 py-12 lg:py-16 space-y-4">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
-            Architecture Walkthrough
-          </p>
-          <h1 className="max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl">
-            From inbound ring to booked dispatch in five deterministic stages.
-          </h1>
-          <p className="max-w-[58ch] text-base text-[var(--ink-secondary)]">
-            Every call follows a strict isolation boundary: real-time audio runs on LiveKit
-            Cloud, while business state, calendar locks, and compliance live in Azure.
-          </p>
+        {/* Section 1: Hero */}
+        <section className="mx-auto max-w-6xl px-4 sm:px-6 py-12 lg:py-16 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
+          <div className="lg:col-span-6 space-y-4">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
+              Architecture Walkthrough
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              From inbound ring to booked dispatch in five deterministic stages.
+            </h1>
+            <p className="max-w-[54ch] text-base text-[var(--ink-secondary)]">
+              Real-time audio runs on LiveKit Cloud while business state, calendar locks, and
+              multi-tenant compliance live in Azure Container Apps and PostgreSQL 16.
+            </p>
+          </div>
+          <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+            <img
+              src="/images/hero-voice-engine.jpg"
+              alt="Voice engine pipeline illustration"
+              className="w-full h-auto object-cover"
+            />
+          </div>
         </section>
 
+        {/* Sections 2-6: 5 Deterministic Stages */}
         <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-12 divide-y divide-[var(--border-hairline)]">
             {STAGES.map((stage) => {
               const Icon = stage.icon;
               return (
-                <div
+                <section
                   key={stage.step}
-                  className="grid grid-cols-1 gap-4 py-7 lg:grid-cols-12 lg:items-center"
+                  className="grid grid-cols-1 gap-4 py-8 lg:grid-cols-12 lg:items-center"
                 >
                   <div className="flex items-center gap-3 lg:col-span-4">
                     <span className="font-mono text-xs font-bold text-[var(--accent-signal)] tabular-nums">
@@ -87,18 +100,72 @@ export default function HowItWorksPage() {
                   <div className="font-mono text-[11px] text-[var(--ink-muted)] lg:col-span-3 lg:text-right">
                     {stage.detail}
                   </div>
-                </div>
+                </section>
               );
             })}
           </div>
         </section>
 
+        {/* Section 7: Acoustic Noise Shield */}
+        <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
+            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+              <img
+                src="/images/bvc-noise-shield.jpg"
+                alt="BVC noise shield illustration"
+                className="w-full h-auto object-cover"
+              />
+            </div>
+            <div className="lg:col-span-6 space-y-3">
+              <div className="font-mono text-[11px] uppercase text-[var(--accent-signal)]">
+                Acoustic Gatekeeper
+              </div>
+              <h2 className="text-2xl font-bold">Clean speech extraction before turn detection.</h2>
+              <p className="text-sm text-[var(--ink-secondary)]">
+                Road noise, background TVs, and speakerphone echoes are filtered in real time via
+                BVCTelephony before Silero VAD and MultilingualModel decide turn boundaries.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 8: Calendar & Dispatch Lock */}
+        <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
+            <div className="lg:col-span-6 space-y-3">
+              <div className="inline-flex items-center gap-2 font-mono text-[11px] uppercase text-[var(--accent-signal)]">
+                <Lock className="h-3.5 w-3.5" />
+                <span>Double-Booking Guard</span>
+              </div>
+              <h2 className="text-2xl font-bold">Atomic slot holds &amp; territory routing.</h2>
+              <p className="text-sm text-[var(--ink-secondary)]">
+                When a caller picks a time, the API places a short-lived slot hold, verifies Google
+                Calendar busy intervals, and confirms the technician assignment.
+              </p>
+            </div>
+            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+              <img
+                src="/images/dispatch-calendar-grid.jpg"
+                alt="Dispatch scheduling matrix"
+                className="w-full h-auto object-cover"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Section 9: Why VedaVoice Wins */}
+        <WhyBestSection />
+
+        {/* Section 10: Pricing Plans */}
+        <PricingSection />
+
+        {/* Section 11: Bottom CTA */}
         <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
           <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 sm:px-6 py-12 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-bold">Explore 20 pre-configured industry flows</h2>
               <p className="text-sm text-[var(--ink-secondary)]">
-                See sample greetings, caller turns, and acoustic waveforms across trades and clinics.
+                Inspect sample greetings, caller turns, and acoustic waveforms across verticals.
               </p>
             </div>
             <Link

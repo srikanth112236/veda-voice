@@ -163,19 +163,72 @@ export default function LegalIndexPage() {
         </ul>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+      <div className="space-y-4 pt-2">
+        <h2 className="text-base font-bold text-[var(--ink-primary)]">
+          Technical Enforcement Architecture
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 space-y-1">
+            <div className="font-mono text-[10px] uppercase text-[var(--accent-signal)]">
+              TURN-1 LOCKED DISCLOSURE
+            </div>
+            <p className="font-semibold text-[var(--ink-primary)]">
+              Non-Interruptible Legal Notice
+            </p>
+            <p>
+              Mandatory recording &amp; AI disclosure plays with caller barge-in disabled before
+              greeting intake begins.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 space-y-1">
+            <div className="font-mono text-[10px] uppercase text-[var(--accent-signal)]">
+              4-GATE OUTBOUND GUARD
+            </div>
+            <p className="font-semibold text-[var(--ink-primary)]">
+              Zero-Bypass Compliance Check
+            </p>
+            <p>
+              Every outbound call must pass ConsentRecord, DNC suppression, local calling window,
+              and daily frequency caps.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
         <Link
           href="/legal/telephony-compliance"
           className="interactive-lift flex items-center justify-between rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 text-xs font-semibold text-[var(--ink-primary)]"
         >
-          <span>Read Telephony &amp; AI Voice Compliance</span>
+          <span>Telephony &amp; AI Voice</span>
           <ArrowRight className="h-4 w-4" />
         </Link>
         <Link
           href="/legal/privacy"
           className="interactive-lift flex items-center justify-between rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 text-xs font-semibold text-[var(--ink-primary)]"
         >
-          <span>Read Global Privacy Notice</span>
+          <span>Global Privacy Notice</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+        <Link
+          href="/legal/dpa"
+          className="interactive-lift flex items-center justify-between rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 text-xs font-semibold text-[var(--ink-primary)]"
+        >
+          <span>DPA &amp; Sub-Processors</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+        <Link
+          href="/legal/security"
+          className="interactive-lift flex items-center justify-between rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 text-xs font-semibold text-[var(--ink-primary)]"
+        >
+          <span>Security &amp; RLS Isolation</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+        <Link
+          href="/legal/terms"
+          className="interactive-lift flex items-center justify-between rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-4 text-xs font-semibold text-[var(--ink-primary)]"
+        >
+          <span>Terms of Service</span>
           <ArrowRight className="h-4 w-4" />
         </Link>
       </div>

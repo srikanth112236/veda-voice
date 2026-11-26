@@ -5,13 +5,24 @@ import Link from "next/link";
 import { PublicHeader } from "@/components/public/PublicHeader";
 import { PublicFooter } from "@/components/public/PublicFooter";
 import { VoiceIllustration } from "@/components/public/VoiceIllustration";
+import { PricingSection } from "@/components/public/PricingSection";
+import { WhyBestSection } from "@/components/public/WhyBestSection";
 import { INDUSTRY_CONCEPTS } from "@/data/industries";
 import { useLeadModal } from "@/context/lead-modal-context";
 import { ArrowRight, ShieldCheck, Activity } from "lucide-react";
 
+const CATEGORIES = ["All", "Home Services", "Healthcare", "Automotive", "Professional"] as const;
+
 export default function IndustriesPage() {
   const [selectedSlug, setSelectedSlug] = useState(INDUSTRY_CONCEPTS[0].slug);
+  const [categoryFilter, setCategoryFilter] = useState<(typeof CATEGORIES)[number]>("All");
   const { openLeadModal } = useLeadModal();
+
+  const filtered =
+    categoryFilter === "All"
+      ? INDUSTRY_CONCEPTS
+      : INDUSTRY_CONCEPTS.filter((c) => c.category === categoryFilter);
+
   const active =
     INDUSTRY_CONCEPTS.find((item) => item.slug === selectedSlug) ?? INDUSTRY_CONCEPTS[0];
 
@@ -20,6 +31,7 @@ export default function IndustriesPage() {
       <PublicHeader />
 
       <main className="flex-1">
+        {/* Section 1: Hero */}
         <section className="mx-auto max-w-6xl px-4 sm:px-6 py-12 space-y-4">
           <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
             20 Industry Concepts
@@ -28,16 +40,33 @@ export default function IndustriesPage() {
             Tailored greetings, safety rules, and intake trees for 20 verticals.
           </h1>
           <p className="max-w-[58ch] text-base text-[var(--ink-secondary)]">
-            Select an industry below to inspect its acoustic waveform profile, sample greeting,
-            caller intent, and automated QA focus.
+            Filter by category or select any industry to inspect its acoustic waveform profile,
+            sample greeting, caller intent, and automated QA focus.
           </p>
+
+          <div className="flex flex-wrap gap-2 pt-2">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                className={`rounded-md border px-3 py-1.5 font-mono text-xs font-medium transition-colors ${
+                  categoryFilter === cat
+                    ? "border-[var(--ink-primary)] bg-[var(--ink-primary)] text-[var(--surface-panel)]"
+                    : "border-[var(--border-hairline)] bg-[var(--surface-panel)] text-[var(--ink-secondary)]"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </section>
 
+        {/* Section 2: Interactive 20-Industry Explorer */}
         <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-10 grid grid-cols-1 gap-8 lg:grid-cols-12">
-            {/* 20 Industry Selector Grid */}
             <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-2 self-start">
-              {INDUSTRY_CONCEPTS.map((item) => {
+              {filtered.map((item) => {
                 const isSelected = item.slug === active.slug;
                 return (
                   <button
@@ -63,7 +92,6 @@ export default function IndustriesPage() {
               })}
             </div>
 
-            {/* Active Industry Voice Inspector */}
             <div className="lg:col-span-5 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 space-y-4 self-start">
               <div className="flex items-center justify-between border-b border-[var(--border-hairline)] pb-3">
                 <div>
@@ -125,6 +153,105 @@ export default function IndustriesPage() {
                 </Link>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Section 3: Acoustic Resilience Visual */}
+        <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
+            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+              <img
+                src="/images/bvc-noise-shield.jpg"
+                alt="BVC acoustic noise shield illustration"
+                className="w-full h-auto object-cover"
+              />
+            </div>
+            <div className="lg:col-span-6 space-y-3">
+              <div className="font-mono text-[11px] uppercase text-[var(--accent-signal)]">
+                Field-Ready Audio
+              </div>
+              <h2 className="text-2xl font-bold">
+                Built for roadside callers, basements, and busy front desks.
+              </h2>
+              <p className="text-sm text-[var(--ink-secondary)]">
+                Each industry pack pairs BVC noise filtering with domain keyterms so brand names,
+                part numbers, and symptoms are transcribed accurately on the first try.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 4: Dispatch Matrix Visual */}
+        <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
+            <div className="lg:col-span-6 space-y-3">
+              <div className="font-mono text-[11px] uppercase text-[var(--accent-signal)]">
+                Calendar &amp; Territory Routing
+              </div>
+              <h2 className="text-2xl font-bold">
+                Match skills, arrival windows, and service ZIP codes automatically.
+              </h2>
+              <p className="text-sm text-[var(--ink-secondary)]">
+                From emergency plumbers to multi-chair dental clinics, VedaVoice routes callers to
+                the right specialist calendar without double-booking.
+              </p>
+            </div>
+            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+              <img
+                src="/images/dispatch-calendar-grid.jpg"
+                alt="Dispatch calendar grid illustration"
+                className="w-full h-auto object-cover"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Section 5: Safety & Escalation Rules */}
+        <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { title: "Home Services", rule: "Gas leak / sparking / burst pipe shutoff + 911" },
+              { title: "Healthcare", rule: "Acute triage transfer + HIPAA/GDPR-ready intake" },
+              { title: "Automotive", rule: "Roadside safety check + mile-marker capture" },
+              { title: "Professional", rule: "No-legal-advice guardrail + conflict intake" },
+            ].map((card) => (
+              <div
+                key={card.title}
+                className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 space-y-1.5"
+              >
+                <div className="font-mono text-[10px] uppercase text-[var(--accent-signal)]">
+                  SAFETY PROTOCOL
+                </div>
+                <div className="text-sm font-bold">{card.title}</div>
+                <p className="text-xs text-[var(--ink-secondary)]">{card.rule}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Section 6: Comparison */}
+        <WhyBestSection />
+
+        {/* Section 7: Pricing */}
+        <PricingSection />
+
+        {/* Section 8: Final CTA */}
+        <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 py-12 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Need a custom industry pack?</h2>
+              <p className="text-sm text-[var(--ink-secondary)]">
+                Request a live walkthrough with your own FAQs, territory ZIPs, and greeting.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openLeadModal(active.slug)}
+              className="touch-target interactive-lift inline-flex items-center gap-2 self-start rounded-md bg-[var(--accent-signal)] px-5 text-sm font-semibold text-[var(--accent-signal-ink)]"
+            >
+              Request Custom Demo
+              <ArrowRight className="h-4 w-4" />
+            </button>
           </div>
         </section>
       </main>
