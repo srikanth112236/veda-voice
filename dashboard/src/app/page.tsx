@@ -140,8 +140,8 @@ export default function Home() {
     <div className="min-h-screen bg-[var(--surface-canvas)] text-[var(--ink-primary)]">
       {/* Top Bar */}
       <header className="border-b border-[var(--border-hairline)] bg-[var(--surface-panel)]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-          <Link href="/" className="flex items-center gap-2.5 shrink-0">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4">
+          <Link href="/" className="flex items-center gap-2 shrink-0">
             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--ink-primary)] font-mono text-sm font-bold text-[var(--surface-panel)]">
               V
             </span>
@@ -150,18 +150,19 @@ export default function Home() {
             </span>
           </Link>
 
-          <nav className="flex items-center gap-2 sm:gap-3">
+          <nav className="flex items-center gap-1.5 sm:gap-3">
             <Link
               href="/login"
-              className="touch-target inline-flex items-center whitespace-nowrap px-3 text-sm font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] transition-colors"
+              className="touch-target inline-flex items-center whitespace-nowrap px-2.5 sm:px-3 text-sm font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] transition-colors"
             >
               Sign in
             </Link>
             <Link
               href="/onboarding"
-              className="touch-target interactive-lift inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-[var(--ink-primary)] px-3.5 sm:px-4 text-sm font-medium text-[var(--surface-panel)]"
+              className="touch-target interactive-lift inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-[var(--ink-primary)] px-3 sm:px-4 text-sm font-medium text-[var(--surface-panel)]"
             >
-              Deploy receptionist
+              <span className="sm:hidden">Deploy</span>
+              <span className="hidden sm:inline">Deploy receptionist</span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0" />
             </Link>
           </nav>
