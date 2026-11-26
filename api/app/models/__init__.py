@@ -34,6 +34,7 @@ from api.app.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from api.app.models.lead_form import Lead, LeadForm
 from api.app.models.location import Location, UnservedTerritoryLog
 from api.app.models.outbound import ConsentRecord, OutboundDispatch, SuppressionRecord
+from api.app.models.quote_invoice import CustomerInvoice, CustomerQuote
 from api.app.models.staff import StaffMember
 from api.app.models.subscription import Coupon, RefundRequest, Subscription, TopupOrder, UsageRecord
 from api.app.models.tenant import AgentProfile, PhoneNumber, Tenant
@@ -84,4 +85,6 @@ __all__ = [
     "IndustryPack",
     "IndustryPackVersion",
     "TenantPackApplication",
+    "CustomerQuote",
+    "CustomerInvoice",
 ]

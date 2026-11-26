@@ -53,6 +53,7 @@ from api.app.routers.locations import router as locations_router
 from api.app.routers.numbers import router as numbers_router
 from api.app.routers.portal import router as portal_router
 from api.app.routers.public_reschedule import router as public_reschedule_router
+from api.app.routers.quotes_invoices import router as quotes_invoices_router
 from api.app.routers.staff import router as staff_router
 from api.app.routers.subscriptions import router as subscriptions_router
 from api.app.services.entitlements import DEFAULT_FEATURE_FLAGS, PLAN_ENTITLEMENTS_MATRIX
@@ -1818,6 +1819,8 @@ app.include_router(public_reschedule_router, prefix="/v1")
 app.include_router(public_reschedule_router)
 app.include_router(campaigns_router, prefix="/api/v1")
 app.include_router(campaigns_router)
+app.include_router(quotes_invoices_router, prefix="/api/v1")
+app.include_router(quotes_invoices_router)
 
 
 @app.get("/", tags=["system"])
