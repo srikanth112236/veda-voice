@@ -1,11 +1,27 @@
 import type { Metadata } from "next";
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "@/context/auth-context";
 import { InfoModalProvider } from "@/context/info-modal-context";
 import "./globals.css";
 
+const plusJakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "VedaVoice | Enterprise Voice Receptionist Platform",
-  description: "Multi-tenant autonomous voice receptionist and telephony intelligence control plane.",
+  title: "VedaVoice | Autonomous Voice Receptionist Control Plane",
+  description:
+    "Multi-tenant AI voice receptionist, live call supervision, and Google Calendar dispatch control plane.",
 };
 
 export default function RootLayout({
@@ -14,8 +30,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-background text-foreground antialiased selection:bg-zinc-800 selection:text-zinc-100">
+    <html
+      lang="en"
+      data-type="software"
+      className={`${plusJakarta.variable} ${jetbrainsMono.variable}`}
+    >
+      <head>
+        <meta name="page-type" content="software" />
+        <meta name="site-kind" content="software" />
+      </head>
+      <body className="min-h-screen bg-[var(--surface-canvas)] text-[var(--ink-primary)] font-sans antialiased selection:bg-emerald-600/15 selection:text-[var(--ink-primary)]">
         <AuthProvider>
           <InfoModalProvider>{children}</InfoModalProvider>
         </AuthProvider>

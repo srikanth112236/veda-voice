@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Room, RoomEvent, Track, RemoteTrack, RemoteTrackPublication, RemoteParticipant, ConnectionState } from "livekit-client";
 import { InfoTrigger } from "@/context/info-modal-context";
+import { LatencyWaterfallCard } from "@/components/calls/LatencyWaterfallCard";
 import {
   PhoneCall,
   Search,
@@ -2113,58 +2114,14 @@ export default function CallsPage() {
               </div>
 
               {/* 3-Stage Latency Telemetry Waterfall */}
-              <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-amber-500" />
-                    <span className="text-xs font-bold text-zinc-900">
-                      3-Stage Telephony Latency Waterfall
-                    </span>
-                    <InfoTrigger topic="call_latency_metrics" />
-                  </div>
-                  <span className="text-[10px] font-mono text-zinc-500">
-                    P50: <span className="font-bold text-emerald-600">{detailCall.latency_p50_ms}ms</span> | P95:{" "}
-                    <span className="font-bold text-amber-600">{detailCall.latency_p95_ms}ms</span>
-                  </span>
-                </div>
-
-                {/* Micro Waterfall Graphic */}
-                {detailCall.latency_p50_ms <= 0 &&
-                !(detailCall.eou_p50_ms && detailCall.eou_p50_ms > 0) &&
-                !(detailCall.ttft_p50_ms && detailCall.ttft_p50_ms > 0) &&
-                !(detailCall.ttfb_p50_ms && detailCall.ttfb_p50_ms > 0) ? (
-                  <div className="p-3 rounded-lg bg-white border border-zinc-200 text-[11px] font-mono text-zinc-500">
-                    No per-turn latency telemetry recorded for this call.
-                  </div>
-                ) : (
-                  <div className="space-y-1.5 font-mono text-xs">
-                    <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
-                      <span className="text-zinc-600 text-[11px]">1. End-of-Utterance (Silero VAD)</span>
-                      <span className="text-zinc-900 font-bold">
-                        {detailCall.eou_p50_ms && detailCall.eou_p50_ms > 0
-                          ? `${Math.round(detailCall.eou_p50_ms)} ms`
-                          : "~750 ms (est)"}
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
-                      <span className="text-zinc-600 text-[11px]">2. LLM First Token (Gemini 2.5 Flash)</span>
-                      <span className="text-zinc-900 font-bold">
-                        {detailCall.ttft_p50_ms && detailCall.ttft_p50_ms > 0
-                          ? `${Math.round(detailCall.ttft_p50_ms)} ms`
-                          : `~${Math.max(0, Math.round(detailCall.latency_p50_ms - 950))} ms (est)`}
-                      </span>
-                    </div>
-                    <div className="p-2.5 rounded-lg bg-white border border-zinc-200 flex items-center justify-between shadow-xs">
-                      <span className="text-zinc-600 text-[11px]">3. Voice Synthesis TTFB (Inworld TTS)</span>
-                      <span className="text-zinc-900 font-bold">
-                        {detailCall.ttfb_p50_ms && detailCall.ttfb_p50_ms > 0
-                          ? `${Math.round(detailCall.ttfb_p50_ms)} ms`
-                          : "~200 ms (est)"}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <LatencyWaterfallCard
+                latencyP50Ms={detailCall.latency_p50_ms}
+                latencyP95Ms={detailCall.latency_p95_ms}
+                eouP50Ms={detailCall.eou_p50_ms}
+                ttftP50Ms={detailCall.ttft_p50_ms}
+                ttfbP50Ms={detailCall.ttfb_p50_ms}
+                infoTrigger={<InfoTrigger topic="call_latency_metrics" />}
+              />
 
               {/* Extracted Caller Request Card */}
               {detailCall.message && (

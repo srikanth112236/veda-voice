@@ -4,51 +4,71 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
-    --radius: 0.5rem;
+    /* Tinted OKLCH palette (hue 250 slate-indigo neutral + hue 158 telephony signal) */
+    --surface-canvas: oklch(97.8% 0.004 250);
+    --surface-panel: oklch(99.2% 0.002 250);
+    --surface-subtle: oklch(95.2% 0.007 250);
+    --ink-primary: oklch(18.5% 0.015 250);
+    --ink-secondary: oklch(40% 0.012 250);
+    --ink-muted: oklch(50% 0.01 250);
+    --accent-signal: oklch(52% 0.15 158);
+    --accent-signal-ink: oklch(98% 0.004 158);
+    --border-hairline: oklch(89% 0.008 250);
+
+    /* Shadcn-compatible HSL tokens synced to off-white/slate palette */
+    --background: 220 20% 98%;
+    --foreground: 222 28% 12%;
+    --card: 220 25% 99%;
+    --card-foreground: 222 28% 12%;
+    --primary: 222 28% 14%;
+    --primary-foreground: 220 20% 98%;
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 222 28% 14%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 220 14% 94%;
+    --accent-foreground: 222 28% 14%;
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 160 65% 36%;
+    --radius: 0.625rem;
   }
 
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 4.9%;
-    --card-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-  }
-}
-
-@layer base {
   * {
     @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground antialiased;
+    background-color: var(--surface-canvas);
+    color: var(--ink-primary);
+    font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+    @apply antialiased;
   }
+}
+
+/* OpenType tabular alignment for telephony latencies, durations, and billing */
+.tabular-nums,
+.data-table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quiet hover lift micro-interaction */
+.interactive-lift {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.interactive-lift:hover {
+  transform: translateY(-2px);
+}
+.interactive-lift:active {
+  transform: translateY(0);
+}
+
+/* Accessible 44px minimum touch target helper */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* Custom scrollbars */
@@ -60,9 +80,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.2);
+  background: oklch(50% 0.01 250 / 0.25);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.4);
+  background: oklch(50% 0.01 250 / 0.45);
 }
