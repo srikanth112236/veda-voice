@@ -102,7 +102,7 @@ export default function IndustriesPage() {
                 </div>
                 <span className="flex items-center gap-1 font-mono text-xs tabular-nums text-[var(--accent-signal)] font-semibold">
                   <Activity className="h-3.5 w-3.5" />
-                  {active.latencyMs}ms P50
+                  {active.latencyMs}ms reply
                 </span>
               </div>
 
@@ -174,8 +174,8 @@ export default function IndustriesPage() {
                 Built for roadside callers, basements, and busy front desks.
               </h2>
               <p className="text-sm text-[var(--ink-secondary)]">
-                Each industry pack pairs BVC noise filtering with domain keyterms so brand names,
-                part numbers, and symptoms are transcribed accurately on the first try.
+                Each industry pack pairs background noise filtering with local vocabulary so brand names,
+                service terms, and caller requests are captured accurately on the first try.
               </p>
             </div>
           </div>

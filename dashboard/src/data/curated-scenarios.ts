@@ -18,48 +18,48 @@ const SCENARIO_TEMPLATES: Array<{
 }> = [
   {
     kind: "BENCHMARK",
-    buildHeadline: (name) => `${name}: After-hours intake with locked Turn-1 TCPA disclosure`,
-    buildMetric: (lat) => `${lat}ms P50`,
+    buildHeadline: (name) => `${name}: After-hours calls answered on first ring with recording notice`,
+    buildMetric: () => "Under 1s Reply",
   },
   {
     kind: "SCENARIO",
-    buildHeadline: (name) => `${name}: BVC noise filter isolates caller from road & TV bleed`,
-    buildMetric: (lat) => `${Math.max(710, lat - 40)}ms P50`,
+    buildHeadline: (name) => `${name}: Smart noise filter keeps street & TV sound out of calls`,
+    buildMetric: () => "Crystal Clear",
   },
   {
     kind: "EARLY-BIRD OFFER",
-    buildHeadline: (name) => `Founder Offer for ${name}: 500 included minutes + SIP setup`,
+    buildHeadline: (name) => `Founder Offer for ${name}: 500 included minutes + priority setup`,
     buildMetric: () => "Limited Cohort",
   },
   {
     kind: "SCENARIO",
-    buildHeadline: (name) => `${name}: Bilingual EN/ES code-switching via Deepgram Nova-3`,
-    buildMetric: () => "Multi-Lang STT",
+    buildHeadline: (name) => `${name}: Speaks fluent English & Spanish in the same call`,
+    buildMetric: () => "Bilingual Ready",
   },
   {
     kind: "BENCHMARK",
-    buildHeadline: (name) => `${name}: Semantic turn detection prevents mid-sentence splits`,
-    buildMetric: () => "0.6s EOU",
+    buildHeadline: (name) => `${name}: Patient listening waits for natural caller pauses`,
+    buildMetric: () => "Zero Cutoffs",
   },
   {
     kind: "SCENARIO",
-    buildHeadline: (name) => `${name}: Double-booking guard checks live Google Calendar slots`,
-    buildMetric: () => "Calendar Lock",
+    buildHeadline: (name) => `${name}: Checks live Google Calendar openings before confirming`,
+    buildMetric: () => "No Double-Book",
   },
   {
     kind: "EARLY-BIRD OFFER",
-    buildHeadline: (name) => `Early-Bird ${name} Pack: Pre-configured FAQs & safety script`,
+    buildHeadline: (name) => `Early-Bird ${name} Pack: Pre-loaded FAQs & safety script`,
     buildMetric: () => "Day-1 Ready",
   },
   {
     kind: "BENCHMARK",
-    buildHeadline: (name) => `${name}: Wrong-number guardrail exits politely in 2 turns`,
-    buildMetric: () => "2-Turn Exit",
+    buildHeadline: (name) => `${name}: Ends wrong-number calls politely in two turns`,
+    buildMetric: () => "Saves Minutes",
   },
   {
     kind: "SCENARIO",
-    buildHeadline: (name) => `${name}: Live supervisor whisper coaching & warm SIP transfer`,
-    buildMetric: (_lat, idx) => `QA Rubric #${(idx % 5) + 1}`,
+    buildHeadline: (name) => `${name}: Live supervisor coaching & warm transfer to your team`,
+    buildMetric: (_lat, idx) => `Quality Check #${(idx % 5) + 1}`,
   },
 ];
 

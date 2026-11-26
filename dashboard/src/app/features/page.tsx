@@ -3,6 +3,7 @@ import { PublicHeader } from "@/components/public/PublicHeader";
 import { PublicFooter } from "@/components/public/PublicFooter";
 import { PricingSection } from "@/components/public/PricingSection";
 import { WhyBestSection } from "@/components/public/WhyBestSection";
+import { ParallaxFrame, ScrubRevealSection } from "@/components/public/ScrollShowcase";
 import {
   ShieldCheck,
   Mic,
@@ -18,45 +19,45 @@ import {
 const CAPABILITIES = [
   {
     icon: Mic,
-    title: "BVC Telephony Noise Cancellation",
+    title: "Background Noise Cancellation",
     description:
-      "Filters road noise, job-site tools, and background television before VAD fires so noisy callers do not trigger false interruptions.",
-    tag: "LIVEKIT BVC",
+      "Filters road noise, job-site tools, and background television so noisy callers are heard clearly without false cutoffs.",
+    tag: "NOISE SHIELD",
   },
   {
     icon: Languages,
-    title: "Bilingual & Keyterm-Boosted STT",
+    title: "Bilingual & Local-Name Accuracy",
     description:
-      "Deepgram Nova-3 switches cleanly between English and Spanish while boosting tenant brand names, equipment models, and local cities.",
-    tag: "DEEPGRAM NOVA-3",
+      "Switches smoothly between English and Spanish while learning your brand name, equipment types, and neighborhood streets.",
+    tag: "BILINGUAL VOICE",
   },
   {
     icon: Headphones,
-    title: "Live Supervisor Whisper & Barge-In",
+    title: "Live Coach Whisper & Takeover",
     description:
-      "Watch active calls in real time over WebSocket, whisper silent coaching into the agent prompt, or bridge directly onto the call.",
-    tag: "REAL-TIME COPILOT",
+      "Listen to live calls in real time, send silent instructions to your AI receptionist, or step onto the call yourself.",
+    tag: "LIVE SUPERVISION",
   },
   {
     icon: Calendar,
-    title: "Google Calendar & Territory Dispatch",
+    title: "Calendar Sync & Territory Dispatch",
     description:
-      "Checks real busy blocks, enforces arrival windows and buffers, assigns technicians by ZIP territory, and prevents double-booking.",
-    tag: "DISPATCH ENGINE",
+      "Checks real team availability, respects arrival buffers, assigns jobs by postal code, and prevents double-booking.",
+    tag: "SMART SCHEDULING",
   },
   {
     icon: ShieldCheck,
-    title: "Multi-Tenant Postgres RLS & Compliance",
+    title: "Private Workspace & Call Rules",
     description:
-      "Every tenant table enforces row-level security. Outbound calls pass consent, suppression, calling-window, and cap gates.",
-    tag: "ISOLATION MANDATE",
+      "Every business account stays strictly isolated. Outbound reminders automatically honor consent, quiet hours, and do-not-call lists.",
+    tag: "COMPLIANCE BUILT-IN",
   },
   {
     icon: BarChart3,
-    title: "3-Stage Waterfall & Automated QA",
+    title: "Automatic Call Grading & CSAT",
     description:
-      "Inspect exact EOU, LLM TTFT, and TTS TTFB per turn alongside an objective 5-part QA compliance rubric and predictive CSAT.",
-    tag: "MILESTONE M7B",
+      "Review response speed, full transcripts, 100-point quality scores, and predicted customer satisfaction after every single call.",
+    tag: "QUALITY SCORING",
   },
 ];
 
@@ -72,11 +73,11 @@ export default function FeaturesPage() {
             Platform Capabilities
           </p>
           <h1 className="max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl">
-            Built for real phone lines, noisy callers, and strict compliance.
+            Built for real phone lines, busy callers, and regional compliance.
           </h1>
           <p className="max-w-[58ch] text-base text-[var(--ink-secondary)]">
-            Every feature ships with per-stage telemetry, multi-tenant isolation, and
-            human-in-the-loop supervision.
+            Every plan includes crystal-clear voice handling, private data isolation, and
+            live team supervision tools.
           </p>
         </section>
 
@@ -106,25 +107,26 @@ export default function FeaturesPage() {
           </div>
         </section>
 
-        {/* Section 3: BVC Noise Shield Spotlight */}
+        {/* Section 3: Noise Shield Spotlight */}
         <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
-            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
-              <img
-                src="/images/bvc-noise-shield.jpg"
-                alt="BVC noise cancellation illustration"
-                className="w-full h-auto object-cover"
-              />
+            <div className="lg:col-span-6">
+              <ParallaxFrame className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+                <img
+                  src="/images/bvc-noise-shield.jpg"
+                  alt="Background noise cancellation illustration"
+                  className="w-full h-auto object-cover"
+                />
+              </ParallaxFrame>
             </div>
             <div className="lg:col-span-6 space-y-3">
               <div className="font-mono text-[11px] uppercase text-[var(--accent-signal)]">
-                01 · Acoustic Layer
+                01 · Clear Listening
               </div>
-              <h2 className="text-2xl font-bold">Adaptive Endpointing &amp; Noise Shield</h2>
+              <h2 className="text-2xl font-bold">Adaptive Pacing &amp; Noise Shield</h2>
               <p className="text-sm text-[var(--ink-secondary)]">
-                Per-tenant `patience_cadence` (`patient`, `balanced`, `brisk`) adapts endpointing
-                windows for elderly speakers vs. fast talkers and widens automatically after
-                consecutive interruptions.
+                Choose a patient, balanced, or brisk speaking cadence so elderly callers get extra
+                breathing room while busy callers move straight to booking.
               </p>
             </div>
           </div>
@@ -135,42 +137,44 @@ export default function FeaturesPage() {
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
             <div className="lg:col-span-6 space-y-3">
               <div className="font-mono text-[11px] uppercase text-[var(--accent-signal)]">
-                02 · Dispatch Layer
+                02 · Smart Scheduling
               </div>
               <h2 className="text-2xl font-bold">Multi-Staff Territory &amp; Arrival Windows</h2>
               <p className="text-sm text-[var(--ink-secondary)]">
-                Assigns jobs by technician skills, postal-code coverage, and round-robin fairness
-                while checking Google Calendar busy intervals in real time.
+                Assigns jobs by technician skills, postal-code coverage, and fair rotation
+                while checking live Google Calendar availability in real time.
               </p>
             </div>
-            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
-              <img
-                src="/images/dispatch-calendar-grid.jpg"
-                alt="Dispatch scheduling matrix illustration"
-                className="w-full h-auto object-cover"
-              />
+            <div className="lg:col-span-6">
+              <ParallaxFrame className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+                <img
+                  src="/images/dispatch-calendar-grid.jpg"
+                  alt="Dispatch scheduling matrix illustration"
+                  className="w-full h-auto object-cover"
+                />
+              </ParallaxFrame>
             </div>
           </div>
         </section>
 
-        {/* Section 5: Warm SIP Transfer & Whisper */}
+        {/* Section 5: Warm Transfer & CRM Sync */}
         <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-12 grid grid-cols-1 gap-6 md:grid-cols-3">
             {[
               {
                 icon: PhoneForwarded,
-                title: "Warm SIP Transfer",
-                text: "Bridges live calls to on-call specialists with spoken caller context and hold reassurance.",
+                title: "Warm Call Transfer",
+                text: "Bridges live calls to on-call staff with spoken caller context so customers never repeat themselves.",
               },
               {
                 icon: Database,
-                title: "Retry-Backed CRM Sync",
-                text: "3-attempt exponential backoff + ordered turn queue ensures zero dropped transcripts.",
+                title: "Guaranteed Record Sync",
+                text: "Automatic retry queues ensure every transcript, booking, and follow-up note reaches your portal safely.",
               },
               {
                 icon: ShieldCheck,
                 title: "Wrong-Number Guardrail",
-                text: "Detects off-topic callers and exits politely in 2 turns instead of burning minutes.",
+                text: "Recognizes misdialed callers and wraps up politely in two turns instead of wasting plan minutes.",
               },
             ].map((item) => {
               const Icon = item.icon;
@@ -194,21 +198,23 @@ export default function FeaturesPage() {
         {/* Section 7: Hero Engine Visual */}
         <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
-            <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
-              <img
-                src="/images/hero-voice-engine.jpg"
-                alt="Autonomous voice engine illustration"
-                className="w-full h-auto object-cover"
-              />
+            <div className="lg:col-span-6">
+              <ParallaxFrame className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+                <img
+                  src="/images/hero-voice-engine.jpg"
+                  alt="Autonomous voice engine illustration"
+                  className="w-full h-auto object-cover"
+                />
+              </ParallaxFrame>
             </div>
             <div className="lg:col-span-6 space-y-3">
               <div className="font-mono text-[11px] uppercase text-[var(--accent-signal)]">
-                03 · Telemetry &amp; QA
+                03 · Call Quality &amp; Speed
               </div>
-              <h2 className="text-2xl font-bold">No fake 100% scores. No hardcoded waterfalls.</h2>
+              <h2 className="text-2xl font-bold">Real quality grading on every single call.</h2>
               <p className="text-sm text-[var(--ink-secondary)]">
-                Every call stores real EOU, LLM TTFT, and TTS TTFB metrics, evaluates a 5-part QA
-                rubric, and flags missing disclosures or telemetry gaps automatically.
+                Every call records exact response speed, grades itself on a clear 5-part quality
+                checklist, and flags missing disclosures automatically.
               </p>
             </div>
           </div>

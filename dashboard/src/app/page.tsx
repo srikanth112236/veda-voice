@@ -10,19 +10,24 @@ import {
   ShieldCheck,
   Activity,
   Calendar,
-  Database,
-  Radio,
   Headphones,
   Languages,
   Award,
   Globe,
   Zap,
+  CheckCircle2,
 } from "lucide-react";
 import { PublicHeader } from "@/components/public/PublicHeader";
 import { PublicFooter } from "@/components/public/PublicFooter";
 import { CuratedScenarioTicker } from "@/components/public/CuratedScenarioTicker";
 import { PricingSection } from "@/components/public/PricingSection";
 import { WhyBestSection } from "@/components/public/WhyBestSection";
+import {
+  ParallaxFrame,
+  ScrubRevealSection,
+  PinnedStorySection,
+  StackedCardsSection,
+} from "@/components/public/ScrollShowcase";
 import { INDUSTRY_CONCEPTS } from "@/data/industries";
 
 type ScenarioKey = "booking" | "emergency" | "wrong_number";
@@ -34,62 +39,61 @@ const SCENARIOS: Record<
     caller: string;
     duration: string;
     turns: string;
-    tcpa: string;
-    p50: number;
-    p95: number;
-    eou: number;
-    ttft: number;
-    ttfb: number;
+    notice: string;
+    responseTime: string;
+    steps: Array<{ label: string; value: string }>;
     messages: Array<{ speaker: string; meta: string; time: string; text: string }>;
   }
 > = {
   booking: {
-    label: "Inbound Booking",
-    caller: "Apex Plumbing & Heating · SIP Inbound",
+    label: "Appointment Booking",
+    caller: "Apex Plumbing & Heating · Incoming Call",
     duration: "01m 42s",
     turns: "6 turns",
-    tcpa: "TCPA disclosure verified · Turn 1",
-    p50: 890,
-    p95: 1140,
-    eou: 420,
-    ttft: 290,
-    ttfb: 180,
+    notice: "Recording notice spoken cleanly on Turn 1",
+    responseTime: "Under 1s",
+    steps: [
+      { label: "1. Listened to caller", value: "Patient pause" },
+      { label: "2. Checked calendar", value: "Live slots" },
+      { label: "3. Confirmed visit", value: "Booked 2 PM" },
+    ],
     messages: [
       {
         speaker: "RECEPTIONIST",
-        meta: "890ms · Turn 1",
+        meta: "Turn 1 · Natural Voice",
         time: "09:14:02",
         text: "This call may be recorded for quality assurance. Thanks for calling Apex Plumbing & Heating—how can I help?",
       },
       {
         speaker: "CALLER",
-        meta: "BVC NOISE FILTER ACTIVE",
+        meta: "BACKGROUND NOISE FILTERED",
         time: "09:14:09",
         text: "Our water heater is leaking near the shutoff valve on Congress Ave. Can someone come out today?",
       },
     ],
   },
   emergency: {
-    label: "Gas Leak Escalation",
-    caller: "Apex Plumbing & Heating · Priority SIP",
+    label: "Urgent Safety Call",
+    caller: "Apex Plumbing & Heating · Priority Line",
     duration: "00m 54s",
     turns: "4 turns",
-    tcpa: "TCPA disclosure verified · Turn 1",
-    p50: 760,
-    p95: 980,
-    eou: 360,
-    ttft: 240,
-    ttfb: 160,
+    notice: "Recording notice spoken cleanly on Turn 1",
+    responseTime: "Under 1s",
+    steps: [
+      { label: "1. Detected hazard", value: "Gas smell" },
+      { label: "2. Gave safety steps", value: "Evacuate + 911" },
+      { label: "3. Connected team", value: "Live transfer" },
+    ],
     messages: [
       {
         speaker: "CALLER",
-        meta: "HIGH URGENCY · 0.96 CONF",
+        meta: "URGENT CALL",
         time: "14:02:11",
         text: "I smell strong gas near the furnace in our basement right now.",
       },
       {
         speaker: "RECEPTIONIST",
-        meta: "760ms · SAFETY PROTOCOL",
+        meta: "SAFETY PROTOCOL",
         time: "14:02:12",
         text: "Please leave the building immediately, avoid touching any light switches, and call 911 from outside. I am transferring you to our on-call specialist now.",
       },
@@ -97,31 +101,51 @@ const SCENARIOS: Record<
   },
   wrong_number: {
     label: "Wrong-Number Guard",
-    caller: "Apex Plumbing & Heating · SIP Inbound",
+    caller: "Apex Plumbing & Heating · Incoming Call",
     duration: "00m 28s",
     turns: "3 turns",
-    tcpa: "TCPA disclosure verified · Turn 1",
-    p50: 810,
-    p95: 940,
-    eou: 400,
-    ttft: 250,
-    ttfb: 160,
+    notice: "Recording notice spoken cleanly on Turn 1",
+    responseTime: "Under 1s",
+    steps: [
+      { label: "1. Spotted off-topic", value: "Wrong number" },
+      { label: "2. Clarified business", value: "Polite reply" },
+      { label: "3. Ended call cleanly", value: "Saved minutes" },
+    ],
     messages: [
       {
         speaker: "CALLER",
-        meta: "OFF-TOPIC DETECTED",
+        meta: "WRONG NUMBER",
         time: "17:50:44",
         text: "Hey, is this the software support line for reverse engineering?",
       },
       {
         speaker: "RECEPTIONIST",
-        meta: "810ms · FAST EXIT",
+        meta: "POLITE EXIT",
         time: "17:50:45",
         text: "I believe you have the wrong number—this is Apex Plumbing & Heating. Have a great day, goodbye.",
       },
     ],
   },
 };
+
+const FAQS = [
+  {
+    q: "What is VedaVoice AI Receptionist?",
+    a: "VedaVoice is a 24/7 AI phone receptionist that answers your business line on the first ring, filters out background noise, books appointments directly into Google Calendar, and transfers emergencies to your on-call team.",
+  },
+  {
+    q: "How fast does it respond during a live conversation?",
+    a: "VedaVoice responds in under one second with natural pacing—and waits patiently when callers pause to look up an address or calendar date.",
+  },
+  {
+    q: "Can it speak both English and Spanish?",
+    a: "Yes. If a caller greets your business in Spanish or asks to switch languages, VedaVoice transitions smoothly into fluent Spanish while following your exact pricing and safety rules.",
+  },
+  {
+    q: "How does it handle call recording laws across countries?",
+    a: "VedaVoice delivers your recording and AI assistant notice at the start of the call before taking customer details, and supports compliance standards for the US, UK, Canada, UAE, and India.",
+  },
+];
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -155,18 +179,19 @@ export default function Home() {
       {/* Section 1: Curated Scenario & Early-Bird Ticker */}
       <CuratedScenarioTicker />
 
-      {/* Section 2: Hero with Custom Voice Engine Illustration */}
+      {/* Section 2: Hero with Parallax Architectural Visual */}
       <section className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-4 sm:px-6 py-14 lg:grid-cols-12 lg:py-20">
         <div className="space-y-6 lg:col-span-6" data-enter="hero">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
-            SIP Telephony · LiveKit Agents · Multi-Tenant CRM
+          <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--accent-signal)] font-semibold">
+            24/7 AI Voice Receptionist
           </p>
           <h1 className="text-3xl font-bold tracking-tight text-[var(--ink-primary)] sm:text-4xl lg:text-[2.85rem] lg:leading-[1.08]">
-            Voice reception that answers, books, and dispatches.
+            Never miss another customer call—day, night, or weekend.
           </h1>
           <p className="max-w-[50ch] text-base leading-relaxed text-[var(--ink-secondary)]">
-            Sub-second turn detection, locked Turn-1 TCPA disclosure, safety escalation, and direct
-            Google Calendar scheduling isolated per business.
+            VedaVoice answers your business line on the first ring, hears callers clearly over
+            street or background noise, books jobs straight into your calendar, and sends instant
+            call summaries.
           </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -182,36 +207,43 @@ export default function Home() {
               href="/onboarding"
               className="touch-target interactive-lift inline-flex items-center whitespace-nowrap rounded-md border border-[var(--border-hairline)] bg-[var(--surface-panel)] px-4 text-sm font-medium text-[var(--ink-primary)]"
             >
-              Client onboarding
+              Start free setup
             </Link>
             <Link
               href="#pricing"
               className="touch-target inline-flex items-center whitespace-nowrap px-3 text-sm font-medium text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
             >
-              View pricing
+              See pricing
             </Link>
           </div>
         </div>
 
-        <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+        <ParallaxFrame className="lg:col-span-6 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
           <img
             src="/images/hero-voice-engine.jpg"
-            alt="Autonomous voice telephony engine signal routing illustration"
-            className="w-full h-auto object-cover transition-transform duration-500 hover:scale-[1.02]"
+            alt="VedaVoice AI phone receptionist voice wave illustration"
+            className="w-full h-auto object-cover"
           />
-        </div>
+        </ParallaxFrame>
       </section>
 
-      {/* Section 3: Interactive Live HTML App-Frame */}
-      <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
+      {/* Section 3: Scroll-Scrubbed Narrative Reveal */}
+      <ScrubRevealSection
+        eyebrow="Built For Real Conversations"
+        headline="Missed calls cost local businesses thousands every month. Voicemail doesn’t book jobs."
+        subtext="Customers who hit voicemail call the next business on Google. VedaVoice answers every call immediately, collects their details, checks your live calendar, and locks in the appointment before they hang up."
+      />
+
+      {/* Section 4: Interactive Live Call Preview */}
+      <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16 space-y-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-2">
               <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
-                Live Call Telemetry Inspector
+                Interactive Call Preview
               </p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                Every turn timed. Every disclosure verified.
+                See how VedaVoice handles real caller situations.
               </h2>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -223,7 +255,7 @@ export default function Home() {
                   className={`rounded-md border px-3 py-1.5 font-mono text-xs transition-colors ${
                     scenario === key
                       ? "border-[var(--ink-primary)] bg-[var(--ink-primary)] text-[var(--surface-panel)] font-semibold"
-                      : "border-[var(--border-hairline)] bg-[var(--surface-canvas)] text-[var(--ink-secondary)]"
+                      : "border-[var(--border-hairline)] bg-[var(--surface-panel)] text-[var(--ink-secondary)]"
                   }`}
                 >
                   {SCENARIOS[key].label}
@@ -232,7 +264,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)] overflow-hidden">
+          <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-hairline)] bg-[var(--surface-subtle)] px-5 py-3">
               <div className="flex items-center gap-2 font-mono text-xs text-[var(--ink-secondary)]">
                 <PhoneCall className="h-3.5 w-3.5 text-[var(--accent-signal)] shrink-0" />
@@ -247,12 +279,12 @@ export default function Home() {
               <div className="lg:col-span-7 space-y-3 p-5 text-xs leading-relaxed">
                 <div className="flex items-center gap-2 font-mono text-[11px] text-[var(--accent-signal)]">
                   <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                  <span>{active.tcpa}</span>
+                  <span>{active.notice}</span>
                 </div>
                 {active.messages.map((msg, i) => (
                   <div
                     key={i}
-                    className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-3.5"
+                    className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-3.5"
                   >
                     <div className="mb-1 flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-[var(--ink-muted)]">
                       <span>
@@ -269,25 +301,21 @@ export default function Home() {
                 <div className="flex items-center justify-between font-mono text-xs">
                   <span className="flex items-center gap-1.5 font-semibold">
                     <Activity className="h-3.5 w-3.5 text-[var(--accent-signal)]" />
-                    3-Stage Waterfall
+                    Call Flow Summary
                   </span>
-                  <span className="tabular-nums text-[var(--ink-secondary)]">
-                    P50 <strong>{active.p50}ms</strong> · P95 <strong>{active.p95}ms</strong>
+                  <span className="tabular-nums text-[var(--accent-signal)] font-semibold">
+                    {active.responseTime}
                   </span>
                 </div>
 
                 <div className="space-y-2.5 font-mono text-xs tabular-nums">
-                  {[
-                    { name: "1. EOU (Silero + Turn)", val: active.eou },
-                    { name: "2. LLM TTFT (Gemini 2.5)", val: active.ttft },
-                    { name: "3. TTS TTFB (Inworld)", val: active.ttfb },
-                  ].map((s) => (
+                  {active.steps.map((s) => (
                     <div
-                      key={s.name}
-                      className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-3 flex items-center justify-between"
+                      key={s.label}
+                      className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-3 flex items-center justify-between"
                     >
-                      <span className="text-[var(--ink-secondary)]">{s.name}</span>
-                      <span className="font-bold text-[var(--ink-primary)]">{s.val} ms</span>
+                      <span className="text-[var(--ink-secondary)]">{s.label}</span>
+                      <span className="font-bold text-[var(--ink-primary)]">{s.value}</span>
                     </div>
                   ))}
                 </div>
@@ -297,167 +325,101 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Section 4: 3-Lane Isolated Telephony Execution Diagram */}
+      {/* Section 5: Pinned Sticky Storytelling Section */}
+      <PinnedStorySection />
+
+      {/* Section 6: Stacked Scrolling Feature Cards */}
+      <StackedCardsSection />
+
+      {/* Section 7: Noise Shield Parallax Spotlight */}
       <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16 space-y-10">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="space-y-2">
-              <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
-                Isolated Execution Path
-              </p>
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                One voice worker. Scoped per call.
-              </h2>
-            </div>
-            <p className="max-w-[44ch] text-sm text-[var(--ink-secondary)]">
-              The real-time agent never touches PostgreSQL directly—every booking, transfer, and
-              transcript write goes through call-scoped API tokens.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 items-center gap-4 lg:grid-cols-12">
-            <div className="lg:col-span-3 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-4 space-y-2">
-              <div className="flex items-center gap-2 font-mono text-[11px] text-[var(--accent-signal)]">
-                <Radio className="h-3.5 w-3.5 shrink-0" />
-                <span>INPUT · PSTN / WEBRTC</span>
-              </div>
-              <div className="text-sm font-semibold">SIP Trunk + BVC Filter</div>
-              <p className="text-xs text-[var(--ink-secondary)]">
-                Twilio or Telnyx audio cleaned before VAD fires.
-              </p>
-            </div>
-            <div className="hidden lg:flex lg:col-span-1 items-center justify-center">
-              <div className="h-px w-full bg-[var(--border-hairline)] relative">
-                <span className="absolute right-0 -top-1 h-2 w-2 rounded-full bg-[var(--accent-signal)] animate-pulse" />
-              </div>
-            </div>
-            <div className="lg:col-span-4 rounded-lg border-2 border-[var(--ink-primary)] bg-[var(--surface-panel)] p-5 space-y-2">
-              <div className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
-                LiveKit Agents Runtime
-              </div>
-              <div className="text-base font-bold">Turn Detector + Gemini 2.5 Flash</div>
-              <p className="text-xs leading-relaxed text-[var(--ink-secondary)]">
-                Per-tenant patience cadence, Deepgram Nova-3 keyterms, and locked TCPA disclosure.
-              </p>
-            </div>
-            <div className="hidden lg:flex lg:col-span-1 items-center justify-center">
-              <div className="h-px w-full bg-[var(--border-hairline)] relative">
-                <span className="absolute right-0 -top-1 h-2 w-2 rounded-full bg-[var(--accent-signal)] animate-pulse" />
-              </div>
-            </div>
-            <div className="lg:col-span-3 space-y-2.5">
-              {[
-                { icon: Calendar, title: "Google Calendar Dispatch", sub: "Live slots & territories" },
-                { icon: Database, title: "Postgres RLS + CRM", sub: "Retry-backed call sync" },
-                { icon: ShieldCheck, title: "Automated QA & CSAT", sub: "5-part rubric & TCPA audit" },
-              ].map((lane) => {
-                const Icon = lane.icon;
-                return (
-                  <div
-                    key={lane.title}
-                    className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-3 flex items-start gap-2.5"
-                  >
-                    <Icon className="h-4 w-4 text-[var(--accent-signal)] shrink-0 mt-0.5" />
-                    <div>
-                      <div className="text-xs font-semibold">{lane.title}</div>
-                      <div className="text-[11px] text-[var(--ink-secondary)]">{lane.sub}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Section 5: BVC Noise Shield Visual Spotlight */}
-      <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
         <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-4 sm:px-6 py-16 lg:grid-cols-12">
-          <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
+          <ParallaxFrame className="lg:col-span-6 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)]">
             <img
               src="/images/bvc-noise-shield.jpg"
-              alt="Acoustic noise filtering shield illustration"
-              className="w-full h-auto object-cover transition-transform duration-500 hover:scale-[1.02]"
+              alt="Noise filtering illustration separating clear voice from background sound"
+              className="w-full h-auto object-cover"
             />
-          </div>
+          </ParallaxFrame>
           <div className="lg:col-span-6 space-y-4">
             <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--accent-signal)]">
-              Acoustic Resilience
+              Crystal-Clear Listening
             </p>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
               Built for highways, basements, and noisy job sites.
             </h2>
             <p className="text-sm leading-relaxed text-[var(--ink-secondary)]">
-              LiveKit BVC and BVCTelephony strip background television, engine idle, and wind
-              before Silero VAD evaluates speech—eliminating false barge-in and split caller turns.
+              Callers rarely phone from a quiet room. VedaVoice filters out background television,
+              traffic, and shop tools before listening—so names, numbers, and addresses are always
+              accurate.
             </p>
             <Link
               href="/features"
               className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-[var(--ink-primary)] hover:text-[var(--accent-signal)]"
             >
-              Inspect audio pipeline
+              See all capabilities
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Section 6: Why VedaVoice Wins Comparison Matrix */}
+      {/* Section 8: Why VedaVoice Wins Comparison Matrix */}
       <WhyBestSection />
 
-      {/* Section 7: Dispatch & Calendar Matrix Visual Spotlight */}
+      {/* Section 9: Calendar & Dispatch Parallax Spotlight */}
       <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
         <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-4 sm:px-6 py-16 lg:grid-cols-12">
           <div className="lg:col-span-6 space-y-4 order-2 lg:order-1">
             <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--accent-signal)]">
-              Calendar &amp; Territory Engine
+              Calendar &amp; Team Scheduling
             </p>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
-              Real slot availability. Zero double-bookings.
+              Real openings only. Zero double-bookings.
             </h2>
             <p className="text-sm leading-relaxed text-[var(--ink-secondary)]">
-              Checks live Google Calendar busy blocks, enforces arrival windows and travel buffers,
-              matches technician skills by postal code, and sends instant 1-tap SMS reschedule links.
+              Connects to Google Calendar, respects your travel buffers and arrival windows, routes
+              jobs to the right neighborhood technician, and texts callers a 1-tap reschedule link.
             </p>
             <Link
               href="/how-it-works"
               className="inline-flex items-center gap-1.5 font-mono text-xs font-semibold text-[var(--ink-primary)] hover:text-[var(--accent-signal)]"
             >
-              Explore dispatch flow
+              See how scheduling works
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          <div className="lg:col-span-6 overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)] order-1 lg:order-2">
+          <ParallaxFrame className="lg:col-span-6 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-canvas)] order-1 lg:order-2">
             <img
               src="/images/dispatch-calendar-grid.jpg"
-              alt="Multi-tenant calendar dispatch matrix illustration"
-              className="w-full h-auto object-cover transition-transform duration-500 hover:scale-[1.02]"
+              alt="Automated appointment calendar grid illustration"
+              className="w-full h-auto object-cover"
             />
-          </div>
+          </ParallaxFrame>
         </div>
       </section>
 
-      {/* Section 8: 3-Stage Latency SLA Breakdown */}
+      {/* Section 10: 3-Pillar Speed & Reliability */}
       <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16 grid grid-cols-1 gap-6 md:grid-cols-3">
           {[
             {
               icon: Zap,
-              metric: "~400 ms",
-              title: "Semantic End-of-Utterance",
-              desc: "MultilingualModel + per-tenant patience cadence waits for complete thoughts instead of cutting off pauses.",
+              metric: "First Ring",
+              title: "Zero Hold Music",
+              desc: "Picks up every call immediately—even when your whole team is out on jobs or after hours.",
             },
             {
-              icon: Activity,
-              metric: "~280 ms",
-              title: "LLM First Token (TTFT)",
-              desc: "Preemptive generation + Gemini 2.5 Flash grounded against tenant FAQs, pricing policy, and service area.",
+              icon: Languages,
+              metric: "EN + ES",
+              title: "Bilingual Fluency",
+              desc: "Switches naturally between English and Spanish during the call without losing context.",
             },
             {
-              icon: PhoneCall,
-              metric: "~180 ms",
-              title: "Voice Synthesis TTFB",
-              desc: "Inworld streaming TTS delivers natural cadence with adaptive endpointing if caller interrupts.",
+              icon: Award,
+              metric: "100-Pt QA",
+              title: "Automatic Call Grading",
+              desc: "Every call is scored for greeting, legal notice, caller details, and politeness.",
             },
           ].map((item) => {
             const Icon = item.icon;
@@ -468,7 +430,7 @@ export default function Home() {
               >
                 <div className="flex items-center justify-between">
                   <Icon className="h-5 w-5 text-[var(--accent-signal)]" />
-                  <span className="font-mono text-sm font-bold tabular-nums text-[var(--ink-primary)]">
+                  <span className="font-mono text-xs font-bold text-[var(--ink-primary)]">
                     {item.metric}
                   </span>
                 </div>
@@ -480,45 +442,14 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Section 9: Bilingual EN/ES & Keyterm Boosting */}
+      {/* Section 11: Live Owner & Manager Controls */}
       <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
-          <div className="lg:col-span-7 space-y-3">
-            <div className="inline-flex items-center gap-2 font-mono text-[11px] text-[var(--accent-signal)]">
-              <Languages className="h-4 w-4" />
-              <span>BILINGUAL + PHONETIC GLOSSARY</span>
-            </div>
-            <h2 className="text-2xl font-bold tracking-tight">
-              Fluently switches English &amp; Spanish while boosting local brand terms.
-            </h2>
-            <p className="text-sm text-[var(--ink-secondary)]">
-              Every tenant&apos;s equipment names, street corridors, and pronunciation glossary feed
-              directly into Deepgram Nova-3 keyterm boosting (up to 50 terms per call).
-            </p>
-          </div>
-          <div className="lg:col-span-5 grid grid-cols-2 gap-2.5 font-mono text-xs">
-            {["Navien Tankless", "Bradford White", "Congress Ave", "language=\"multi\""].map(
-              (term) => (
-                <div
-                  key={term}
-                  className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] px-3 py-2.5 text-[var(--ink-primary)]"
-                >
-                  {term}
-                </div>
-              )
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Section 10: Live Supervisor Copilot */}
-      <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
           <div className="lg:col-span-5 grid grid-cols-3 gap-2 font-mono text-xs text-center">
-            {["Silent Whisper", "Live Barge-In", "Warm Transfer"].map((action) => (
+            {["Listen Live", "Whisper Tip", "Take Over"].map((action) => (
               <div
                 key={action}
-                className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-3 font-semibold text-[var(--ink-primary)]"
+                className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-3.5 font-semibold text-[var(--ink-primary)]"
               >
                 {action}
               </div>
@@ -527,53 +458,15 @@ export default function Home() {
           <div className="lg:col-span-7 space-y-3">
             <div className="inline-flex items-center gap-2 font-mono text-[11px] text-[var(--accent-signal)]">
               <Headphones className="h-4 w-4" />
-              <span>HUMAN-IN-THE-LOOP SUPERVISION</span>
+              <span>STAY IN CONTROL</span>
             </div>
             <h2 className="text-2xl font-bold tracking-tight">
-              Coach the AI silently or take over any active call in one click.
+              Listen in live, send a quiet hint, or jump onto any call in one click.
             </h2>
             <p className="text-sm text-[var(--ink-secondary)]">
-              Watch live transcripts stream over WebSocket, inject supervisor guidance mid-call, or
-              bridge directly onto the SIP line with an automated whisper briefing.
+              Follow the live conversation from your dashboard, guide your receptionist silently, or
+              step in personally for VIP customers.
             </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Section 11: Automated 5-Part QA & Predictive CSAT */}
-      <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-panel)]">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 space-y-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div className="space-y-1">
-              <div className="inline-flex items-center gap-2 font-mono text-[11px] text-[var(--accent-signal)]">
-                <Award className="h-4 w-4" />
-                <span>MILESTONE M7B · AUTOMATED QA</span>
-              </div>
-              <h2 className="text-2xl font-bold tracking-tight">
-                100-point objective rubric on every completed call.
-              </h2>
-            </div>
-            <span className="font-mono text-xs text-[var(--ink-muted)]">
-              Predictive CSAT 1.0 – 5.0 + Supervisor Override
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5 font-mono text-xs tabular-nums">
-            {[
-              { title: "1. Greeting", pts: "20 pts" },
-              { title: "2. TCPA Notice", pts: "20 pts" },
-              { title: "3. Intake Data", pts: "25 pts" },
-              { title: "4. Safety", pts: "20 pts" },
-              { title: "5. Tone & Speed", pts: "15 pts" },
-            ].map((r) => (
-              <div
-                key={r.title}
-                className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-canvas)] p-3.5 flex items-center justify-between sm:block space-y-1"
-              >
-                <div className="text-[var(--ink-secondary)]">{r.title}</div>
-                <div className="font-bold text-[var(--ink-primary)]">{r.pts}</div>
-              </div>
-            ))}
           </div>
         </div>
       </section>
@@ -584,10 +477,10 @@ export default function Home() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-2">
               <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
-                20 Pre-Trained Verticals
+                20 Ready-Made Industry Packs
               </p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                Ready for trades, clinics, salons, and dispatch teams.
+                Trained for trades, clinics, salons, and local offices.
               </h2>
             </div>
             <Link
@@ -620,29 +513,42 @@ export default function Home() {
       {/* Section 13: Complete 7-Plan Pricing Ladder + Top-Up Packs */}
       <PricingSection />
 
-      {/* Section 14: Global Compliance Readiness (US, UK, CA, UAE, IN) */}
+      {/* Section 14: AEO / GEO Frequently Asked Questions + Global Compliance */}
       <section className="border-t border-[var(--border-hairline)] bg-[var(--surface-canvas)]">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-14 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 font-mono text-[11px] text-[var(--accent-signal)]">
-              <Globe className="h-4 w-4" />
-              <span>MULTI-JURISDICTION TELECOM &amp; PRIVACY</span>
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16 space-y-10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 font-mono text-[11px] text-[var(--accent-signal)]">
+                <Globe className="h-4 w-4" />
+                <span>COMMON QUESTIONS &amp; GLOBAL COMPLIANCE</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+                Everything business owners ask before going live.
+              </h2>
             </div>
-            <h2 className="text-2xl font-bold tracking-tight">
-              Aligned for US, UK, Canada, UAE, and India deployments.
-            </h2>
-            <p className="max-w-[56ch] text-sm text-[var(--ink-secondary)]">
-              TCPA/FCC, UK GDPR &amp; PECR, PIPEDA/CRTC, UAE PDPL/TDRA, and India DPDP/TRAI
-              compliance documentation built into the trust hub.
-            </p>
+            <Link
+              href="/legal"
+              className="touch-target inline-flex items-center gap-2 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-panel)] px-4 text-xs font-semibold text-[var(--ink-primary)] self-start"
+            >
+              US · UK · CA · UAE · India Compliance
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
-          <Link
-            href="/legal"
-            className="touch-target interactive-lift inline-flex items-center gap-2 self-start rounded-md border border-[var(--border-hairline)] bg-[var(--surface-panel)] px-4 text-sm font-medium text-[var(--ink-primary)] shrink-0"
-          >
-            Open Compliance Hub
-            <ArrowRight className="h-4 w-4" />
-          </Link>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {FAQS.map((item) => (
+              <div
+                key={item.q}
+                className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 space-y-2"
+              >
+                <h3 className="flex items-start gap-2 text-sm font-bold text-[var(--ink-primary)]">
+                  <CheckCircle2 className="h-4 w-4 text-[var(--accent-signal)] shrink-0 mt-0.5" />
+                  <span>{item.q}</span>
+                </h3>
+                <p className="text-xs leading-relaxed text-[var(--ink-secondary)] pl-6">{item.a}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -657,7 +563,7 @@ export default function Home() {
               Deploy your AI receptionist in minutes.
             </h2>
             <p className="text-sm text-slate-300">
-              Includes 500 founder voice minutes and priority SIP trunk provisioning.
+              Includes 500 founder voice minutes and priority phone number setup.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -673,7 +579,7 @@ export default function Home() {
               href="/onboarding"
               className="touch-target inline-flex items-center rounded-md border border-slate-600 px-4 text-sm font-medium text-[var(--surface-panel)] hover:bg-slate-800"
             >
-              Self-Serve Onboarding
+              Start Self-Serve Setup
             </Link>
           </div>
         </div>

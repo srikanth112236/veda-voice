@@ -5,29 +5,29 @@ import { Check, Minus } from "lucide-react";
 
 const COMPARISON_ROWS = [
   {
-    capability: "Turn-1 Legal / TCPA Disclosure",
-    vedavoice: "Locked non-interruptible audio + automated Turn-1 verification",
-    legacy: "Skipped or truncated on barge-in",
+    capability: "Legal Recording Notice",
+    vedavoice: "Always speaks your recording notice clearly on Turn 1 without getting cut off",
+    legacy: "Often skipped or interrupted by background noise",
   },
   {
-    capability: "Noisy Caller Handling",
-    vedavoice: "LiveKit BVC / BVCTelephony noise shield + semantic turn detector",
-    legacy: "Basic VAD splits sentences on background static",
+    capability: "Noisy Callers & Street Traffic",
+    vedavoice: "Filters out wind, traffic, and TV noise while waiting for full sentences",
+    legacy: "Cuts callers off mid-sentence or mishears words",
   },
   {
-    capability: "Domain Jargon & Street Names",
-    vedavoice: "Deepgram Nova-3 with up to 50 tenant keyterms + bilingual multi STT",
-    legacy: "Generic transcription mishears equipment & addresses",
+    capability: "Local Street & Brand Names",
+    vedavoice: "Pre-tuned for your equipment brands, cities, and English + Spanish callers",
+    legacy: "Struggles with accents, brands, and street names",
   },
   {
-    capability: "Database & Calendar Isolation",
-    vedavoice: "PostgreSQL RLS + call-scoped tokens (worker never touches DB)",
-    legacy: "Shared prompt context or unguarded API keys",
+    capability: "Customer Data & Calendar Safety",
+    vedavoice: "Strict per-business isolation and live double-booking prevention",
+    legacy: "Shared spreadsheets or manual voicemail callbacks",
   },
   {
-    capability: "Post-Call Accountability",
-    vedavoice: "3-stage EOU/TTFT/TTFB waterfall + 100-pt QA rubric + CSAT",
-    legacy: "Transcript dump with no objective QA scoring",
+    capability: "Call Quality & Follow-Up",
+    vedavoice: "Automatic 100-point quality score, customer satisfaction rating, and instant alert",
+    legacy: "Raw call logs with zero quality checks",
   },
 ];
 
@@ -37,10 +37,10 @@ export function WhyBestSection() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6 py-16 space-y-8">
         <div className="space-y-2">
           <p className="font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
-            Engineering Comparison
+            Why Businesses Switch
           </p>
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[var(--ink-primary)]">
-            Why VedaVoice outperforms generic voice bots on live phone lines.
+            Why VedaVoice outperforms voicemail and generic answering bots.
           </h2>
         </div>
 
@@ -48,9 +48,9 @@ export function WhyBestSection() {
           <table className="w-full text-left text-xs data-table">
             <thead className="border-b border-[var(--border-hairline)] bg-[var(--surface-subtle)] font-mono text-[10px] uppercase text-[var(--ink-muted)]">
               <tr>
-                <th className="px-5 py-3">Capability</th>
-                <th className="px-5 py-3 text-[var(--accent-signal)]">VedaVoice Platform</th>
-                <th className="px-5 py-3">Legacy IVR / Generic Bots</th>
+                <th className="px-5 py-3">What Matters</th>
+                <th className="px-5 py-3 text-[var(--accent-signal)]">VedaVoice AI Receptionist</th>
+                <th className="px-5 py-3">Voicemail &amp; Legacy Bots</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border-hairline)]">
