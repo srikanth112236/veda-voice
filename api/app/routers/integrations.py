@@ -15,7 +15,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -117,12 +118,26 @@ def get_hubspot_auth_url(
     }
 
 
+def _maybe_redirect_to_integrations(request: Request, provider: str) -> RedirectResponse | None:
+    """Redirect browser OAuth callbacks back to the dashboard integrations page."""
+    if "text/html" in request.headers.get("accept", ""):
+        host = request.headers.get("host", "")
+        dashboard_url = (
+            "http://localhost:3000"
+            if ("localhost" in host or "127.0.0.1" in host)
+            else settings.DASHBOARD_URL.rstrip("/")
+        )
+        return RedirectResponse(url=f"{dashboard_url}/portal/integrations?crm_connected={provider}")
+    return None
+
+
 @router.get("/hubspot/callback")
 async def hubspot_oauth_callback(
+    request: Request,
     code: str = Query(..., description="OAuth authorization code returned by HubSpot"),
     state: str = Query(..., description="CSRF state token"),
     db: Session = Depends(get_db),
-) -> dict[str, Any]:
+) -> Any:
     """Handle OAuth redirect, exchange code for tokens, and store encrypted connection."""
     payload = decode_access_token(state)
     if not payload or not payload.get("tenant_id"):
@@ -177,6 +192,9 @@ async def hubspot_oauth_callback(
     db.commit()
     db.refresh(conn)
 
+    if redir := _maybe_redirect_to_integrations(request, "hubspot"):
+        return redir
+
     return {
         "success": True,
         "provider": "hubspot",
@@ -230,10 +248,11 @@ def get_ghl_auth_url(
 
 @router.get("/gohighlevel/callback")
 async def ghl_oauth_callback(
+    request: Request,
     code: str = Query(..., description="OAuth authorization code returned by GoHighLevel"),
     state: str = Query(..., description="CSRF state token"),
     db: Session = Depends(get_db),
-) -> dict[str, Any]:
+) -> Any:
     """Handle GHL OAuth redirect, exchange code for tokens & locationId, and store encrypted connection."""
     payload = decode_access_token(state)
     if not payload or not payload.get("tenant_id"):
@@ -286,6 +305,9 @@ async def ghl_oauth_callback(
 
     db.commit()
     db.refresh(conn)
+
+    if redir := _maybe_redirect_to_integrations(request, "gohighlevel"):
+        return redir
 
     return {
         "success": True,
@@ -340,10 +362,11 @@ def get_pipedrive_auth_url(
 
 @router.get("/pipedrive/callback")
 async def pipedrive_oauth_callback(
+    request: Request,
     code: str = Query(..., description="OAuth authorization code returned by Pipedrive"),
     state: str = Query(..., description="CSRF state token"),
     db: Session = Depends(get_db),
-) -> dict[str, Any]:
+) -> Any:
     """Handle Pipedrive OAuth redirect, exchange code for tokens, and store encrypted connection."""
     payload = decode_access_token(state)
     if not payload or not payload.get("tenant_id"):
@@ -396,6 +419,9 @@ async def pipedrive_oauth_callback(
 
     db.commit()
     db.refresh(conn)
+
+    if redir := _maybe_redirect_to_integrations(request, "pipedrive"):
+        return redir
 
     return {
         "success": True,

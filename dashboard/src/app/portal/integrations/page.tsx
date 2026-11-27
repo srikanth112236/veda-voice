@@ -155,6 +155,10 @@ export default function IntegrationsPage() {
       if (params.get("calendar_connected") === "true") {
         setNotification("Google Calendar connected! Live two-way slot sync is now active.");
         window.history.replaceState(null, "", window.location.pathname);
+      } else if (params.get("crm_connected")) {
+        const crmName = params.get("crm_connected")?.toUpperCase() || "CRM";
+        setNotification(`${crmName} connected via OAuth 2.0! Real-time sync is now active.`);
+        window.history.replaceState(null, "", window.location.pathname);
       }
     }
   }, []);
