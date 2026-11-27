@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import { AuthProvider } from "@/context/auth-context";
 import { InfoModalProvider } from "@/context/info-modal-context";
 import { LeadModalProvider } from "@/context/lead-modal-context";
 import { SeoJsonLd } from "@/components/public/SeoJsonLd";
+import { PwaInstallPrompt } from "@/components/pwa/PwaInstallPrompt";
 import "./globals.css";
 
 const plusJakarta = Plus_Jakarta_Sans({
@@ -20,8 +21,27 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+export const viewport: Viewport = {
+  themeColor: "#0f172a",
+  width: "device-width",
+  initialScale: 1,
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io"),
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "VedaVoice",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   title: {
     default: "VedaVoice | 24/7 AI Voice Receptionist & Appointment Booking",
     template: "%s | VedaVoice AI Receptionist",
@@ -72,7 +92,10 @@ export default function RootLayout({
         <SeoJsonLd />
         <AuthProvider>
           <InfoModalProvider>
-            <LeadModalProvider>{children}</LeadModalProvider>
+            <LeadModalProvider>
+              {children}
+              <PwaInstallPrompt />
+            </LeadModalProvider>
           </InfoModalProvider>
         </AuthProvider>
       </body>
