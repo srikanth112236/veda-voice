@@ -2367,3 +2367,14 @@ def run_ai_qa_suite(
         total_count=len(scenarios),
         scenarios=scenarios,
     )
+
+
+@router.get("/studio")
+def get_portal_studio_config(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Return read-only 4-layer resolved studio customization for the current tenant."""
+    from api.app.services.studio_config import resolve_tenant_studio
+
+    return resolve_tenant_studio(tenant, db)

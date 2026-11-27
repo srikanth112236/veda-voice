@@ -31,17 +31,21 @@ import { api } from "@/lib/api";
 import { LiveRadarRing } from "@/components/ui/motion";
 import { AnimatePresence, motion } from "framer-motion";
 import { TestCallProvider, useTestCall } from "@/context/test-call-context";
+import { StudioProvider, useStudio } from "@/context/studio-context";
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   return (
-    <TestCallProvider>
-      <PortalLayoutInner>{children}</PortalLayoutInner>
-    </TestCallProvider>
+    <StudioProvider>
+      <TestCallProvider>
+        <PortalLayoutInner>{children}</PortalLayoutInner>
+      </TestCallProvider>
+    </StudioProvider>
   );
 }
 
 function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const { user, loading, logout } = useAuth();
+  const { navLabel, isPageEnabled } = useStudio();
   const { startTestCall, isConnecting, isCallActive, duration } = useTestCall();
   const pathname = usePathname();
   const router = useRouter();
@@ -82,21 +86,21 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   };
 
   const navItems = [
-    { label: "Dashboard Overview", href: "/portal/dashboard", icon: LayoutDashboard },
-    { label: "Call Explorer & Audio", href: "/portal/calls", icon: PhoneCall },
-    { label: "Outbound Campaigns", href: "/portal/campaigns", icon: Radio },
-    { label: "Native CRM Pipeline", href: "/portal/crm", icon: Users },
-    { label: "Integrations & Sync", href: "/portal/integrations", icon: Share2 },
-    { label: "Knowledge Base RAG", href: "/portal/knowledge", icon: BookOpen },
-    { label: "Staff & Dispatch", href: "/portal/calendar", icon: Calendar },
-    { label: "Quotes & Estimates", href: "/portal/quotes", icon: FileCheck2 },
-    { label: "Customer Invoices", href: "/portal/invoices", icon: Receipt },
-    { label: "Locations & Branches", href: "/portal/locations", icon: MapPin },
-    { label: "Industry Packs", href: "/portal/packs", icon: Briefcase },
-    { label: "Receptionist Config", href: "/portal/profile", icon: Settings2 },
-    { label: "Lead Form Builder", href: "/portal/forms", icon: FileText },
-    { label: "Billing & Minutes", href: "/portal/billing", icon: CreditCard },
-  ];
+    { slug: "dashboard", label: navLabel("dashboard", "Dashboard Overview"), href: "/portal/dashboard", icon: LayoutDashboard },
+    { slug: "calls", label: navLabel("calls", "Call Explorer & Audio"), href: "/portal/calls", icon: PhoneCall },
+    { slug: "campaigns", label: navLabel("campaigns", "Outbound Campaigns"), href: "/portal/campaigns", icon: Radio },
+    { slug: "crm", label: navLabel("crm", "Native CRM Pipeline"), href: "/portal/crm", icon: Users },
+    { slug: "integrations", label: navLabel("integrations", "Integrations & Sync"), href: "/portal/integrations", icon: Share2 },
+    { slug: "knowledge", label: navLabel("knowledge", "Knowledge Base RAG"), href: "/portal/knowledge", icon: BookOpen },
+    { slug: "calendar", label: navLabel("calendar", "Staff & Dispatch"), href: "/portal/calendar", icon: Calendar },
+    { slug: "quotes", label: navLabel("quotes", "Quotes & Estimates"), href: "/portal/quotes", icon: FileCheck2 },
+    { slug: "invoices", label: navLabel("invoices", "Customer Invoices"), href: "/portal/invoices", icon: Receipt },
+    { slug: "locations", label: navLabel("locations", "Locations & Branches"), href: "/portal/locations", icon: MapPin },
+    { slug: "packs", label: navLabel("packs", "Industry Packs"), href: "/portal/packs", icon: Briefcase },
+    { slug: "profile", label: navLabel("profile", "Receptionist Config"), href: "/portal/profile", icon: Settings2 },
+    { slug: "forms", label: navLabel("forms", "Lead Form Builder"), href: "/portal/forms", icon: FileText },
+    { slug: "billing", label: navLabel("billing", "Billing & Minutes"), href: "/portal/billing", icon: CreditCard },
+  ].filter((item) => isPageEnabled(item.slug));
 
   return (
     <div

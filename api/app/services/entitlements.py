@@ -453,6 +453,24 @@ def resolve_tenant_entitlements(db: Session, tenant_id: str) -> dict[str, Any]:
     for ov in overrides:
         entitlements[ov.key] = ov.value
 
+    # Tier 3b: Admin Studio Plan Overrides (from Tenant.config["studio"]["plan_overrides"])
+    from api.app.models.tenant import Tenant
+
+    tenant_rec = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if tenant_rec and isinstance(tenant_rec.config, dict):
+        studio_plan = (tenant_rec.config.get("studio") or {}).get("plan_overrides") or {}
+        if isinstance(studio_plan, dict):
+            studio_key_map = {
+                "max_minutes": "minutes.max",
+                "max_phone_numbers": "numbers.max",
+                "crm_connectors_max": "crm.connectors.max",
+                "outbound_campaigns_enabled": "outbound.enabled",
+                "hipaa_baa_enabled": "hipaa.baa_enabled",
+            }
+            for s_key, ent_key in studio_key_map.items():
+                if studio_plan.get(s_key) is not None:
+                    entitlements[ent_key] = studio_plan[s_key]
+
     # Tier 4: Hard Compliance Constraints (Cannot be bypassed under any circumstances)
     # Category E (Cold calling) is strictly prohibited from outbound.categories
     cats = entitlements.get("outbound.categories", ["B"])

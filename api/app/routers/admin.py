@@ -841,3 +841,113 @@ def assign_tenant_pack_admin(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(err)) from err
     except KeyError as err:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err)) from err
+
+
+class AdminStudioUpdateRequest(BaseModel):
+    studio: dict[str, Any] = Field(default_factory=dict)
+    industry_preset: str | None = None
+
+
+class AdminStudioPresetRequest(BaseModel):
+    preset_slug: str
+
+
+@router.get("/studio/presets")
+def get_studio_presets() -> dict[str, Any]:
+    """Return default studio schema and industry presets (platform_admin only)."""
+    from api.app.services.studio_config import DEFAULT_STUDIO_CONFIG, INDUSTRY_STUDIO_PRESETS
+
+    return {
+        "defaults": DEFAULT_STUDIO_CONFIG,
+        "presets": INDUSTRY_STUDIO_PRESETS,
+    }
+
+
+@router.get("/studio/tenants/{tenant_id}")
+def get_tenant_studio_admin(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Retrieve 4-layer resolved studio config and client overrides for a tenant."""
+    from api.app.services.studio_config import resolve_tenant_studio
+
+    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant '{tenant_id}' not found",
+        )
+    return resolve_tenant_studio(tenant, db)
+
+
+@router.put("/studio/tenants/{tenant_id}")
+def update_tenant_studio_admin(
+    tenant_id: str,
+    req: AdminStudioUpdateRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Update client-level studio overrides and optional industry preset."""
+    from api.app.services.studio_config import (
+        resolve_tenant_studio,
+        sync_studio_voice_defaults_to_agent_profile,
+    )
+
+    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant '{tenant_id}' not found",
+        )
+
+    cfg = dict(tenant.config or {})
+    cfg["studio"] = req.studio
+    if req.industry_preset is not None:
+        cfg["studio_industry_preset"] = req.industry_preset.strip().lower() or None
+    tenant.config = cfg
+    db.flush()
+
+    resolved_data = resolve_tenant_studio(tenant, db)
+    sync_studio_voice_defaults_to_agent_profile(tenant, resolved_data["resolved"], db)
+    db.commit()
+    db.refresh(tenant)
+    return resolved_data
+
+
+@router.post("/studio/tenants/{tenant_id}/apply-preset")
+def apply_tenant_studio_preset_admin(
+    tenant_id: str,
+    req: AdminStudioPresetRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Apply an industry studio preset and reset client studio overrides."""
+    from api.app.services.studio_config import (
+        INDUSTRY_STUDIO_PRESETS,
+        resolve_tenant_studio,
+        sync_studio_voice_defaults_to_agent_profile,
+    )
+
+    slug = req.preset_slug.strip().lower()
+    if slug not in INDUSTRY_STUDIO_PRESETS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown studio preset '{slug}'",
+        )
+
+    tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Tenant '{tenant_id}' not found",
+        )
+
+    cfg = dict(tenant.config or {})
+    cfg["studio_industry_preset"] = slug
+    cfg["studio"] = {}
+    tenant.config = cfg
+    db.flush()
+
+    resolved_data = resolve_tenant_studio(tenant, db)
+    sync_studio_voice_defaults_to_agent_profile(tenant, resolved_data["resolved"], db)
+    db.commit()
+    db.refresh(tenant)
+    return resolved_data
