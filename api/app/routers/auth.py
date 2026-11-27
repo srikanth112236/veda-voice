@@ -1,15 +1,25 @@
 """Authentication and onboarding endpoints."""
 
 import logging
+import uuid
 from typing import Any
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from api.app.core.config import settings
 from api.app.core.deps import get_current_user
-from api.app.core.security import create_access_token, hash_password, verify_password
+from api.app.core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from api.app.db.session import get_db
 from api.app.models.entitlement import TrialAbuseRecord
 from api.app.models.industry_pack import IndustryPack, IndustryPackVersion
@@ -504,3 +514,116 @@ def get_me(current_user: User = Depends(get_current_user)) -> Any:
         impersonator_id=getattr(current_user, "impersonator_id", None),
         impersonator_email=getattr(current_user, "impersonator_email", None),
     )
+
+
+def _resolve_dashboard_origin(redirect_to: str | None) -> str:
+    """Validate redirect_to against allowed origins to prevent open redirects."""
+    if redirect_to:
+        candidate = redirect_to.rstrip("/")
+        if candidate in settings.CORS_ORIGINS or candidate == settings.DASHBOARD_URL.rstrip("/"):
+            return candidate
+    return settings.DASHBOARD_URL.rstrip("/")
+
+
+@router.get("/google")
+def google_login_url(redirect_to: str | None = Query(None)) -> dict[str, str]:
+    """Generate Google OAuth 2.0 login URL with signed CSRF state."""
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth is not configured on this server.",
+        )
+
+    safe_origin = _resolve_dashboard_origin(redirect_to)
+    state_token = create_access_token(
+        {
+            "flow": "google_login",
+            "nonce": uuid.uuid4().hex[:12],
+            "redirect_to": safe_origin,
+        }
+    )
+    params = {
+        "client_id": settings.GOOGLE_CLIENT_ID,
+        "redirect_uri": settings.GOOGLE_AUTH_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state_token,
+        "prompt": "select_account",
+    }
+    return {
+        "authorization_url": f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
+    }
+
+
+@router.get("/google/callback")
+async def google_login_callback(
+    code: str | None = Query(None),
+    state: str | None = Query(None),
+    error: str | None = Query(None),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Handle Google OAuth callback, verify ID token, and redirect with VedaVoice JWT."""
+    dashboard_origin = settings.DASHBOARD_URL.rstrip("/")
+    if state:
+        state_payload = decode_access_token(state)
+        if state_payload and state_payload.get("flow") == "google_login":
+            dashboard_origin = _resolve_dashboard_origin(state_payload.get("redirect_to"))
+        else:
+            return RedirectResponse(url=f"{dashboard_origin}/login?error=invalid_oauth_state")
+    else:
+        return RedirectResponse(url=f"{dashboard_origin}/login?error=missing_oauth_state")
+
+    if error or not code:
+        return RedirectResponse(url=f"{dashboard_origin}/login?error={error or 'oauth_denied'}")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        token_resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "redirect_uri": settings.GOOGLE_AUTH_REDIRECT_URI,
+                "grant_type": "authorization_code",
+            },
+        )
+        if token_resp.status_code != 200:
+            logger.warning("Google OAuth token exchange failed: %s", token_resp.text)
+            return RedirectResponse(
+                url=f"{dashboard_origin}/login?error=google_token_exchange_failed"
+            )
+
+        token_data = token_resp.json()
+        id_token = token_data.get("id_token")
+        if not id_token:
+            return RedirectResponse(url=f"{dashboard_origin}/login?error=missing_id_token")
+
+        verify_resp = await client.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": id_token},
+        )
+        if verify_resp.status_code != 200:
+            logger.warning("Google ID token verification failed: %s", verify_resp.text)
+            return RedirectResponse(url=f"{dashboard_origin}/login?error=invalid_google_token")
+
+        claims = verify_resp.json()
+
+    if claims.get("aud") != settings.GOOGLE_CLIENT_ID:
+        return RedirectResponse(url=f"{dashboard_origin}/login?error=invalid_token_audience")
+    if claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        return RedirectResponse(url=f"{dashboard_origin}/login?error=invalid_token_issuer")
+    if claims.get("email_verified") not in (True, "true"):
+        return RedirectResponse(url=f"{dashboard_origin}/login?error=email_not_verified")
+
+    email = str(claims.get("email", "")).strip().lower()
+    if not email:
+        return RedirectResponse(url=f"{dashboard_origin}/login?error=missing_email")
+
+    user = db.scalar(select(User).where(User.email == email, User.is_active.is_(True)))
+    if not user:
+        return RedirectResponse(url=f"{dashboard_origin}/login?error=account_not_found")
+
+    jwt_token = create_access_token(
+        {"sub": user.id, "role": user.role, "tenant_id": user.tenant_id}
+    )
+    return RedirectResponse(url=f"{dashboard_origin}/login#token={jwt_token}")

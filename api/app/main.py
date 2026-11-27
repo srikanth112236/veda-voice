@@ -1814,7 +1814,7 @@ async def run_crm_outbox_sweeper_cycle(batch_size: int = 50) -> dict[str, Any]:
 
 
 async def _crm_outbox_sweeper_loop(
-    stop_event: asyncio.Event, interval_seconds: float = 60.0
+    stop_event: asyncio.Event, interval_seconds: float = 15.0
 ) -> None:
     """Background periodic worker polling the CRM transactional outbox for pending & retryable sync jobs."""
     logger.info("CRM Outbox Sweeper loop started (interval: %ss).", interval_seconds)

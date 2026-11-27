@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GOOGLE_REDIRECT_URI: str = "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io/api/v1/portal/calendar/callback"
+    GOOGLE_AUTH_REDIRECT_URI: str = (
+        "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io/api/v1/auth/google/callback"
+    )
+    DASHBOARD_URL: str = "https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
     ENCRYPTION_SECRET: str = "envelope-secret-key-vedavoice-32bytes-min!"
 
     # HubSpot OAuth 2.0 App

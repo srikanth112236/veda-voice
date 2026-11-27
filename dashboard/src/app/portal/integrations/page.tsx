@@ -117,7 +117,11 @@ export default function IntegrationsPage() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://app.vedavoice.ai";
+  const baseUrl =
+    process.env.NEXT_PUBLIC_API_URL ||
+    (typeof window !== "undefined" && window.location.hostname === "localhost"
+      ? window.location.origin
+      : "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io");
 
   const fetchData = async () => {
     setLoading(true);
@@ -640,50 +644,6 @@ export default function IntegrationsPage() {
               </div>
             </div>
 
-            {/* Microsoft Outlook 365 Card */}
-            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-xl bg-sky-50 text-sky-700 border border-sky-200">
-                      <CalendarCheck className="w-5 h-5" />
-                    </span>
-                    <div>
-                      <h3 className="text-xs font-bold text-zinc-900">Microsoft Outlook 365</h3>
-                      <span className="text-[10px] font-mono text-zinc-500">Microsoft Graph API</span>
-                    </div>
-                  </div>
-                  <span
-                    className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                      calendarStatus?.is_connected && calendarStatus?.provider === "outlook"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-zinc-100 text-zinc-500"
-                    }`}
-                  >
-                    {calendarStatus?.is_connected && calendarStatus?.provider === "outlook" ? "Connected" : "Disconnected"}
-                  </span>
-                </div>
-
-                <p className="text-[11px] text-zinc-500 leading-relaxed">
-                  Enterprise exchange sync for commercial trade contractors and corporate dispatch boards with Outlook desktop &amp; web.
-                </p>
-
-                <div className="p-2.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] text-[11px] text-zinc-600 font-mono">
-                  <span>SLA Sync: Sub-second slot reconciliation</span>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-zinc-100">
-                <a
-                  href="/portal/calendar"
-                  className="w-full py-2 rounded-xl border border-[var(--border-hairline)] hover:bg-zinc-50 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
-                >
-                  <span>Connect Outlook 365</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              </div>
-            </div>
-
             {/* Calendly Inbound Webhook & SMS Dispatch */}
             <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
               <div className="space-y-3">
@@ -949,18 +909,18 @@ export default function IntegrationsPage() {
               );
             })()}
 
-            {/* ServiceTitan (Home Services & Contractors) */}
+            {/* Zoho CRM */}
             {(() => {
-              const info = getProviderInfo("servicetitan");
+              const info = getProviderInfo("zoho");
               const isConn = isProviderConnected(info);
               return (
                 <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-zinc-900">ServiceTitan</span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200">
-                          Trades
+                        <span className="text-sm font-bold text-zinc-900">Zoho CRM</span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-800 font-semibold border border-rose-200">
+                          REST v2
                         </span>
                       </div>
                       <span
@@ -972,135 +932,41 @@ export default function IntegrationsPage() {
                       </span>
                     </div>
                     <p className="text-[11px] text-zinc-500 leading-relaxed">
-                      Two-way customer lookup, service agreement verification, and dispatch board sync for plumbers, HVAC, and electrical shops.
-                    </p>
-                    {isConn && (
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>Connected to ServiceTitan API v2</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-zinc-100">
-                    {isConn ? (
-                      <button
-                        onClick={() => handleDisconnectCRM("servicetitan")}
-                        className="w-full py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition"
-                      >
-                        Disconnect
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setSelectedProvider("servicetitan");
-                          setActiveModal("crm");
-                        }}
-                        className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold transition shadow-xs"
-                      >
-                        Connect ServiceTitan
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Jobber */}
-            {(() => {
-              const info = getProviderInfo("jobber");
-              const isConn = isProviderConnected(info);
-              return (
-                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-zinc-900">Jobber</span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-teal-50 text-teal-800 font-semibold border border-teal-200">
-                          Field Ops
-                        </span>
-                      </div>
-                      <span
-                        className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                          isConn ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-500"
-                        }`}
-                      >
-                        {isConn ? "Connected" : "Disconnected"}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-zinc-500 leading-relaxed">
-                      Creates client records, logs phone estimates, and schedules initial on-site assessment visits in Jobber.
+                      Upserts Zoho Contacts and logs completed call summaries, outcomes, and recordings directly into Zoho CRM.
                     </p>
                   </div>
 
                   <div className="space-y-2 pt-2 border-t border-zinc-100">
                     {isConn ? (
-                      <button
-                        onClick={() => handleDisconnectCRM("jobber")}
-                        className="w-full py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition"
-                      >
-                        Disconnect
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setSelectedProvider("jobber");
-                          setActiveModal("crm");
-                        }}
-                        className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold transition shadow-xs"
-                      >
-                        Connect Jobber
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Housecall Pro */}
-            {(() => {
-              const info = getProviderInfo("housecall_pro");
-              const isConn = isProviderConnected(info);
-              return (
-                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-zinc-900">Housecall Pro</span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-sky-50 text-sky-800 font-semibold border border-sky-200">
-                          Home Services
-                        </span>
+                      <div className="space-y-1.5">
+                        <button
+                          onClick={() => handleTestCRMSync("zoho")}
+                          disabled={testingSync === "zoho"}
+                          className="w-full py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                        >
+                          {testingSync === "zoho" ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5" />
+                          )}
+                          <span>Test Sync</span>
+                        </button>
+                        <button
+                          onClick={() => handleDisconnectCRM("zoho")}
+                          className="w-full py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition"
+                        >
+                          Disconnect
+                        </button>
                       </div>
-                      <span
-                        className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                          isConn ? "bg-emerald-100 text-emerald-800" : "bg-zinc-100 text-zinc-500"
-                        }`}
-                      >
-                        {isConn ? "Connected" : "Disconnected"}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-zinc-500 leading-relaxed">
-                      Instant customer record creation, call summary notes, and emergency repair dispatch ticket injection.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2 pt-2 border-t border-zinc-100">
-                    {isConn ? (
-                      <button
-                        onClick={() => handleDisconnectCRM("housecall_pro")}
-                        className="w-full py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition"
-                      >
-                        Disconnect
-                      </button>
                     ) : (
                       <button
                         onClick={() => {
-                          setSelectedProvider("housecall_pro");
+                          setSelectedProvider("zoho");
                           setActiveModal("crm");
                         }}
                         className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold transition shadow-xs"
                       >
-                        Connect Housecall Pro
+                        Connect Zoho CRM
                       </button>
                     )}
                   </div>
@@ -1783,70 +1649,30 @@ export default function IntegrationsPage() {
                 </div>
               )}
 
-              {selectedProvider === "servicetitan" && (
+              {selectedProvider === "zoho" && (
                 <>
                   <div>
-                    <label className="block font-semibold text-zinc-700 mb-1">ServiceTitan Client ID *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="ServiceTitan App Client ID"
-                      value={credentials.client_id || ""}
-                      onChange={(e) => setCredentials({ ...credentials, client_id: e.target.value })}
-                      className="w-full px-3 py-2 border border-zinc-300 rounded-xl font-mono focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-zinc-700 mb-1">Client Secret *</label>
+                    <label className="block font-semibold text-zinc-700 mb-1">Zoho OAuth / Self-Client Token *</label>
                     <input
                       type="password"
                       required
-                      placeholder="ServiceTitan Secret Key"
-                      value={credentials.client_secret || ""}
-                      onChange={(e) => setCredentials({ ...credentials, client_secret: e.target.value })}
+                      placeholder="1000.xxxxxxxx..."
+                      value={credentials.access_token || ""}
+                      onChange={(e) => setCredentials({ ...credentials, access_token: e.target.value })}
                       className="w-full px-3 py-2 border border-zinc-300 rounded-xl font-mono focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-zinc-700 mb-1">Tenant ID / Account *</label>
+                    <label className="block font-semibold text-zinc-700 mb-1">Zoho API Domain</label>
                     <input
                       type="text"
-                      required
-                      placeholder="ServiceTitan Tenant ID"
-                      value={credentials.tenant_id || ""}
-                      onChange={(e) => setCredentials({ ...credentials, tenant_id: e.target.value })}
+                      placeholder="https://www.zohoapis.com"
+                      value={credentials.domain || ""}
+                      onChange={(e) => setCredentials({ ...credentials, domain: e.target.value })}
                       className="w-full px-3 py-2 border border-zinc-300 rounded-xl font-mono focus:outline-none"
                     />
                   </div>
                 </>
-              )}
-
-              {selectedProvider === "jobber" && (
-                <div>
-                  <label className="block font-semibold text-zinc-700 mb-1">Jobber API Access Token *</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Bearer eyJhbGciOi..."
-                    value={credentials.access_token || ""}
-                    onChange={(e) => setCredentials({ ...credentials, access_token: e.target.value })}
-                    className="w-full px-3 py-2 border border-zinc-300 rounded-xl font-mono focus:outline-none"
-                  />
-                </div>
-              )}
-
-              {selectedProvider === "housecall_pro" && (
-                <div>
-                  <label className="block font-semibold text-zinc-700 mb-1">Housecall Pro API Key *</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="hcp_live_api_key_..."
-                    value={credentials.api_key || ""}
-                    onChange={(e) => setCredentials({ ...credentials, api_key: e.target.value })}
-                    className="w-full px-3 py-2 border border-zinc-300 rounded-xl font-mono focus:outline-none"
-                  />
-                </div>
               )}
 
               {selectedProvider === "gohighlevel" && (
