@@ -676,7 +676,7 @@ export default function IndustryPacksPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-[var(--border-hairline)] space-x-6 text-sm font-medium">
+      <div className="flex flex-wrap border-b border-[var(--border-hairline)] gap-x-6 gap-y-2 text-sm font-medium">
         <button
           onClick={() => setActiveTab("catalog")}
           className={`pb-3 border-b-2 flex items-center gap-2 transition ${
