@@ -653,6 +653,74 @@ def seed_initial_data() -> None:
         db.close()
 
 
+def _pg_column_ddl(col: Any) -> str:
+    """Return a PostgreSQL column type + optional scalar default DDL fragment."""
+    from sqlalchemy import JSON, Boolean, DateTime, Float, Integer, String, Text
+
+    col_type = col.type
+    if isinstance(col_type, Boolean):
+        sql_type = "BOOLEAN"
+    elif isinstance(col_type, Integer):
+        sql_type = "INTEGER"
+    elif isinstance(col_type, Float):
+        sql_type = "DOUBLE PRECISION"
+    elif isinstance(col_type, DateTime):
+        sql_type = (
+            "TIMESTAMP WITH TIME ZONE"
+            if getattr(col_type, "timezone", False)
+            else "TIMESTAMP WITHOUT TIME ZONE"
+        )
+    elif isinstance(col_type, JSON):
+        sql_type = "JSON"
+    elif isinstance(col_type, Text):
+        sql_type = "TEXT"
+    elif isinstance(col_type, String):
+        length = getattr(col_type, "length", None)
+        sql_type = f"VARCHAR({length})" if length else "VARCHAR"
+    else:
+        sql_type = "TEXT"
+
+    default_clause = ""
+    if col.default is not None and getattr(col.default, "is_scalar", False):
+        arg = col.default.arg
+        if isinstance(arg, bool):
+            default_clause = f" DEFAULT {'TRUE' if arg else 'FALSE'}"
+        elif isinstance(arg, int | float):
+            default_clause = f" DEFAULT {arg}"
+        elif isinstance(arg, str):
+            escaped = arg.replace("'", "''")
+            default_clause = f" DEFAULT '{escaped}'"
+
+    return f"{sql_type}{default_clause}"
+
+
+def _sync_pg_missing_columns(
+    conn: Any,
+    existing_cols: set[tuple[str, str]],
+    existing_tables: set[str],
+) -> None:
+    """Add any SQLAlchemy model columns missing from live PostgreSQL tables."""
+    from sqlalchemy import text
+
+    for table in Base.metadata.sorted_tables:
+        tbl = table.name
+        if tbl not in existing_tables:
+            continue
+        for col in table.columns:
+            if (tbl, col.name) in existing_cols:
+                continue
+            ddl = _pg_column_ddl(col)
+            stmt = f'ALTER TABLE "{tbl}" ADD COLUMN IF NOT EXISTS "{col.name}" {ddl}'
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+                existing_cols.add((tbl, col.name))
+                logger.info("Added missing PostgreSQL column %s.%s (%s)", tbl, col.name, ddl)
+            except Exception as exc:
+                logger.warning("Failed to add column %s.%s: %s", tbl, col.name, exc)
+                conn.rollback()
+
+
 def init_db() -> None:
     """Ensure database tables exist and seed initial platform records."""
     try:
@@ -1669,6 +1737,8 @@ def init_db() -> None:
                         "Init DB column add skipped (%s.%s): %s", tbl, col, stmt_err
                     )
                     conn.rollback()
+
+            _sync_pg_missing_columns(conn, existing_cols, existing_tables)
 
             raw_ddl_statements = [
                 (
