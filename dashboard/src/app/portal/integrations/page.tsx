@@ -150,7 +150,44 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     fetchData();
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("calendar_connected") === "true") {
+        setNotification("Google Calendar connected! Live two-way slot sync is now active.");
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
   }, []);
+
+  const handleConnectGoogleCalendarOAuth = async () => {
+    setConnectingOAuth(true);
+    try {
+      const res = await api.connectGoogleCalendar();
+      if (res.auth_url) {
+        window.location.href = res.auth_url;
+      } else {
+        setNotification(res.message || "Google Calendar OAuth URL unavailable.");
+      }
+    } catch (err: unknown) {
+      setNotification(
+        `Google Calendar OAuth failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setConnectingOAuth(false);
+    }
+  };
+
+  const handleDisconnectGoogleCalendar = async () => {
+    try {
+      await api.disconnectGoogleCalendar();
+      setNotification("Google Calendar disconnected.");
+      fetchData();
+    } catch (err: unknown) {
+      setNotification(
+        `Disconnect failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  };
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -584,65 +621,94 @@ export default function IntegrationsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Google Calendar Card */}
-            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
-                      <Calendar className="w-5 h-5" />
-                    </span>
-                    <div>
-                      <h3 className="text-xs font-bold text-zinc-900">Google Calendar</h3>
-                      <span className="text-[10px] font-mono text-zinc-500">OAuth 2.0 Real-Time</span>
+            {(() => {
+              const isGoogleCalConnected =
+                Boolean(calendarStatus?.is_connected) &&
+                (calendarStatus?.provider === "google_calendar" || calendarStatus?.provider === "google");
+              return (
+                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
+                          <Calendar className="w-5 h-5" />
+                        </span>
+                        <div>
+                          <h3 className="text-xs font-bold text-zinc-900">Google Calendar</h3>
+                          <span className="text-[10px] font-mono text-zinc-500">OAuth 2.0 Real-Time</span>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                          isGoogleCalConnected
+                            ? "bg-emerald-100 text-emerald-800"
+                            : "bg-zinc-100 text-zinc-500"
+                        }`}
+                      >
+                        {isGoogleCalConnected ? "Connected" : "Disconnected"}
+                      </span>
                     </div>
+
+                    <p className="text-[11px] text-zinc-500 leading-relaxed">
+                      Real-time slot availability lookup and instant booking creation with calendar invites dispatched to customer email.
+                    </p>
+
+                    {isGoogleCalConnected && (
+                      <div className="p-2.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] font-mono text-[10px] space-y-1">
+                        <div className="text-zinc-700 font-semibold truncate">
+                          Calendar: {calendarStatus?.calendar_id || "primary"}
+                        </div>
+                        <div className="text-zinc-500">
+                          Status: <strong className="text-emerald-600 uppercase">{calendarStatus?.status || "active"}</strong>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <span
-                    className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full ${
-                      calendarStatus?.is_connected && calendarStatus?.provider === "google"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-zinc-100 text-zinc-500"
-                    }`}
-                  >
-                    {calendarStatus?.is_connected && calendarStatus?.provider === "google" ? "Connected" : "Disconnected"}
-                  </span>
+
+                  <div className="space-y-2 pt-2 border-t border-zinc-100">
+                    {isGoogleCalConnected ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleTestCalendarSync}
+                          disabled={testingCalendarSync}
+                          className="w-full py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${testingCalendarSync ? "animate-spin" : ""}`} />
+                          <span>{testingCalendarSync ? "Testing Sync..." : "Test Slot Sync"}</span>
+                        </button>
+                        <div className="flex gap-2">
+                          <a
+                            href="/portal/calendar"
+                            className="flex-1 py-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-1 transition"
+                          >
+                            <span>Manage</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={handleDisconnectGoogleCalendar}
+                            className="px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition"
+                          >
+                            Disconnect
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleConnectGoogleCalendarOAuth}
+                        disabled={connectingOAuth}
+                        className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-xs disabled:opacity-50"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>{connectingOAuth ? "Connecting..." : "Connect Google Calendar"}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-
-                <p className="text-[11px] text-zinc-500 leading-relaxed">
-                  Real-time slot availability lookup and instant booking creation with calendar invites dispatched to customer email.
-                </p>
-
-                {calendarStatus?.is_connected && calendarStatus?.provider === "google" && (
-                  <div className="p-2.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] font-mono text-[10px] space-y-1">
-                    <div className="text-zinc-700 font-semibold truncate">
-                      Calendar: {calendarStatus.calendar_id || "primary"}
-                    </div>
-                    <div className="text-zinc-500">
-                      Status: <strong className="text-emerald-600 uppercase">{calendarStatus.status || "active"}</strong>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2 pt-2 border-t border-zinc-100">
-                <button
-                  type="button"
-                  onClick={handleTestCalendarSync}
-                  disabled={testingCalendarSync}
-                  className="w-full py-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold transition flex items-center justify-center gap-1.5"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${testingCalendarSync ? "animate-spin text-indigo-600" : ""}`} />
-                  <span>{testingCalendarSync ? "Testing Sync..." : "Test Slot Sync"}</span>
-                </button>
-
-                <a
-                  href="/portal/calendar"
-                  className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs"
-                >
-                  <span>Manage Google Calendar</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Calendly Inbound Webhook & SMS Dispatch */}
             <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">

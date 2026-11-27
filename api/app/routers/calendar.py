@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
 from api.app.core.deps import get_current_tenant
-from api.app.core.encryption import encrypt_token
+from api.app.core.encryption import decrypt_token, encrypt_token
 from api.app.db.session import get_db
 from api.app.models.booking import Booking, TenantIntegration
 from api.app.models.crm import Contact
@@ -288,14 +288,23 @@ def handle_google_oauth_callback(
                 detail="Network error during Google OAuth exchange",
             ) from e
 
+    integration = db.scalar(
+        select(TenantIntegration).where(TenantIntegration.tenant_id == tenant.id)
+    )
+
+    # Preserve existing refresh_token if Google omits it on re-authorization
+    if not token_data.get("refresh_token") and integration and integration.encrypted_tokens:
+        try:
+            prev = json.loads(decrypt_token(integration.encrypted_tokens) or "{}")
+            if prev.get("refresh_token"):
+                token_data["refresh_token"] = prev["refresh_token"]
+        except Exception:
+            pass
+
     encrypted = encrypt_token(json.dumps(token_data))
     raw_exp = token_data.get("expires_in", 3600)
     expires_in = int(str(raw_exp))
     token_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
-
-    integration = db.scalar(
-        select(TenantIntegration).where(TenantIntegration.tenant_id == tenant.id)
-    )
 
     if integration:
         integration.provider = "google_calendar"
@@ -319,14 +328,13 @@ def handle_google_oauth_callback(
 
     if request and "text/html" in request.headers.get("accept", ""):
         # Browser was redirected here directly from Google OAuth consent flow
-        dashboard_url = "https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
-        if settings.CORS_ORIGINS:
-            # Prefer first frontend origin if specified
-            for o in settings.CORS_ORIGINS:
-                if "dashboard" in o or "localhost:3000" in o:
-                    dashboard_url = o.rstrip("/")
-                    break
-        return RedirectResponse(url=f"{dashboard_url}/portal/calendar?connected=true")
+        host = request.headers.get("host", "")
+        dashboard_url = (
+            "http://localhost:3000"
+            if ("localhost" in host or "127.0.0.1" in host)
+            else settings.DASHBOARD_URL.rstrip("/")
+        )
+        return RedirectResponse(url=f"{dashboard_url}/portal/integrations?calendar_connected=true")
 
     return {"status": "connected", "tenant_id": tenant.id, "provider": "google_calendar"}
 
