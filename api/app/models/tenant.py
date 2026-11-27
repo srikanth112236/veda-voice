@@ -166,6 +166,12 @@ class AgentProfile(Base):
     escalation_rules: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON, default=list, nullable=False
     )
+    post_call_auto_quote_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    post_call_followup_sms_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

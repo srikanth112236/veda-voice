@@ -42,6 +42,7 @@ import {
   FAQItem,
   RAGQueryResponse,
 } from "@/lib/api";
+import { AiQaSimulatorModal } from "@/components/portal/AiQaSimulatorModal";
 
 interface ChatMessage {
   id: string;
@@ -70,6 +71,7 @@ export default function IndustryPacksPage() {
   const [activeTab, setActiveTab] = useState<
     "catalog" | "studio" | "grounding" | "sandbox" | "test"
   >("catalog");
+  const [qaSuiteOpen, setQaSuiteOpen] = useState(false);
   const [packs, setPacks] = useState<IndustryPackSummary[]>([]);
   const [selectedPackSlug, setSelectedPackSlug] = useState<string>("home_services");
   const [packDetail, setPackDetail] = useState<IndustryPackDetail | null>(null);
@@ -822,6 +824,14 @@ export default function IndustryPacksPage() {
                     <p className="mt-1 text-xs text-zinc-500">{packDetail.description}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setQaSuiteOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition"
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      Run AI QA Suite
+                    </button>
                     <button
                       onClick={() => setActiveTab("studio")}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition"
@@ -1946,6 +1956,8 @@ export default function IndustryPacksPage() {
           )}
         </div>
       )}
+
+      {qaSuiteOpen && <AiQaSimulatorModal onClose={() => setQaSuiteOpen(false)} />}
     </div>
   );
 }

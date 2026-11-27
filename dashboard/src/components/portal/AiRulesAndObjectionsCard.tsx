@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, ShieldCheck, Sparkles, Trash2, Volume2 } from "lucide-react";
+import { Play, Plus, ShieldCheck, Sparkles, Trash2, Volume2 } from "lucide-react";
 import { api, type AgentProfile } from "@/lib/api";
+import { AiQaSimulatorModal } from "@/components/portal/AiQaSimulatorModal";
 
 interface AiRulesAndObjectionsCardProps {
   profile: AgentProfile;
@@ -26,6 +27,7 @@ export function AiRulesAndObjectionsCard({ profile, setProfile }: AiRulesAndObje
     suggested_reply: string;
   } | null>(null);
   const [testingAnswer, setTestingAnswer] = useState(false);
+  const [qaModalOpen, setQaModalOpen] = useState(false);
 
   const doRules = profile.do_rules || [];
   const dontRules = profile.dont_rules || [];
@@ -83,15 +85,35 @@ export function AiRulesAndObjectionsCard({ profile, setProfile }: AiRulesAndObje
             Define custom prompt rules, tough-caller objection playbooks, escalation targets, and anti-hallucination guardrails.
           </p>
         </div>
-        <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-subtle)] px-3 py-1.5 text-xs font-semibold cursor-pointer">
-          <input
-            type="checkbox"
-            checked={Boolean(profile.strict_grounding)}
-            onChange={(e) => setProfile({ ...profile, strict_grounding: e.target.checked })}
-            className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-          />
-          Strict Grounding (Zero Guessing)
-        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-subtle)] px-3 py-1.5 text-xs font-semibold cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(profile.strict_grounding)}
+              onChange={(e) => setProfile({ ...profile, strict_grounding: e.target.checked })}
+              className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Strict Grounding (Zero Guessing)
+          </label>
+          <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-subtle)] px-3 py-1.5 text-xs font-semibold cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(profile.post_call_auto_quote_enabled)}
+              onChange={(e) =>
+                setProfile({ ...profile, post_call_auto_quote_enabled: e.target.checked })
+              }
+              className="rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Auto-Draft Quote on Price Call
+          </label>
+          <button
+            type="button"
+            onClick={() => setQaModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white px-3 py-1.5 text-xs font-semibold"
+          >
+            <Play className="w-3 h-3" /> Run AI QA Suite
+          </button>
+        </div>
       </div>
 
       {/* Custom Operational Instructions */}
@@ -411,6 +433,7 @@ export function AiRulesAndObjectionsCard({ profile, setProfile }: AiRulesAndObje
           )}
         </div>
       </div>
+      {qaModalOpen && <AiQaSimulatorModal onClose={() => setQaModalOpen(false)} />}
     </div>
   );
 }

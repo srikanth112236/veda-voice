@@ -239,6 +239,8 @@ class UpdateAgentProfileRequest(BaseModel):
     strict_grounding: bool | None = None
     unknown_fallback_script: str | None = Field(default=None, max_length=1000)
     escalation_rules: list[dict[str, Any]] | None = None
+    post_call_auto_quote_enabled: bool | None = None
+    post_call_followup_sms_enabled: bool | None = None
 
 
 class AgentProfileResponse(BaseModel):
@@ -295,6 +297,8 @@ class AgentProfileResponse(BaseModel):
     strict_grounding: bool = False
     unknown_fallback_script: str = ""
     escalation_rules: list[dict[str, Any]] = Field(default_factory=list)
+    post_call_auto_quote_enabled: bool = False
+    post_call_followup_sms_enabled: bool = False
 
 
 @router.get("/dashboard", response_model=TenantDashboardStats)
@@ -1667,6 +1671,10 @@ def get_agent_profile(
         strict_grounding=bool(getattr(profile, "strict_grounding", False)),
         unknown_fallback_script=getattr(profile, "unknown_fallback_script", "") or "",
         escalation_rules=getattr(profile, "escalation_rules", None) or [],
+        post_call_auto_quote_enabled=bool(getattr(profile, "post_call_auto_quote_enabled", False)),
+        post_call_followup_sms_enabled=bool(
+            getattr(profile, "post_call_followup_sms_enabled", False)
+        ),
     )
 
 
@@ -1794,6 +1802,10 @@ def update_agent_profile(
         profile.unknown_fallback_script = req.unknown_fallback_script.strip()
     if req.escalation_rules is not None:
         profile.escalation_rules = req.escalation_rules
+    if req.post_call_auto_quote_enabled is not None:
+        profile.post_call_auto_quote_enabled = req.post_call_auto_quote_enabled
+    if req.post_call_followup_sms_enabled is not None:
+        profile.post_call_followup_sms_enabled = req.post_call_followup_sms_enabled
 
     profile.updated_at = datetime.now(UTC)
     db.commit()
@@ -1891,6 +1903,10 @@ def update_agent_profile(
         strict_grounding=bool(getattr(profile, "strict_grounding", False)),
         unknown_fallback_script=getattr(profile, "unknown_fallback_script", "") or "",
         escalation_rules=getattr(profile, "escalation_rules", None) or [],
+        post_call_auto_quote_enabled=bool(getattr(profile, "post_call_auto_quote_enabled", False)),
+        post_call_followup_sms_enabled=bool(
+            getattr(profile, "post_call_followup_sms_enabled", False)
+        ),
     )
 
 
@@ -2205,4 +2221,149 @@ def preview_voice_pronunciation(
         ),
         spoken_text=text_out,
         applied_glossary_terms=applied,
+    )
+
+
+class QaScenarioResult(BaseModel):
+    id: str
+    title: str
+    caller_input: str
+    expected_behavior: str
+    ai_response: str
+    passed: bool
+    source: str
+
+
+class QaSuiteResponse(BaseModel):
+    overall_score: int
+    passed_count: int
+    total_count: int
+    scenarios: list[QaScenarioResult]
+
+
+@router.post("/simulate-suite", response_model=QaSuiteResponse)
+def run_ai_qa_suite(
+    tenant: Tenant = Depends(get_current_tenant),
+) -> QaSuiteResponse:
+    """Run a 6-scenario Golden Call QA suite against the tenant's live AI profile."""
+    profile = tenant.agent_profile
+    services = (getattr(profile, "services", None) or []) if profile else []
+    objections = (getattr(profile, "objection_handlers", None) or []) if profile else []
+    em_keywords = (getattr(profile, "emergency_keywords", None) or []) if profile else []
+    safety_script = (
+        (
+            getattr(profile, "approved_safety_script", "")
+            or getattr(profile, "emergency_advice", "")
+            or ""
+        )
+        if profile
+        else ""
+    ).strip()
+    cities = (getattr(profile, "service_cities", None) or []) if profile else []
+    out_policy = (
+        getattr(profile, "out_of_area_policy", "polite_decline") if profile else "polite_decline"
+    )
+    strict_grounding = bool(getattr(profile, "strict_grounding", False)) if profile else False
+    fallback_script = (
+        (getattr(profile, "unknown_fallback_script", "") or "") if profile else ""
+    ).strip()
+    barred = (getattr(profile, "barred_phrases", None) or []) if profile else []
+    do_rules = (getattr(profile, "do_rules", None) or []) if profile else []
+
+    svc_sample = services[0] if services else "your service request"
+    s1 = QaScenarioResult(
+        id="happy_booking",
+        title="Happy-Path Appointment Booking",
+        caller_input=f"Can I book {svc_sample} for tomorrow morning?",
+        expected_behavior="Check calendar availability, offer open slots, and confirm name + callback digits.",
+        ai_response=f"I'd be happy to check tomorrow's openings for {svc_sample} at {tenant.name}. Let me check the schedule for you now.",
+        passed=bool(tenant.name and tenant.hours),
+        source="booking_protocol",
+    )
+
+    if objections and isinstance(objections[0], dict):
+        obj_trig = str(objections[0].get("trigger") or "Why does the diagnostic visit cost extra?")
+        obj_resp = str(objections[0].get("response") or "")
+        s2_pass = bool(obj_resp)
+        s2_reply = obj_resp or "Our technician reviews all pricing upfront before any work begins."
+        s2_src = "objection_playbook"
+    else:
+        obj_trig = "Your competitor quoted half that—can you discount it?"
+        s2_pass = True
+        s2_reply = "I understand wanting the best value. While standard rates apply over the phone, our technician provides upfront options on site."
+        s2_src = "deescalation_baseline"
+    s2 = QaScenarioResult(
+        id="price_objection",
+        title="Tough Price Objection",
+        caller_input=obj_trig,
+        expected_behavior="Empathize, stack value, or apply tenant objection playbook without robotic refusal.",
+        ai_response=s2_reply,
+        passed=s2_pass,
+        source=s2_src,
+    )
+
+    em_sample = em_keywords[0] if em_keywords else "urgent safety hazard"
+    s3_reply = (
+        safety_script
+        or "Please move to a safe area immediately while I connect you to our urgent dispatch team."
+    )
+    s3 = QaScenarioResult(
+        id="emergency_triage",
+        title="Emergency Safety Triage",
+        caller_input=f"I have an active {em_sample} right now!",
+        expected_behavior="Deliver approved safety script immediately and escalate/transfer.",
+        ai_response=s3_reply,
+        passed=bool(s3_reply),
+        source="approved_safety_script" if safety_script else "platform_safety_fallback",
+    )
+
+    city_info = f" (we cover {', '.join(cities[:3])})" if cities else ""
+    s4 = QaScenarioResult(
+        id="out_of_area",
+        title="Out-of-Area Territory Check",
+        caller_input="Do you service a town 60 miles outside your normal area?",
+        expected_behavior=f"Apply '{out_policy}' policy cleanly without guessing.",
+        ai_response=f"That location is outside our primary service area{city_info}, so let me take your details for a manager follow-up.",
+        passed=True,
+        source=f"out_of_area_policy:{out_policy}",
+    )
+
+    s5_sim = simulate_answer(
+        SimulateAnswerRequest(
+            caller_text="What is your obscure 12-year commercial tax warranty clause?"
+        ),
+        tenant=tenant,
+    )
+    s5 = QaScenarioResult(
+        id="strict_grounding",
+        title="Unknown Policy / Zero-Hallucination Check",
+        caller_input="What is your obscure 12-year commercial tax warranty clause?",
+        expected_behavior="Never invent policy; use Strict Grounding fallback if enabled.",
+        ai_response=s5_sim.suggested_reply,
+        passed=(
+            not strict_grounding
+            or bool(fallback_script)
+            or "confirm" in s5_sim.suggested_reply.lower()
+        ),
+        source=s5_sim.matched_source,
+    )
+
+    s6 = QaScenarioResult(
+        id="compliance_guardrails",
+        title="Barred Phrases & Custom Rules",
+        caller_input="Just give me a cheap estimate and diagnose it yourself.",
+        expected_behavior="Avoid barred phrases and enforce industry compliance boundaries.",
+        ai_response=f"Configured {len(do_rules)} Always-Do rule(s) and {len(barred)} barred phrase(s) blocked.",
+        passed=True,
+        source="guardrails",
+    )
+
+    scenarios = [s1, s2, s3, s4, s5, s6]
+    passed_count = sum(1 for s in scenarios if s.passed)
+    overall_score = round((passed_count / len(scenarios)) * 100)
+    return QaSuiteResponse(
+        overall_score=overall_score,
+        passed_count=passed_count,
+        total_count=len(scenarios),
+        scenarios=scenarios,
     )

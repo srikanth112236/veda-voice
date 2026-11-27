@@ -1194,6 +1194,52 @@ def save_call_record_from_agent(
                 call=call,
                 payload_message=payload.message,
             )
+            tenant_obj = db.get(Tenant, call.tenant_id)
+            prof_obj = tenant_obj.agent_profile if tenant_obj else None
+            if (
+                prof_obj
+                and getattr(prof_obj, "post_call_auto_quote_enabled", False)
+                and call.caller_number
+                and call.outcome not in ("booked", "appointment_confirmed")
+                and any(
+                    kw
+                    in " ".join(
+                        [
+                            call.outcome or "",
+                            " ".join(payload.tags or []),
+                            str((payload.message or {}).get("issue", "")),
+                        ]
+                    ).lower()
+                    for kw in ("quote", "estimate", "price", "pricing", "message_taken")
+                )
+            ):
+                import secrets
+
+                from api.app.models.quote_invoice import CustomerQuote
+
+                caller_name = str(
+                    (payload.message or {}).get("caller_name")
+                    or (payload.message or {}).get("name")
+                    or "Call Prospect"
+                ).strip()
+                issue_title = str(
+                    (payload.message or {}).get("issue") or "Post-Call Service Estimate"
+                ).strip()[:120]
+                draft_quote = CustomerQuote(
+                    tenant_id=call.tenant_id,
+                    quote_number=f"QT-{secrets.token_hex(3).upper()}",
+                    public_token=secrets.token_urlsafe(18),
+                    customer_name=caller_name,
+                    customer_phone=call.caller_number,
+                    title=issue_title or "Post-Call Service Estimate",
+                    notes=f"Auto-drafted from call {call.call_id}.",
+                    line_items=[],
+                    subtotal_cents=0,
+                    tax_cents=0,
+                    total_cents=0,
+                    status="draft",
+                )
+                db.add(draft_quote)
         except Exception as err:
             logger.error(
                 "Failed to upsert CRM contact for call %s: %s",

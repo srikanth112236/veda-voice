@@ -443,6 +443,8 @@ export interface AgentProfile {
   strict_grounding?: boolean;
   unknown_fallback_script?: string;
   escalation_rules?: { condition: string; target_number: string; label?: string }[];
+  post_call_auto_quote_enabled?: boolean;
+  post_call_followup_sms_enabled?: boolean;
 }
 
 export interface PublicBookingDetails {
@@ -955,6 +957,24 @@ export const api = {
     }>("/api/v1/portal/voice-preview", {
       method: "POST",
       body: JSON.stringify({ text, voice_id: voiceId }),
+    }),
+
+  runAiQaSuite: () =>
+    request<{
+      overall_score: number;
+      passed_count: number;
+      total_count: number;
+      scenarios: Array<{
+        id: string;
+        title: string;
+        caller_input: string;
+        expected_behavior: string;
+        ai_response: string;
+        passed: boolean;
+        source: string;
+      }>;
+    }>("/api/v1/portal/simulate-suite", {
+      method: "POST",
     }),
 
   getCarrierDiagnostics: () =>
