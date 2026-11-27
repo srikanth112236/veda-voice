@@ -27,8 +27,20 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [enteringWorkspace, setEnteringWorkspace] = useState(false);
+  const [entryStep, setEntryStep] = useState(0);
   const { login, setUser } = useAuth();
   const router = useRouter();
+
+  const launchDashboardWithLoader = (target: string) => {
+    setEnteringWorkspace(true);
+    setEntryStep(0);
+    setTimeout(() => setEntryStep(1), 450);
+    setTimeout(() => setEntryStep(2), 900);
+    setTimeout(() => {
+      window.location.href = target;
+    }, 1400);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -54,7 +66,8 @@ export default function LoginPage() {
           .getMe()
           .then((u) => {
             setUser(u);
-            window.location.href = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
+            const target = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
+            launchDashboardWithLoader(target);
           })
           .catch(() => {
             localStorage.removeItem("vedavoice_token");
@@ -91,7 +104,7 @@ export default function LoginPage() {
     try {
       const u = await login(email, password);
       const target = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
-      window.location.href = target;
+      launchDashboardWithLoader(target);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Authentication failed");
       setSubmitting(false);
@@ -106,7 +119,7 @@ export default function LoginPage() {
     try {
       const u = await login(demoEmail, demoPass);
       const target = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
-      window.location.href = target;
+      launchDashboardWithLoader(target);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Quick login failed");
       setSubmitting(false);
@@ -115,6 +128,53 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen w-full bg-[var(--surface-canvas)] text-[var(--ink-primary)] font-sans antialiased flex flex-col justify-between">
+      {enteringWorkspace && (
+        <div className="fixed inset-0 z-50 bg-[var(--surface-canvas)]/95 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="max-w-sm w-full bg-white border border-zinc-200 rounded-3xl p-7 shadow-xl space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-zinc-900 flex items-center justify-center font-mono font-bold text-white text-sm">
+                V
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-zinc-950">Signing in to VedaVoice</h2>
+                <p className="text-[11px] font-mono text-zinc-500">Verifying session &amp; telemetry</p>
+              </div>
+            </div>
+
+            <div className="w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-zinc-900 transition-all duration-300 ease-out"
+                style={{ width: `${((entryStep + 1) / 3) * 100}%` }}
+              />
+            </div>
+
+            <div className="space-y-2 text-xs">
+              {[
+                "Session token verified",
+                "Loading tenant configuration",
+                "Opening control plane...",
+              ].map((label, idx) => {
+                const done = idx < entryStep;
+                const active = idx === entryStep;
+                return (
+                  <div key={label} className="flex items-center gap-2">
+                    {done ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    ) : active ? (
+                      <span className="w-3.5 h-3.5 rounded-full border-2 border-zinc-900 border-t-transparent animate-spin shrink-0" />
+                    ) : (
+                      <span className="w-3.5 h-3.5 rounded-full border border-zinc-300 shrink-0" />
+                    )}
+                    <span className={done || active ? "text-zinc-900 font-medium" : "text-zinc-400"}>
+                      {label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       {/* ================= TOP NAVIGATION ================= */}
       <header className="w-full border-b border-[var(--border-hairline)] bg-[var(--surface-panel)] px-6 sm:px-12 py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">

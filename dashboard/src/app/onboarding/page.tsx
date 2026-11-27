@@ -41,6 +41,8 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchStep, setLaunchStep] = useState(0);
   const [error, setError] = useState("");
   const [industryPacks, setIndustryPacks] = useState<PublicIndustryPackItem[]>([]);
   const [googleToken, setGoogleToken] = useState<string>("");
@@ -612,7 +614,14 @@ export default function OnboardingPage() {
         localStorage.setItem("vedavoice_token", registerRes.access_token);
       }
 
-      router.push("/portal/dashboard");
+      setLaunching(true);
+      setLaunchStep(0);
+      setTimeout(() => setLaunchStep(1), 600);
+      setTimeout(() => setLaunchStep(2), 1200);
+      setTimeout(() => setLaunchStep(3), 1800);
+      setTimeout(() => {
+        router.push("/portal/dashboard");
+      }, 2400);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to activate business line. Please verify details.");
       setSubmitting(false);
@@ -621,6 +630,54 @@ export default function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 p-4 sm:p-8 flex flex-col justify-between max-w-5xl mx-auto">
+      {launching && (
+        <div className="fixed inset-0 z-50 bg-zinc-50/95 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-white border border-zinc-200 rounded-3xl p-8 shadow-xl space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-zinc-900 flex items-center justify-center text-white">
+                <Rocket className="w-5 h-5 animate-bounce" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-zinc-950">Setting up your workspace</h2>
+                <p className="text-xs text-zinc-500 font-mono">{formData.business_name}</p>
+              </div>
+            </div>
+
+            <div className="w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-600 transition-all duration-500 ease-out"
+                style={{ width: `${((launchStep + 1) / 4) * 100}%` }}
+              />
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              {[
+                "Provisioning isolated tenant workspace & RLS",
+                "Configuring AI voice persona & SIP routing",
+                "Activating compliance guardrails & trial minutes",
+                "Workspace ready — launching dashboard",
+              ].map((label, idx) => {
+                const done = idx < launchStep;
+                const active = idx === launchStep;
+                return (
+                  <div key={label} className="flex items-center gap-2.5">
+                    {done ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : active ? (
+                      <span className="w-4 h-4 rounded-full border-2 border-zinc-900 border-t-transparent animate-spin shrink-0" />
+                    ) : (
+                      <span className="w-4 h-4 rounded-full border border-zinc-300 shrink-0" />
+                    )}
+                    <span className={done || active ? "text-zinc-900 font-semibold" : "text-zinc-400"}>
+                      {label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Top Header & Breadcrumbs */}
       <div className="space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-zinc-200">
