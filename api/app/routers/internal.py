@@ -1187,13 +1187,15 @@ def save_call_record_from_agent(
 
     # Multi-Tenant Native CRM Lead & Contact Ingestion Bridge (Phase 1)
     if call.tenant_id:
+        call_id_str = call.call_id
         try:
-            upsert_crm_contact_from_call(
-                db=db,
-                tenant_id=call.tenant_id,
-                call=call,
-                payload_message=payload.message,
-            )
+            with db.begin_nested():
+                upsert_crm_contact_from_call(
+                    db=db,
+                    tenant_id=call.tenant_id,
+                    call=call,
+                    payload_message=payload.message,
+                )
             tenant_obj = db.get(Tenant, call.tenant_id)
             prof_obj = tenant_obj.agent_profile if tenant_obj else None
             if (
@@ -1243,7 +1245,7 @@ def save_call_record_from_agent(
         except Exception as err:
             logger.error(
                 "Failed to upsert CRM contact for call %s: %s",
-                call.call_id,
+                call_id_str,
                 err,
                 exc_info=True,
             )
