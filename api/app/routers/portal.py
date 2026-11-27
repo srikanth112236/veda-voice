@@ -2087,3 +2087,122 @@ def get_carrier_diagnostics(
         emergency_e911_registered=True,
         trunks=trunks,
     )
+
+
+class SimulateAnswerRequest(BaseModel):
+    caller_text: str = Field(..., min_length=1, max_length=1000)
+
+
+class SimulateAnswerResponse(BaseModel):
+    matched_source: str
+    matched_label: str
+    suggested_reply: str
+    strict_grounding: bool
+    barred_phrase_hits: list[str] = Field(default_factory=list)
+
+
+@router.post("/simulate-answer", response_model=SimulateAnswerResponse)
+def simulate_answer(
+    req: SimulateAnswerRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+) -> SimulateAnswerResponse:
+    """Evaluate a caller utterance against the tenant's live objection playbook, FAQs, and grounding rules."""
+    profile = tenant.agent_profile
+    q_low = req.caller_text.strip().lower()
+    q_tokens = {tok for tok in q_low.replace("?", "").replace(",", "").split() if len(tok) >= 3}
+
+    objections = (getattr(profile, "objection_handlers", None) or []) if profile else []
+    for item in objections:
+        if not isinstance(item, dict):
+            continue
+        trig = str(item.get("trigger") or "").strip()
+        resp = str(item.get("response") or "").strip()
+        if not trig or not resp:
+            continue
+        t_low = trig.lower()
+        t_tokens = {tok for tok in t_low.replace("?", "").split() if len(tok) >= 3}
+        if t_low in q_low or (t_tokens and len(q_tokens & t_tokens) >= min(2, len(t_tokens))):
+            return SimulateAnswerResponse(
+                matched_source="objection_playbook",
+                matched_label=trig,
+                suggested_reply=resp,
+                strict_grounding=bool(getattr(profile, "strict_grounding", False)),
+            )
+
+    faqs = (getattr(profile, "faq", None) or []) if profile else []
+    best_faq: dict[str, Any] | None = None
+    best_score = 0
+    for faq in faqs:
+        if not isinstance(faq, dict):
+            continue
+        fq = str(faq.get("question") or "").lower()
+        fa = str(faq.get("answer") or "")
+        fq_tokens = {tok for tok in fq.replace("?", "").split() if len(tok) >= 3}
+        overlap = len(q_tokens & fq_tokens)
+        if overlap > best_score and fa.strip():
+            best_score = overlap
+            best_faq = faq
+
+    if best_faq and best_score >= 1:
+        return SimulateAnswerResponse(
+            matched_source="faq",
+            matched_label=str(best_faq.get("question") or "FAQ"),
+            suggested_reply=str(best_faq.get("answer") or ""),
+            strict_grounding=bool(getattr(profile, "strict_grounding", False)),
+        )
+
+    strict = bool(getattr(profile, "strict_grounding", False)) if profile else False
+    fallback = (
+        ((getattr(profile, "unknown_fallback_script", "") or "").strip() if profile else "")
+        or "I want to make sure I give you the exact information—let me have our team confirm that and follow up with you right away."
+    )
+
+    return SimulateAnswerResponse(
+        matched_source="strict_grounding_fallback" if strict else "default_intake",
+        matched_label="Unknown Fallback Script" if strict else "General Intake",
+        suggested_reply=fallback
+        if strict
+        else f"Thanks for asking! Let me confirm that with our {tenant.name} team or help you book an appointment.",
+        strict_grounding=strict,
+    )
+
+
+class VoicePreviewRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=600)
+    voice_id: str | None = None
+
+
+class VoicePreviewResponse(BaseModel):
+    voice_id: str
+    spoken_text: str
+    applied_glossary_terms: list[str] = Field(default_factory=list)
+
+
+@router.post("/voice-preview", response_model=VoicePreviewResponse)
+def preview_voice_pronunciation(
+    req: VoicePreviewRequest,
+    tenant: Tenant = Depends(get_current_tenant),
+) -> VoicePreviewResponse:
+    """Apply tenant phonetic glossary substitutions to preview text before speech synthesis."""
+    profile = tenant.agent_profile
+    text_out = req.text.strip()
+    applied: list[str] = []
+    glossary = (getattr(profile, "phonetic_glossary", None) or []) if profile else []
+    for entry in glossary:
+        if not isinstance(entry, dict):
+            continue
+        term = str(entry.get("term") or "").strip()
+        spoken_as = str(entry.get("spoken_as") or "").strip()
+        if term and spoken_as and term.lower() in text_out.lower():
+            import re
+
+            text_out = re.sub(re.escape(term), spoken_as, text_out, flags=re.IGNORECASE)
+            applied.append(f"{term} -> {spoken_as}")
+
+    return VoicePreviewResponse(
+        voice_id=(
+            req.voice_id or (getattr(profile, "voice_id", None) if profile else None) or "Alex"
+        ),
+        spoken_text=text_out,
+        applied_glossary_terms=applied,
+    )

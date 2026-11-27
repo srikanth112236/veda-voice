@@ -810,9 +810,9 @@ export default function IndustryPacksPage() {
           <div className="lg:col-span-7">
             {packDetail ? (
               <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-5">
-                <div className="flex items-start justify-between border-b border-zinc-100 pb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border-b border-zinc-100 pb-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-2xl">{packDetail.icon || "📦"}</span>
                       <h3 className="text-lg font-bold text-zinc-900">{packDetail.name}</h3>
                       <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-mono text-zinc-600">
@@ -821,7 +821,7 @@ export default function IndustryPacksPage() {
                     </div>
                     <p className="mt-1 text-xs text-zinc-500">{packDetail.description}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       onClick={() => setActiveTab("studio")}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition"

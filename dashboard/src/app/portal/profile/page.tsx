@@ -11,6 +11,7 @@ import {
   CarrierDiagnosticsResponse,
 } from "@/lib/api";
 import { LIVEKIT_VOICE_CATALOG, LiveKitVoice } from "@/lib/voice-catalog";
+import { AiRulesAndObjectionsCard } from "@/components/portal/AiRulesAndObjectionsCard";
 import {
   Settings2,
   Save,
@@ -1239,6 +1240,8 @@ export default function ReceptionistProfilePage() {
               </button>
             </div>
           </div>
+
+          <AiRulesAndObjectionsCard profile={profile} setProfile={setProfile} />
         </div>
       )}
 

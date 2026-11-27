@@ -5,6 +5,7 @@ import { Room, RoomEvent, Track, RemoteTrack, RemoteTrackPublication, RemotePart
 import { InfoTrigger } from "@/context/info-modal-context";
 import { LatencyWaterfallCard } from "@/components/calls/LatencyWaterfallCard";
 import { LiveActiveCallsPanel } from "@/components/calls/LiveActiveCallsPanel";
+import { FixThisAnswerModal } from "@/components/portal/FixThisAnswerModal";
 import {
   PhoneCall,
   Search,
@@ -133,6 +134,7 @@ export default function CallsPage() {
 
   // QA Override State
   const [showQAOverrideModal, setShowQAOverrideModal] = useState(false);
+  const [fixTurn, setFixTurn] = useState<{ callerPrompt: string; aiReply: string } | null>(null);
   const [qaOverrideScore, setQaOverrideScore] = useState<number>(100);
   const [qaOverrideCsat, setQaOverrideCsat] = useState<number>(5.0);
   const [qaOverrideNote, setQaOverrideNote] = useState("");
@@ -2519,6 +2521,29 @@ export default function CallsPage() {
                         <p className="font-sans leading-relaxed text-zinc-800 text-xs">
                           {displayedTurnText}
                         </p>
+                        {isAssistant && (
+                          <div className="flex justify-end pt-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const prevTurn =
+                                  idx > 0 ? (detailCall?.transcript || [])[idx - 1] : null;
+                                const prevText =
+                                  prevTurn && prevTurn.role !== "assistant"
+                                    ? String(prevTurn.text || "")
+                                    : "";
+                                setFixTurn({
+                                  callerPrompt: prevText,
+                                  aiReply: String(displayedTurnText || ""),
+                                });
+                              }}
+                              className="opacity-80 group-hover:opacity-100 text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md px-2 py-0.5 transition-colors"
+                            >
+                              Fix This Answer
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2966,6 +2991,14 @@ export default function CallsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {fixTurn && (
+        <FixThisAnswerModal
+          callerPrompt={fixTurn.callerPrompt}
+          aiReply={fixTurn.aiReply}
+          onClose={() => setFixTurn(null)}
+        />
       )}
     </div>
   );

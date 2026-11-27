@@ -436,6 +436,13 @@ export interface AgentProfile {
   auto_sms_reminders_enabled?: boolean;
   reminder_lead_hours?: number;
   custom_reminder_template?: string;
+  custom_instructions?: string;
+  do_rules?: string[];
+  dont_rules?: string[];
+  objection_handlers?: { trigger: string; response: string; action?: string }[];
+  strict_grounding?: boolean;
+  unknown_fallback_script?: string;
+  escalation_rules?: { condition: string; target_number: string; label?: string }[];
 }
 
 export interface PublicBookingDetails {
@@ -926,6 +933,28 @@ export const api = {
     }>("/api/v1/portal/profile/test-call", {
       method: "POST",
       body: JSON.stringify({ phone_number: phoneNumber }),
+    }),
+
+  simulateAnswer: (callerText: string) =>
+    request<{
+      matched_source: string;
+      matched_label: string;
+      suggested_reply: string;
+      strict_grounding: boolean;
+      barred_phrase_hits: string[];
+    }>("/api/v1/portal/simulate-answer", {
+      method: "POST",
+      body: JSON.stringify({ caller_text: callerText }),
+    }),
+
+  previewVoicePronunciation: (text: string, voiceId?: string) =>
+    request<{
+      voice_id: string;
+      spoken_text: string;
+      applied_glossary_terms: string[];
+    }>("/api/v1/portal/voice-preview", {
+      method: "POST",
+      body: JSON.stringify({ text, voice_id: voiceId }),
     }),
 
   getCarrierDiagnostics: () =>
