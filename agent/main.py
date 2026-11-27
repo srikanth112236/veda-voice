@@ -38,6 +38,7 @@ from agent.tools.booking import create_booking_tools
 from agent.tools.knowledge import create_knowledge_tools
 from agent.tools.message import MessageCollector, create_take_message_tool
 from agent.tools.opt_out import create_opt_out_tool
+from agent.tools.quote_links import create_quote_link_tools
 from agent.tools.territory import create_territory_tools
 from agent.tools.transfer import create_transfer_tool
 from agent.tools.voicemail import create_voicemail_tool
@@ -863,9 +864,16 @@ async def entrypoint(ctx: JobContext) -> None:
             caller_phone=sip_info["caller_number"],
         )
     else:
+        caller_ctx: dict[str, Any] = {}
+        if config.call_token and sip_info.get("caller_number"):
+            caller_ctx = default_api_client.fetch_caller_context(
+                sip_info["caller_number"],
+                config.call_token,
+            )
         prompt = build_system_prompt(
             config,
             caller_phone=sip_info["caller_number"],
+            caller_context=caller_ctx,
         )
 
     @function_tool(
@@ -907,6 +915,12 @@ async def entrypoint(ctx: JobContext) -> None:
                 caller_phone=sip_info.get("caller_number", ""),
             )
             active_tools.extend(booking_tools)
+            active_tools.extend(
+                create_quote_link_tools(
+                    config.call_token,
+                    caller_phone=sip_info.get("caller_number", ""),
+                )
+            )
 
     # Attach knowledge base RAG tool (Milestone M10a)
     if config.call_token:

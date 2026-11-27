@@ -13,6 +13,7 @@ def build_system_prompt(
     current_dt: datetime | None = None,
     caller_phone: str = "",
     query_context: str = "",
+    caller_context: dict[str, Any] | None = None,
 ) -> str:
     """Build the isolated system prompt for a specific tenant receptionist."""
     if current_dt is None:
@@ -302,6 +303,39 @@ Note: Platform safety rules and emergency protocols above strictly take preceden
         "UNIVERSAL INDUSTRY COMPLIANCE GUARDRAILS:\n"
         "- Never provide medical diagnoses, prescriptions, legal advice, or tax/investment advice. Always defer professional opinions to a licensed specialist."
     )
+
+    custom_parts.append(
+        "RELIABILITY, READ-BACK, DTMF & LOOP-BREAKER PROTOCOL:\n"
+        "- MANDATORY READ-BACK: Before finalizing any booking or quote, read back and confirm the caller's name, callback digits, service address/ZIP, and date/time.\n"
+        '- DTMF KEYPAD FALLBACK: If background noise or static makes a phone number, ZIP code, or booking ID hard to hear after one retry, say: "Feel free to enter those digits on your phone keypad if that\'s easier."\n'
+        "- LOOP BREAKER: Never ask the exact same intake question more than twice. After two failed attempts, pivot to taking a callback number, texting a booking/quote link (`send_booking_link_tool` / `send_quote_link_tool`), or offering human transfer.\n"
+        '- TOOL HOLD CUE: When invoking `check_availability`, `book_appointment`, or `lookup_business_info`, briefly acknowledge first (e.g., "Checking that schedule for you now...") so there is no dead air.'
+    )
+
+    if caller_context and caller_context.get("returning_caller"):
+        mem_lines: list[str] = ["RETURNING CALLER MEMORY (HYDRATED PRE-CALL):"]
+        if caller_context.get("caller_name"):
+            mem_lines.append(f"- Caller Name: {caller_context['caller_name']}")
+        if caller_context.get("vip_tier"):
+            mem_lines.append(f"- VIP Tier: {caller_context['vip_tier']}")
+        if caller_context.get("recent_call_summary"):
+            mem_lines.append(f"- Recent Call Summary: {caller_context['recent_call_summary']}")
+        if caller_context.get("upcoming_booking"):
+            ub = caller_context["upcoming_booking"]
+            mem_lines.append(
+                f"- Upcoming Appointment: {ub.get('service_type', 'Service')} on {ub.get('start_utc', '')} ({ub.get('status', 'confirmed')})"
+            )
+        if caller_context.get("open_quote"):
+            oq = caller_context["open_quote"]
+            mem_lines.append(
+                f"- Open Quote: {oq.get('quote_number', '')} — {oq.get('title', '')} ({oq.get('status', '')})"
+            )
+        if caller_context.get("open_invoice"):
+            oi = caller_context["open_invoice"]
+            mem_lines.append(
+                f"- Open Invoice: {oi.get('invoice_number', '')} ({oi.get('status', '')})"
+            )
+        custom_parts.append("\n".join(mem_lines))
 
     customizations_block = (
         "\n\n=== CLIENT AI CUSTOMIZATIONS & GUARDRAILS ===\n"

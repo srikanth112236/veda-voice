@@ -20,6 +20,36 @@ from agent.config_client import default_api_client
 logger = logging.getLogger("receptionist.tools.transfer")
 
 
+def resolve_escalation_target(
+    config: TenantConfig,
+    reason: str,
+    priority: str = "normal",
+) -> str:
+    """Resolve destination transfer number, honoring tenant custom escalation_rules first."""
+    reason_low = (reason or "").strip().lower()
+    for rule in getattr(config, "escalation_rules", None) or []:
+        if not isinstance(rule, dict):
+            continue
+        cond = str(rule.get("condition") or "").strip().lower()
+        target = str(rule.get("target_number") or "").strip()
+        if not cond or not target:
+            continue
+        cond_tokens = [tok for tok in cond.replace("_", " ").split() if len(tok) >= 3]
+        if cond in reason_low or (cond_tokens and any(tok in reason_low for tok in cond_tokens)):
+            return target
+
+    if priority == "emergency":
+        return (
+            getattr(config, "location_emergency_phone", None)
+            or getattr(config, "location_transfer_number", None)
+            or config.transfer_number
+            or ""
+        ).strip()
+    return (
+        getattr(config, "location_transfer_number", None) or config.transfer_number or ""
+    ).strip()
+
+
 def create_transfer_tool(
     config: TenantConfig,
     livekit_session: Any = None,
@@ -61,18 +91,7 @@ def create_transfer_tool(
         ] = None,
     ) -> str:
         """Call this function when the customer explicitly asks to speak to a person/technician, or an emergency demands human escalation."""
-        # Dynamic on-call technician / branch emergency phone routing
-        if priority == "emergency":
-            target_number = (
-                getattr(config, "location_emergency_phone", None)
-                or getattr(config, "location_transfer_number", None)
-                or config.transfer_number
-                or ""
-            ).strip()
-        else:
-            target_number = (
-                getattr(config, "location_transfer_number", None) or config.transfer_number or ""
-            ).strip()
+        target_number = resolve_escalation_target(config, reason=reason, priority=priority)
 
         # Pause safety monitor silence prompts so caller is not badgered during hold
         if safety_monitor:

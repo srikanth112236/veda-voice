@@ -508,6 +508,46 @@ class InternalApiClient:
 
         return False
 
+    def fetch_caller_context(self, caller_number: str, call_token: str) -> dict[str, Any]:
+        """Fetch pre-call caller memory (CRM contact, recent call, booking, quote, invoice)."""
+        if not caller_number or not call_token:
+            return {"returning_caller": False}
+
+        import sys
+
+        if not self._is_custom_base_url and "pytest" in sys.modules:
+            try:
+                from api.app.db.session import SessionLocal
+                from api.app.routers.internal import get_internal_caller_context
+
+                with SessionLocal() as db:
+                    return dict(
+                        get_internal_caller_context(
+                            caller_number=caller_number,
+                            authorization=f"Bearer {call_token}",
+                            db=db,
+                        )
+                    )
+            except Exception as exc:
+                logger.debug("In-process caller context lookup failed: %s", exc)
+                return {"returning_caller": False}
+
+        encoded = urllib.parse.quote(caller_number, safe="")
+        url = f"{self.base_url}/api/v1/internal/caller-context?caller_number={encoded}"
+        req = urllib.request.Request(
+            url,
+            headers=self._get_headers(call_token),
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=min(self.timeout, 2.0)) as resp:
+                if resp.status == 200:
+                    return cast(dict[str, Any], json.loads(resp.read().decode("utf-8")))
+        except Exception as exc:
+            logger.debug("Caller context fetch skipped: %s", exc)
+
+        return {"returning_caller": False}
+
 
 # Global client instance
 default_api_client = InternalApiClient()

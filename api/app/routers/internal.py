@@ -3,11 +3,21 @@
 import json
 import logging
 import math
+import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -1828,3 +1838,208 @@ async def handle_livekit_webhook(
             db.commit()
 
     return {"status": "ok", "event": event_type, "call_id": call_id}
+
+
+class InternalSendQuoteLinkRequest(BaseModel):
+    phone_number: str
+    customer_name: str = "Valued Customer"
+    title: str = "Service Estimate"
+    notes: str = ""
+    amount_dollars: float = 0.0
+
+
+@router.get("/caller-context")
+def get_internal_caller_context(
+    caller_number: str = Query(..., min_length=3),
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Hydrate pre-call caller memory (CRM contact, recent call, booking, quote, invoice)."""
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+
+    from api.app.models.booking import Booking
+    from api.app.models.crm import Contact
+    from api.app.models.quote_invoice import CustomerInvoice, CustomerQuote
+
+    digits = re.sub(r"\D", "", caller_number)
+    last10 = digits[-10:] if len(digits) >= 10 else digits
+
+    contact = db.scalar(
+        select(Contact)
+        .where(
+            Contact.tenant_id == tenant_id,
+            Contact.phone.ilike(f"%{last10}") if last10 else Contact.phone == caller_number,
+        )
+        .order_by(Contact.updated_at.desc())
+    )
+
+    recent_call = db.scalar(
+        select(Call)
+        .where(
+            Call.tenant_id == tenant_id,
+            Call.caller_number.ilike(f"%{last10}")
+            if last10
+            else Call.caller_number == caller_number,
+        )
+        .order_by(Call.started_at.desc())
+    )
+
+    now_utc = datetime.now(UTC)
+    upcoming_booking = db.scalar(
+        select(Booking)
+        .where(
+            Booking.tenant_id == tenant_id,
+            Booking.customer_phone.ilike(f"%{last10}")
+            if last10
+            else Booking.customer_phone == caller_number,
+            Booking.status.in_(["confirmed", "pending"]),
+            Booking.start_at >= now_utc,
+        )
+        .order_by(Booking.start_at.asc())
+    )
+
+    open_quote = db.scalar(
+        select(CustomerQuote)
+        .where(
+            CustomerQuote.tenant_id == tenant_id,
+            CustomerQuote.customer_phone.ilike(f"%{last10}")
+            if last10
+            else CustomerQuote.customer_phone == caller_number,
+            CustomerQuote.status.in_(["draft", "sent", "viewed"]),
+        )
+        .order_by(CustomerQuote.created_at.desc())
+    )
+
+    open_invoice = db.scalar(
+        select(CustomerInvoice)
+        .where(
+            CustomerInvoice.tenant_id == tenant_id,
+            CustomerInvoice.customer_phone.ilike(f"%{last10}")
+            if last10
+            else CustomerInvoice.customer_phone == caller_number,
+            CustomerInvoice.status.in_(["sent", "overdue"]),
+        )
+        .order_by(CustomerInvoice.created_at.desc())
+    )
+
+    returning = bool(contact or recent_call or upcoming_booking or open_quote or open_invoice)
+    caller_name = ""
+    if contact and contact.name:
+        caller_name = contact.name
+    elif upcoming_booking and upcoming_booking.customer_name:
+        caller_name = upcoming_booking.customer_name
+    elif open_quote and open_quote.customer_name:
+        caller_name = open_quote.customer_name
+
+    return {
+        "returning_caller": returning,
+        "caller_name": caller_name,
+        "vip_tier": getattr(contact, "vip_tier", "") if contact else "",
+        "recent_call_summary": (
+            f"Last call outcome: {recent_call.outcome}"
+            if recent_call and recent_call.outcome
+            else ""
+        ),
+        "upcoming_booking": (
+            {
+                "id": upcoming_booking.id,
+                "service_type": upcoming_booking.service_type,
+                "start_utc": upcoming_booking.start_at.isoformat(),
+                "status": upcoming_booking.status,
+            }
+            if upcoming_booking
+            else None
+        ),
+        "open_quote": (
+            {
+                "quote_number": open_quote.quote_number,
+                "title": open_quote.title,
+                "status": open_quote.status,
+                "total_cents": open_quote.total_cents,
+            }
+            if open_quote
+            else None
+        ),
+        "open_invoice": (
+            {
+                "invoice_number": open_invoice.invoice_number,
+                "status": open_invoice.status,
+                "total_cents": open_invoice.total_cents,
+            }
+            if open_invoice
+            else None
+        ),
+    }
+
+
+@router.post("/quotes/send-link")
+def internal_send_quote_link(
+    payload: InternalSendQuoteLinkRequest,
+    authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Create a CustomerQuote draft/sent record and text its self-serve link to the caller."""
+    import secrets
+
+    claims = _verify_agent_token(authorization)
+    tenant_id = claims["tenant_id"]
+
+    from api.app.models.quote_invoice import CustomerQuote
+
+    tenant = db.get(Tenant, tenant_id)
+    biz_name = tenant.name if tenant else "our team"
+
+    total_cents = max(0, round(float(payload.amount_dollars or 0.0) * 100))
+    quote_num = f"QT-{secrets.token_hex(3).upper()}"
+    public_tok = secrets.token_urlsafe(18)
+
+    line_items = (
+        [{"description": payload.title, "quantity": 1, "unit_price_cents": total_cents}]
+        if total_cents > 0
+        else []
+    )
+    quote = CustomerQuote(
+        tenant_id=tenant_id,
+        quote_number=quote_num,
+        public_token=public_tok,
+        customer_name=(payload.customer_name or "Valued Customer").strip(),
+        customer_phone=payload.phone_number.strip(),
+        title=(payload.title or "Service Estimate").strip(),
+        notes=(payload.notes or "").strip(),
+        line_items=line_items,
+        subtotal_cents=total_cents,
+        tax_cents=0,
+        total_cents=total_cents,
+        status="sent",
+        sent_at=datetime.now(UTC),
+    )
+    db.add(quote)
+    db.commit()
+    db.refresh(quote)
+
+    dashboard_url = os.getenv(
+        "DASHBOARD_URL",
+        "https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io",
+    ).rstrip("/")
+    quote_url = f"{dashboard_url}/quote/{quote.public_token}"
+
+    sms_sent = False
+    try:
+        from api.app.services.sms import send_sms
+
+        sms_body = (
+            f"Hi {quote.customer_name}, here is your estimate from {biz_name} "
+            f"({quote.quote_number}): {quote_url}"
+        )
+        sms_sent = bool(send_sms(to_number=quote.customer_phone, body=sms_body))
+    except Exception as exc:
+        logger.debug("Quote SMS dispatch skipped/failed: %s", exc)
+
+    return {
+        "status": "sent",
+        "quote_id": quote.id,
+        "quote_number": quote.quote_number,
+        "quote_url": quote_url,
+        "sms_sent": sms_sent,
+    }
