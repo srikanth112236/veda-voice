@@ -6,8 +6,9 @@ import logging
 import re
 import secrets
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -16,12 +17,12 @@ from sqlalchemy.orm import Session
 
 from api.app.core.deps import get_current_tenant
 from api.app.db.session import get_db
+from api.app.models.booking import Booking
 from api.app.models.crm import Contact, ContactTimelineEvent
 from api.app.models.quote_invoice import CustomerInvoice, CustomerQuote
 from api.app.models.tenant import Tenant
 from api.app.services.calendar.availability import compute_available_slots
 from api.app.services.calendar.booking import SlotUnavailableError, confirm_booking
-from api.app.services.calendar.google import MockSandboxCalendarProvider
 
 logger = logging.getLogger("vedavoice.quotes_invoices")
 
@@ -807,6 +808,52 @@ def get_public_invoice(token: str, db: Session = Depends(get_db)) -> dict[str, A
     }
 
 
+def _fallback_local_slots(db: Session, tenant: Tenant, target_date: date) -> dict[str, Any]:
+    """Compute conflict-free 60-minute slots from local bookings without touching external providers."""
+    try:
+        tz = ZoneInfo(tenant.timezone or "America/New_York")
+    except Exception:
+        tz = ZoneInfo("America/New_York")
+
+    day_start = datetime.combine(target_date, time(9, 0), tzinfo=tz)
+    day_end = datetime.combine(target_date, time(17, 0), tzinfo=tz)
+    booked_rows = db.execute(
+        select(Booking.start_at, Booking.end_at).where(
+            Booking.tenant_id == tenant.id,
+            Booking.status.in_(["held", "confirmed"]),
+            Booking.start_at >= day_start.astimezone(UTC) - timedelta(hours=1),
+            Booking.start_at <= day_end.astimezone(UTC) + timedelta(hours=1),
+        )
+    ).all()
+
+    now_cutoff = datetime.now(UTC) + timedelta(hours=2)
+    slots: list[dict[str, Any]] = []
+    cursor = day_start
+    while cursor + timedelta(minutes=60) <= day_end:
+        slot_end = cursor + timedelta(minutes=60)
+        slot_start_utc = cursor.astimezone(UTC)
+        slot_end_utc = slot_end.astimezone(UTC)
+        if slot_start_utc >= now_cutoff:
+            overlaps = False
+            for b_start, b_end in booked_rows:
+                bs = b_start if b_start.tzinfo else b_start.replace(tzinfo=UTC)
+                be = b_end if b_end.tzinfo else b_end.replace(tzinfo=UTC)
+                if slot_start_utc < be and slot_end_utc > bs:
+                    overlaps = True
+                    break
+            if not overlaps:
+                slots.append(
+                    {
+                        "start": slot_start_utc.isoformat(),
+                        "end": slot_end_utc.isoformat(),
+                        "label": cursor.strftime("%I:%M %p").lstrip("0"),
+                        "available": True,
+                    }
+                )
+        cursor += timedelta(minutes=60)
+    return {"slots": slots, "available_slots": slots}
+
+
 @router.get("/public/booking/{tenant_slug}/availability")
 def get_public_booking_availability(
     tenant_slug: str,
@@ -821,27 +868,23 @@ def get_public_booking_availability(
         else datetime.now(UTC).date()
     )
     try:
-        slots = compute_available_slots(
+        availability_payload = compute_available_slots(
             tenant=tenant,
             target_date=parsed_date,
             db=db,
-        )
+        ).model_dump()
     except Exception as exc:
+        db.rollback()
         logger.warning(
             "Public booking availability falling back to local DB slots for tenant=%s: %s",
             tenant.id,
             exc,
         )
-        slots = compute_available_slots(
-            tenant=tenant,
-            target_date=parsed_date,
-            db=db,
-            custom_provider=MockSandboxCalendarProvider(),
-        )
+        availability_payload = _fallback_local_slots(db, tenant, parsed_date)
     return {
         "business_name": tenant.name,
         "timezone": tenant.timezone,
-        "availability": slots.model_dump(),
+        "availability": availability_payload,
     }
 
 
