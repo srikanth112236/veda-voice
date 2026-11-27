@@ -1,7 +1,9 @@
 """Authentication and onboarding endpoints."""
 
 import logging
+import secrets
 import uuid
+from datetime import timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -45,7 +47,8 @@ class RegisterTenantRequest(BaseModel):
     business_name: str
     owner_name: str
     email: EmailStr
-    password: str
+    password: str | None = None
+    google_token: str | None = None
     timezone: str = "America/New_York"
     hours: str = "Monday to Friday, 8:00 AM to 6:00 PM EST"
     niche: str = "plumbing"  # plumbing, dental, hvac, legal, general
@@ -279,9 +282,37 @@ def login(req: LoginRequest, db: Session = Depends(get_db)) -> Any:
 
 @router.post("/register", response_model=LoginResponse)
 def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -> Any:
-    """Public self-service tenant onboarding."""
+    """Public self-service tenant onboarding (supports password or verified Google token)."""
+    owner_email = req.email.lower()
+    owner_name = req.owner_name
+    owner_picture = ""
+    raw_password = req.password
+
+    if req.google_token:
+        g_payload = decode_access_token(req.google_token)
+        if (
+            not g_payload
+            or g_payload.get("flow") != "google_onboarding"
+            or g_payload.get("email_verified") is not True
+            or not g_payload.get("email")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired Google onboarding session. Please sign in with Google again.",
+            )
+        owner_email = str(g_payload["email"]).strip().lower()
+        if not owner_name.strip():
+            owner_name = str(g_payload.get("name") or owner_email.split("@")[0])
+        owner_picture = str(g_payload.get("picture") or "")
+        raw_password = raw_password or secrets.token_urlsafe(32)
+    elif not raw_password or len(raw_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password of at least 6 characters is required.",
+        )
+
     # Check if user email already exists
-    existing_user = db.scalar(select(User).where(User.email == req.email.lower()))
+    existing_user = db.scalar(select(User).where(User.email == owner_email))
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -290,7 +321,7 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
 
     # Verify trial eligibility and block disposable emails or serial trial phone churn (FR-TRIAL-3 & 9)
     is_eligible, ineligibility_reason = verify_trial_eligibility(
-        db, email=req.email, phone=req.phone_number or ""
+        db, email=owner_email, phone=req.phone_number or ""
     )
     if not is_eligible:
         status_code = (
@@ -407,11 +438,16 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
             db.add(phone)
 
     # 3. Create Tenant Owner User
+    if owner_picture:
+        cfg = dict(tenant.config or {})
+        cfg["owner_picture"] = owner_picture
+        tenant.config = cfg
+
     user = User(
         tenant_id=tenant.id,
-        email=req.email.lower(),
-        hashed_password=hash_password(req.password),
-        full_name=req.owner_name,
+        email=owner_email,
+        hashed_password=hash_password(raw_password),
+        full_name=owner_name,
         role="tenant_owner",
         is_active=True,
     )
@@ -619,11 +655,53 @@ async def google_login_callback(
     if not email:
         return RedirectResponse(url=f"{dashboard_origin}/login?error=missing_email")
 
+    name = str(claims.get("name") or email.split("@")[0]).strip()
+    picture = str(claims.get("picture") or "").strip()
+
     user = db.scalar(select(User).where(User.email == email, User.is_active.is_(True)))
     if not user:
-        return RedirectResponse(url=f"{dashboard_origin}/login?error=account_not_found")
+        onboarding_token = create_access_token(
+            {
+                "flow": "google_onboarding",
+                "email": email,
+                "name": name,
+                "picture": picture,
+                "email_verified": True,
+                "nonce": uuid.uuid4().hex[:8],
+            },
+            expires_delta=timedelta(minutes=15),
+        )
+        return RedirectResponse(
+            url=f"{dashboard_origin}/onboarding#google_token={onboarding_token}"
+        )
 
     jwt_token = create_access_token(
-        {"sub": user.id, "role": user.role, "tenant_id": user.tenant_id}
+        {
+            "sub": user.id,
+            "role": user.role,
+            "tenant_id": user.tenant_id,
+            "auth_provider": "google",
+        }
     )
     return RedirectResponse(url=f"{dashboard_origin}/login#token={jwt_token}")
+
+
+@router.get("/google/onboarding-session")
+def get_google_onboarding_session(token: str = Query(...)) -> dict[str, str]:
+    """Verify short-lived Google onboarding token and return name, email, and picture."""
+    payload = decode_access_token(token)
+    if (
+        not payload
+        or payload.get("flow") != "google_onboarding"
+        or payload.get("email_verified") is not True
+        or not payload.get("email")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google onboarding session.",
+        )
+    return {
+        "email": str(payload["email"]),
+        "name": str(payload.get("name") or ""),
+        "picture": str(payload.get("picture") or ""),
+    }

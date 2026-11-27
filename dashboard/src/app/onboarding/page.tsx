@@ -43,6 +43,44 @@ export default function OnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [industryPacks, setIndustryPacks] = useState<PublicIndustryPackItem[]>([]);
+  const [googleToken, setGoogleToken] = useState<string>("");
+  const [googleProfile, setGoogleProfile] = useState<{
+    name: string;
+    email: string;
+    picture: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (hash.startsWith("#google_token=")) {
+      const tok = decodeURIComponent(hash.slice("#google_token=".length));
+      window.history.replaceState(null, "", window.location.pathname);
+      if (!tok) return;
+      fetch(`/api/v1/auth/google/onboarding-session?token=${encodeURIComponent(tok)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data?.email) {
+            setError("Google session expired. Please sign in with Google again.");
+            return;
+          }
+          setGoogleToken(tok);
+          setGoogleProfile({
+            name: data.name || "",
+            email: data.email,
+            picture: data.picture || "",
+          });
+          setFormData((prev) => ({
+            ...prev,
+            owner_name: data.name || prev.owner_name,
+            email: data.email,
+          }));
+        })
+        .catch(() => {
+          setError("Failed to load Google profile. Please try again.");
+        });
+    }
+  }, []);
 
   // Step 2: Phone number search & mode state
   const [phoneMode, setPhoneMode] = useState<"carrier_search" | "agency_pool" | "byon">("carrier_search");
@@ -543,7 +581,7 @@ export default function OnboardingPage() {
         business_name: formData.business_name,
         owner_name: formData.owner_name,
         email: formData.email,
-        password: formData.password,
+        ...(googleToken ? { google_token: googleToken } : { password: formData.password }),
         timezone: formData.timezone,
         hours: formData.hours,
         niche: formData.niche,
@@ -771,6 +809,26 @@ export default function OnboardingPage() {
                 />
               </div>
 
+              {googleProfile && (
+                <div className="md:col-span-2 flex items-center gap-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                  {googleProfile.picture ? (
+                    <img
+                      src={googleProfile.picture}
+                      alt={googleProfile.name || "Google profile"}
+                      className="w-10 h-10 rounded-full border border-emerald-300 object-cover shrink-0"
+                    />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-emerald-900 truncate">
+                      {googleProfile.name || "Google Account"}
+                    </div>
+                    <div className="text-[11px] font-mono text-emerald-700 truncate">
+                      {googleProfile.email} &bull; Verified via Google
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-700">Business Owner Full Name *</label>
                 <input
@@ -787,22 +845,27 @@ export default function OnboardingPage() {
                 <input
                   type="email"
                   value={formData.email}
+                  readOnly={!!googleToken}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 font-mono"
+                  className={`w-full px-3 py-2 rounded-xl border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 font-mono ${
+                    googleToken ? "bg-zinc-100 cursor-not-allowed" : "bg-white"
+                  }`}
                   placeholder="owner@yourcompany.com"
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700">Account Password *</label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 font-mono"
-                  placeholder="Min. 8 characters"
-                />
-              </div>
+              {!googleToken && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-zinc-700">Account Password *</label>
+                  <input
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 font-mono"
+                    placeholder="Min. 8 characters"
+                  />
+                </div>
+              )}
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-700">Business Timezone</label>

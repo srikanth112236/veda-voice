@@ -857,7 +857,8 @@ export const api = {
     business_name: string;
     owner_name: string;
     email: string;
-    password: string;
+    password?: string;
+    google_token?: string;
     timezone?: string;
     hours?: string;
     niche?: string;

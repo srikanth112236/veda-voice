@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -185,3 +187,69 @@ def test_google_callback_issues_jwt_for_active_user(monkeypatch: Any) -> None:
     me_resp = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {jwt_token}"})
     assert me_resp.status_code == 200
     assert me_resp.json()["email"] == email
+
+
+def test_google_callback_new_user_redirects_to_onboarding_with_profile(monkeypatch: Any) -> None:
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "expected-client-id")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "secret")
+    new_email = f"new-google-{uuid.uuid4().hex[:8]}@example.com"
+    state = create_access_token({"flow": "google_login", "redirect_to": settings.DASHBOARD_URL})
+
+    monkeypatch.setattr(
+        "api.app.routers.auth.httpx.AsyncClient",
+        lambda **kwargs: _DummyAsyncClient(
+            {"id_token": "valid-id-token"},
+            {
+                "aud": "expected-client-id",
+                "iss": "https://accounts.google.com",
+                "email": new_email,
+                "name": "Jane Founder",
+                "picture": "https://lh3.googleusercontent.com/a/avatar.png",
+                "email_verified": "true",
+            },
+        ),
+    )
+    resp = client.get(
+        "/api/v1/auth/google/callback",
+        params={"code": "ok-code", "state": state},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 307
+    loc = resp.headers["location"]
+    assert "/onboarding#google_token=" in loc
+    g_token = loc.split("#google_token=", 1)[1]
+
+    sess_resp = client.get("/api/v1/auth/google/onboarding-session", params={"token": g_token})
+    assert sess_resp.status_code == 200
+    assert sess_resp.json() == {
+        "email": new_email,
+        "name": "Jane Founder",
+        "picture": "https://lh3.googleusercontent.com/a/avatar.png",
+    }
+
+    reg_resp = client.post(
+        "/api/v1/auth/register",
+        json={
+            "business_name": "Jane Dental",
+            "owner_name": "Jane Founder",
+            "email": "spoofed@example.com",
+            "google_token": g_token,
+            "phone_number": f"+1512555{uuid.uuid4().int % 10000:04d}",
+        },
+    )
+    assert reg_resp.status_code == 200
+    assert reg_resp.json()["user"]["email"] == new_email
+    assert reg_resp.json()["access_token"]
+
+
+def test_google_onboarding_session_rejects_expired_token() -> None:
+    expired = create_access_token(
+        {
+            "flow": "google_onboarding",
+            "email": "expired@example.com",
+            "email_verified": True,
+        },
+        expires_delta=timedelta(minutes=-1),
+    )
+    resp = client.get("/api/v1/auth/google/onboarding-session", params={"token": expired})
+    assert resp.status_code == 401
