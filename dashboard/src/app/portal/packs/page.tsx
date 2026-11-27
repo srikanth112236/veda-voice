@@ -161,13 +161,12 @@ export default function IndustryPacksPage() {
   };
 
   const handleDeleteDoc = async (docId: string, filename: string) => {
-    if (!confirm(`Delete "${filename}" and remove its indexed chunks from voice agent grounding?`)) return;
     try {
       await api.deleteKnowledgeDocument(docId);
       setMessage({ type: "success", text: `Removed "${filename}".` });
       await loadGroundingData();
-    } catch (err: any) {
-      setMessage({ type: "error", text: err.message || "Failed to delete document" });
+    } catch (err: unknown) {
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to delete document" });
     }
   };
 
@@ -433,7 +432,7 @@ export default function IndustryPacksPage() {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert("Speech recognition is not supported in this browser. Please use Chrome or Edge.");
+      setMessage({ type: "error", text: "Speech recognition is not supported in this browser. Please use Chrome or Edge." });
       return;
     }
 
@@ -624,7 +623,7 @@ export default function IndustryPacksPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col justify-between gap-4 border-b border-zinc-200 pb-5 sm:flex-row sm:items-center">
+      <div className="flex flex-col justify-between gap-4 border-b border-[var(--border-hairline)] pb-5 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
@@ -653,7 +652,7 @@ export default function IndustryPacksPage() {
           <button
             onClick={loadData}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
           >
             <RotateCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -677,7 +676,7 @@ export default function IndustryPacksPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-200 space-x-6 text-sm font-medium">
+      <div className="flex border-b border-[var(--border-hairline)] space-x-6 text-sm font-medium">
         <button
           onClick={() => setActiveTab("catalog")}
           className={`pb-3 border-b-2 flex items-center gap-2 transition ${
@@ -761,7 +760,7 @@ export default function IndustryPacksPage() {
                   className={`cursor-pointer rounded-xl border p-4 transition ${
                     isSelected
                       ? "border-indigo-500 bg-indigo-50/30 ring-1 ring-indigo-500 shadow-sm"
-                      : "border-zinc-200 bg-white hover:border-zinc-300"
+                      : "border-[var(--border-hairline)] bg-[var(--surface-panel)] hover:border-zinc-300"
                   }`}
                 >
                   <div className="flex items-start justify-between">
@@ -810,7 +809,7 @@ export default function IndustryPacksPage() {
           {/* Selected Pack Details Preview */}
           <div className="lg:col-span-7">
             {packDetail ? (
-              <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-5">
+              <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-5">
                 <div className="flex items-start justify-between border-b border-zinc-100 pb-4">
                   <div>
                     <div className="flex items-center gap-2">
@@ -897,7 +896,7 @@ export default function IndustryPacksPage() {
                       {packDetail.intake_schema?.fields?.map((fld: any) => (
                         <div
                           key={fld.key}
-                          className="rounded-lg border border-zinc-200 bg-white p-3 text-xs shadow-2xs hover:border-indigo-200 transition"
+                          className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-3 text-xs shadow-2xs hover:border-indigo-200 transition"
                         >
                           <div className="flex items-center justify-between font-medium text-zinc-800 mb-1">
                             <span className="flex items-center gap-2">
@@ -930,7 +929,7 @@ export default function IndustryPacksPage() {
                               {fld.options.map((opt: string, oIdx: number) => (
                                 <span
                                   key={oIdx}
-                                  className="rounded bg-zinc-50 border border-zinc-200 px-1.5 py-0.2 text-[10px] text-zinc-600 font-mono"
+                                  className="rounded bg-zinc-50 border border-[var(--border-hairline)] px-1.5 py-0.2 text-[10px] text-zinc-600 font-mono"
                                 >
                                   {opt}
                                 </span>
@@ -989,7 +988,7 @@ export default function IndustryPacksPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Left Column: Interactive Form Controls */}
           <div className="lg:col-span-6 space-y-5">
-            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-5">
+            <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-5">
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                 <div>
                   <h3 className="text-sm font-bold text-zinc-900">Customization Studio Controls</h3>
@@ -1121,7 +1120,7 @@ export default function IndustryPacksPage() {
                     )
                   }
                   disabled={previewLoading}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
                 >
                   <RotateCw className={`h-3 w-3 ${previewLoading ? "animate-spin" : ""}`} />
                   Recompile Preview
@@ -1141,7 +1140,7 @@ export default function IndustryPacksPage() {
 
           {/* Right Column: Live Prompt Preview */}
           <div className="lg:col-span-6 space-y-4">
-            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+            <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                 <div className="flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-indigo-600" />
@@ -1210,7 +1209,7 @@ export default function IndustryPacksPage() {
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-              <div className="rounded-lg border border-zinc-200 bg-white/80 p-3 shadow-2xs">
+              <div className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)]/80 p-3 shadow-2xs">
                 <div className="font-semibold text-zinc-800 flex items-center gap-1.5 mb-1">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
                   Strict Document Grounding
@@ -1220,7 +1219,7 @@ export default function IndustryPacksPage() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-zinc-200 bg-white/80 p-3 shadow-2xs">
+              <div className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)]/80 p-3 shadow-2xs">
                 <div className="font-semibold text-zinc-800 flex items-center gap-1.5 mb-1">
                   <ShieldCheck className="h-3.5 w-3.5 text-indigo-600" />
                   Prompt Injection Defense
@@ -1230,7 +1229,7 @@ export default function IndustryPacksPage() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-zinc-200 bg-white/80 p-3 shadow-2xs">
+              <div className="rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-panel)]/80 p-3 shadow-2xs">
                 <div className="font-semibold text-zinc-800 flex items-center gap-1.5 mb-1">
                   <Flame className="h-3.5 w-3.5 text-amber-600" />
                   Life Safety Directive
@@ -1246,7 +1245,7 @@ export default function IndustryPacksPage() {
             {/* Left Column (7 cols): Document Upload & Verified FAQs */}
             <div className="lg:col-span-7 space-y-6">
               {/* Section 1: Approved Business Documents */}
-              <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-4">
                 <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                   <div>
                     <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
@@ -1292,9 +1291,9 @@ export default function IndustryPacksPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden">
+                  <div className="divide-y divide-zinc-100 border border-[var(--border-hairline)] rounded-lg overflow-hidden">
                     {kbDocs.map((doc) => (
-                      <div key={doc.id} className="flex items-center justify-between p-3 bg-white hover:bg-zinc-50/60 transition">
+                      <div key={doc.id} className="flex items-center justify-between p-3 bg-[var(--surface-panel)] hover:bg-zinc-50/60 transition">
                         <div className="flex items-start gap-3 min-w-0">
                           <div className="p-2 rounded bg-zinc-100 text-zinc-600 shrink-0">
                             <FileText className="h-4 w-4" />
@@ -1342,7 +1341,7 @@ export default function IndustryPacksPage() {
               </div>
 
               {/* Section 2: Verified Direct FAQs & Policies */}
-              <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-4">
                 <div className="border-b border-zinc-100 pb-3">
                   <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
                     <HelpCircle className="h-4 w-4 text-emerald-600" />
@@ -1354,7 +1353,7 @@ export default function IndustryPacksPage() {
                 </div>
 
                 {/* Add FAQ Form */}
-                <form onSubmit={handleAddFaq} className="space-y-3 bg-zinc-50/70 p-3.5 rounded-lg border border-zinc-200 text-xs">
+                <form onSubmit={handleAddFaq} className="space-y-3 bg-zinc-50/70 p-3.5 rounded-lg border border-[var(--border-hairline)] text-xs">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                     <div className="md:col-span-2 space-y-1">
                       <label className="font-semibold text-zinc-700">Question / Customer Inquiry</label>
@@ -1364,7 +1363,7 @@ export default function IndustryPacksPage() {
                         onChange={(e) => setNewFaqQuestion(e.target.value)}
                         placeholder="e.g. What is your diagnostic dispatch fee?"
                         required
-                        className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                        className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-[var(--surface-panel)]"
                       />
                     </div>
                     <div className="space-y-1">
@@ -1372,7 +1371,7 @@ export default function IndustryPacksPage() {
                       <select
                         value={newFaqCategory}
                         onChange={(e) => setNewFaqCategory(e.target.value)}
-                        className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                        className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-[var(--surface-panel)]"
                       >
                         <option value="Pricing & Fees">Pricing &amp; Fees</option>
                         <option value="Emergency Protocol">Emergency Protocol</option>
@@ -1391,7 +1390,7 @@ export default function IndustryPacksPage() {
                       onChange={(e) => setNewFaqAnswer(e.target.value)}
                       placeholder="e.g. Our standard diagnostic dispatch fee is $89 during regular business hours, which is credited toward any completed repair."
                       required
-                      className="w-full rounded-md border border-zinc-300 p-2.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                      className="w-full rounded-md border border-zinc-300 p-2.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-[var(--surface-panel)]"
                     />
                   </div>
 
@@ -1402,7 +1401,7 @@ export default function IndustryPacksPage() {
                       value={newFaqAlts}
                       onChange={(e) => setNewFaqAlts(e.target.value)}
                       placeholder="e.g. service call rate, diagnostic charge, how much to come look"
-                      className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-white"
+                      className="w-full rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none bg-[var(--surface-panel)]"
                     />
                   </div>
 
@@ -1419,9 +1418,9 @@ export default function IndustryPacksPage() {
 
                 {/* FAQ List */}
                 {kbFaqs.length > 0 && (
-                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden max-h-[360px] overflow-y-auto">
+                  <div className="divide-y divide-zinc-100 border border-[var(--border-hairline)] rounded-lg overflow-hidden max-h-[360px] overflow-y-auto">
                     {kbFaqs.map((faq, idx) => (
-                      <div key={faq.id || idx} className="p-3 bg-white hover:bg-zinc-50/50 transition flex items-start justify-between gap-3 text-xs">
+                      <div key={faq.id || idx} className="p-3 bg-[var(--surface-panel)] hover:bg-zinc-50/50 transition flex items-start justify-between gap-3 text-xs">
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-zinc-900">Q: {faq.question}</span>
@@ -1453,7 +1452,7 @@ export default function IndustryPacksPage() {
 
             {/* Right Column (5 cols): Sub-50ms RAG Query & Simulator */}
             <div className="lg:col-span-5 space-y-4">
-              <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-4">
                 <div className="border-b border-zinc-100 pb-3">
                   <h4 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
                     <Search className="h-4 w-4 text-indigo-600" />
@@ -1511,7 +1510,7 @@ export default function IndustryPacksPage() {
                           Top Cited Documents:
                         </span>
                         {ragResult.top_matches.map((m, idx) => (
-                          <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 text-xs space-y-1">
+                          <div key={idx} className="rounded-lg border border-[var(--border-hairline)] bg-zinc-50/80 p-3 text-xs space-y-1">
                             <div className="flex items-center justify-between font-mono text-[11px]">
                               <span className="font-bold text-zinc-800">{m.filename}</span>
                               <span className="text-emerald-700 font-semibold">{Math.round(m.score * 100)}%</span>
@@ -1541,7 +1540,7 @@ export default function IndustryPacksPage() {
           {/* Inspect Document Modal */}
           {inspectingDoc && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-              <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl border border-zinc-200 overflow-hidden max-h-[80vh] flex flex-col">
+              <div className="w-full max-w-2xl rounded-xl bg-[var(--surface-panel)] shadow-2xl border border-[var(--border-hairline)] overflow-hidden max-h-[80vh] flex flex-col">
                 <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50">
                   <div>
                     <h4 className="text-sm font-bold text-zinc-900">{inspectingDoc.document.filename}</h4>
@@ -1558,7 +1557,7 @@ export default function IndustryPacksPage() {
                 </div>
                 <div className="p-4 overflow-y-auto space-y-3 flex-1 text-xs">
                   {inspectingDoc.chunks.map((chk) => (
-                    <div key={chk.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-3 space-y-1">
+                    <div key={chk.id} className="rounded-lg border border-[var(--border-hairline)] bg-zinc-50/50 p-3 space-y-1">
                       <div className="flex items-center justify-between font-mono text-[10px] text-zinc-500">
                         <span>Chunk #{chk.chunk_index}</span>
                         <span>{chk.token_count} tokens</span>
@@ -1579,9 +1578,9 @@ export default function IndustryPacksPage() {
       {activeTab === "sandbox" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Main Chat Area */}
-          <div className="lg:col-span-7 flex flex-col rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden h-[640px]">
+          <div className="lg:col-span-7 flex flex-col rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-sm overflow-hidden h-[640px]">
             {/* Sandbox Header */}
-            <div className="border-b border-zinc-200 bg-zinc-50/70 p-3.5 flex items-center justify-between">
+            <div className="border-b border-[var(--border-hairline)] bg-zinc-50/70 p-3.5 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <span className="relative flex h-2.5 w-2.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1599,7 +1598,7 @@ export default function IndustryPacksPage() {
                   className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium border transition ${
                     speechSynthesisEnabled
                       ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-                      : "border-zinc-200 bg-zinc-100 text-zinc-500"
+                      : "border-[var(--border-hairline)] bg-zinc-100 text-zinc-500"
                   }`}
                 >
                   {speechSynthesisEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
@@ -1608,7 +1607,7 @@ export default function IndustryPacksPage() {
 
                 <button
                   onClick={() => resetSandboxSession()}
-                  className="inline-flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 transition"
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-panel)] px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 transition"
                 >
                   <RotateCw className="h-3 w-3" />
                   Reset
@@ -1627,7 +1626,7 @@ export default function IndustryPacksPage() {
                   type="button"
                   onClick={() => handleSendTurn(pill.text)}
                   disabled={isSendingTurn}
-                  className="whitespace-nowrap rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:border-indigo-300 hover:bg-indigo-50/50 transition shadow-2xs"
+                  className="whitespace-nowrap rounded-full border border-[var(--border-hairline)] bg-[var(--surface-panel)] px-2.5 py-1 text-[11px] font-medium text-zinc-700 hover:border-indigo-300 hover:bg-indigo-50/50 transition shadow-2xs"
                 >
                   {pill.label}
                 </button>
@@ -1650,10 +1649,10 @@ export default function IndustryPacksPage() {
                   <div
                     className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-2xs leading-relaxed ${
                       msg.role === "user"
-                        ? "bg-indigo-600 text-white rounded-br-none"
+                        ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] rounded-br-none"
                         : msg.is_emergency
                         ? "bg-amber-50 border border-amber-300 text-amber-950 font-medium rounded-bl-none ring-1 ring-amber-400/50"
-                        : "bg-white border border-zinc-200 text-zinc-800 rounded-bl-none"
+                        : "bg-[var(--surface-panel)] border border-[var(--border-hairline)] text-zinc-800 rounded-bl-none"
                     }`}
                   >
                     {msg.is_emergency && (
@@ -1664,7 +1663,7 @@ export default function IndustryPacksPage() {
                     )}
                     <p>{msg.text}</p>
                     {msg.cited_source && (
-                      <div className="mt-2 pt-1.5 border-t border-zinc-200/80 flex items-center justify-between text-[11px] text-emerald-800 bg-emerald-50/80 rounded-md px-2 py-1">
+                      <div className="mt-2 pt-1.5 border-t border-[var(--border-hairline)]/80 flex items-center justify-between text-[11px] text-emerald-800 bg-emerald-50/80 rounded-md px-2 py-1">
                         <div className="flex items-center gap-1.5 font-medium truncate">
                           <FileText className="h-3 w-3 text-emerald-600 shrink-0" />
                           <span>Cited Source: {msg.cited_source}</span>
@@ -1689,7 +1688,7 @@ export default function IndustryPacksPage() {
             </div>
 
             {/* Input Row */}
-            <div className="border-t border-zinc-200 p-3 bg-white">
+            <div className="border-t border-[var(--border-hairline)] p-3 bg-[var(--surface-panel)]">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -1736,7 +1735,7 @@ export default function IndustryPacksPage() {
 
           {/* Right Column: Live Extraction & Life Safety HUD */}
           <div className="lg:col-span-5 space-y-4">
-            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-5">
+            <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-5">
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                 <h3 className="text-sm font-bold text-zinc-900">Real-Time Extraction & Safety HUD</h3>
                 <span className="rounded bg-zinc-100 px-2 py-0.5 text-[11px] font-mono text-zinc-600">
@@ -1815,7 +1814,7 @@ export default function IndustryPacksPage() {
                     {Object.entries(hudState.extractedIntake).map(([key, val]) => (
                       <div
                         key={key}
-                        className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 text-xs"
+                        className="flex items-center justify-between rounded-lg border border-[var(--border-hairline)] bg-zinc-50/70 p-2.5 text-xs"
                       >
                         <span className="font-mono font-medium text-zinc-600 text-[11px]">{key}</span>
                         <span className="rounded bg-indigo-50 px-2 py-0.5 font-semibold text-indigo-700 text-xs">
@@ -1825,14 +1824,14 @@ export default function IndustryPacksPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-dashed border-zinc-200 p-4 text-center text-xs text-zinc-400">
+                  <div className="rounded-lg border border-dashed border-[var(--border-hairline)] p-4 text-center text-xs text-zinc-400">
                     No intake fields extracted yet. Speak or type answers (e.g. trade type, urgency level, property type) to watch live CRM extraction.
                   </div>
                 )}
               </div>
 
               {/* Grounded Business Info Cited (Milestone M10a) */}
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3.5 space-y-2">
+              <div className="rounded-xl border border-[var(--border-hairline)] bg-zinc-50/70 p-3.5 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-700">
                     <FileText className="h-3.5 w-3.5 text-emerald-600" />
@@ -1848,12 +1847,12 @@ export default function IndustryPacksPage() {
                   <div className="space-y-1.5 text-xs">
                     <div className="flex items-center gap-1 font-semibold text-zinc-900">
                       <span className="text-zinc-500 font-normal">Source:</span>
-                      <span className="font-mono text-[11px] text-emerald-800 bg-white border border-emerald-200 px-1.5 py-0.5 rounded">
+                      <span className="font-mono text-[11px] text-emerald-800 bg-[var(--surface-panel)] border border-emerald-200 px-1.5 py-0.5 rounded">
                         {hudState.citedSource}
                       </span>
                     </div>
                     {hudState.citedSnippet && (
-                      <div className="rounded bg-white p-2 text-[11px] text-zinc-700 border border-zinc-200 font-serif italic max-h-24 overflow-y-auto leading-relaxed">
+                      <div className="rounded bg-[var(--surface-panel)] p-2 text-[11px] text-zinc-700 border border-[var(--border-hairline)] font-serif italic max-h-24 overflow-y-auto leading-relaxed">
                         &quot;{hudState.citedSnippet}&quot;
                       </div>
                     )}
@@ -1884,7 +1883,7 @@ export default function IndustryPacksPage() {
       {/* Tab 4: QA Test Runner */}
       {activeTab === "test" && (
         <div className="space-y-5">
-          <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-6 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-sm font-bold text-zinc-900">Automated 10-Scenario QA Test Runner</h3>
               <p className="mt-1 text-xs text-zinc-500">
@@ -1902,7 +1901,7 @@ export default function IndustryPacksPage() {
           </div>
 
           {testResult && (
-            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+            <div className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm text-zinc-900">Scorecard:</span>

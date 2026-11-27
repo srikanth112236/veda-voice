@@ -526,7 +526,7 @@ export default function ReceptionistProfilePage() {
       {/* --------------------------------------------------------------------- */}
       {/* 1. TOP HEADER & PRIMARY ACTION CONTROLS                               */}
       {/* --------------------------------------------------------------------- */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200  pb-5">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border-hairline)]  pb-5">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono uppercase tracking-wider font-semibold bg-indigo-500/10 text-indigo-600  border border-indigo-500/20">
@@ -602,7 +602,7 @@ export default function ReceptionistProfilePage() {
       {/* --------------------------------------------------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Carrier Trunk Diagnostics Card */}
-        <div className="lg:col-span-2 p-4 rounded-2xl bg-zinc-50  border border-zinc-200  flex flex-col justify-between">
+        <div className="lg:col-span-2 p-4 rounded-2xl bg-zinc-50  border border-[var(--border-hairline)]  flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
@@ -627,7 +627,7 @@ export default function ReceptionistProfilePage() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <div className="p-2.5 rounded-xl bg-white  border border-zinc-200/80 ">
+            <div className="p-2.5 rounded-xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]/80 ">
               <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
                 Provider
               </span>
@@ -638,7 +638,7 @@ export default function ReceptionistProfilePage() {
               </span>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-white  border border-zinc-200/80 ">
+            <div className="p-2.5 rounded-xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]/80 ">
               <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
                 STIR/SHAKEN
               </span>
@@ -648,7 +648,7 @@ export default function ReceptionistProfilePage() {
               </div>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-white  border border-zinc-200/80 ">
+            <div className="p-2.5 rounded-xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]/80 ">
               <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
                 SIP Security
               </span>
@@ -658,7 +658,7 @@ export default function ReceptionistProfilePage() {
               </div>
             </div>
 
-            <div className="p-2.5 rounded-xl bg-white  border border-zinc-200/80 ">
+            <div className="p-2.5 rounded-xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]/80 ">
               <span className="text-[10px] font-mono uppercase text-zinc-400 block mb-0.5">
                 E911 Routing
               </span>
@@ -670,7 +670,7 @@ export default function ReceptionistProfilePage() {
         </div>
 
         {/* Instant Office Override Card */}
-        <div className="p-4 rounded-2xl bg-zinc-50  border border-zinc-200  flex flex-col justify-between">
+        <div className="p-4 rounded-2xl bg-zinc-50  border border-[var(--border-hairline)]  flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-zinc-700  flex items-center gap-1.5">
@@ -694,7 +694,7 @@ export default function ReceptionistProfilePage() {
               onClick={() => setProfile({ ...profile, office_override_mode: "normal" })}
               className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all ${
                 profile.office_override_mode === "normal"
-                  ? "bg-white  text-zinc-900  shadow-xs"
+                  ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs"
                   : "text-zinc-600  hover:text-zinc-900"
               }`}
             >
@@ -716,7 +716,7 @@ export default function ReceptionistProfilePage() {
               onClick={() => setProfile({ ...profile, office_override_mode: "holiday_after_hours" })}
               className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold transition-all ${
                 profile.office_override_mode === "holiday_after_hours"
-                  ? "bg-indigo-600 text-white shadow-xs font-bold"
+                  ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] shadow-xs font-bold"
                   : "text-zinc-600  hover:text-zinc-900"
               }`}
             >
@@ -745,7 +745,7 @@ export default function ReceptionistProfilePage() {
                   setProfile({ ...profile, office_override_announcement: e.target.value })
                 }
                 placeholder="e.g. Due to severe icing, our vans are grounded today. Urgent pipe leaks are being triaged remotely."
-                className="mt-1.5 w-full md:w-[540px] px-3 py-1.5 text-xs rounded-lg border border-amber-300  bg-white  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="mt-1.5 w-full md:w-[540px] px-3 py-1.5 text-xs rounded-lg border border-amber-300  bg-[var(--surface-panel)]  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
           </div>
@@ -772,13 +772,13 @@ export default function ReceptionistProfilePage() {
       {/* --------------------------------------------------------------------- */}
       {/* 3. 8-MODULE UNIFIED COMMAND SUITE TAB BAR                             */}
       {/* --------------------------------------------------------------------- */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100  rounded-2xl border border-zinc-200  overflow-x-auto scrollbar-none">
+      <div className="flex items-center gap-1.5 p-1.5 bg-zinc-100  rounded-2xl border border-[var(--border-hairline)]  overflow-x-auto scrollbar-none">
         <button
           type="button"
           onClick={() => setActiveTab("persona")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "persona"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -791,7 +791,7 @@ export default function ReceptionistProfilePage() {
           onClick={() => setActiveTab("pacing")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "pacing"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -809,7 +809,7 @@ export default function ReceptionistProfilePage() {
           onClick={() => setActiveTab("guardrails")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "guardrails"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -825,7 +825,7 @@ export default function ReceptionistProfilePage() {
           onClick={() => setActiveTab("intake")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "intake"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -841,7 +841,7 @@ export default function ReceptionistProfilePage() {
           onClick={() => setActiveTab("pricing")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "pricing"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -854,7 +854,7 @@ export default function ReceptionistProfilePage() {
           onClick={() => setActiveTab("emergency")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "emergency"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -867,7 +867,7 @@ export default function ReceptionistProfilePage() {
           onClick={() => setActiveTab("schedule")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "schedule"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -880,7 +880,7 @@ export default function ReceptionistProfilePage() {
           onClick={() => setActiveTab("sms")}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === "sms"
-              ? "bg-white  text-zinc-900  shadow-xs border border-zinc-200 "
+              ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs border border-[var(--border-hairline)] "
               : "text-zinc-600  hover:text-zinc-900 "
           }`}
         >
@@ -899,7 +899,7 @@ export default function ReceptionistProfilePage() {
       {activeTab === "persona" && (
         <div className="space-y-6">
           {/* Persona Identity & Opening Greeting Card */}
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold tracking-tight">AI Identity & Opening Greeting</h3>
@@ -937,7 +937,7 @@ export default function ReceptionistProfilePage() {
                   type="text"
                   value={profile.business_name}
                   onChange={(e) => setProfile({ ...profile, business_name: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 
@@ -950,7 +950,7 @@ export default function ReceptionistProfilePage() {
                   value={profile.agent_name || "receptionist"}
                   onChange={(e) => setProfile({ ...profile, agent_name: e.target.value })}
                   placeholder="e.g. Alex, Sarah, Dispatcher"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 
@@ -961,7 +961,7 @@ export default function ReceptionistProfilePage() {
                 <select
                   value={profile.tone}
                   onChange={(e) => setProfile({ ...profile, tone: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 >
                   <option value="direct">Direct & Concise (Trades & Emergency Dispatch)</option>
                   <option value="warm">Warm & Conversational (Consultative & Retail)</option>
@@ -978,7 +978,7 @@ export default function ReceptionistProfilePage() {
                 rows={3}
                 value={profile.greeting}
                 onChange={(e) => setProfile({ ...profile, greeting: e.target.value })}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-900  focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
               />
               <div className="flex items-center justify-between text-[11px] text-zinc-400 mt-1">
                 <span>{profile.greeting.length} characters</span>
@@ -1012,7 +1012,7 @@ export default function ReceptionistProfilePage() {
           </div>
 
           {/* Voice Selector Catalog Grid */}
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold tracking-tight">Voice Selection Catalog</h3>
@@ -1030,7 +1030,7 @@ export default function ReceptionistProfilePage() {
                     onClick={() => setVoiceProviderFilter(provider)}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
                       voiceProviderFilter === provider
-                        ? "bg-white  text-zinc-900  shadow-xs"
+                        ? "bg-[var(--surface-panel)]  text-zinc-900  shadow-xs"
                         : "text-zinc-600 "
                     }`}
                   >
@@ -1054,7 +1054,7 @@ export default function ReceptionistProfilePage() {
                     className={`p-4 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
                       isSelected
                         ? "border-indigo-600  bg-indigo-50/50  shadow-xs"
-                        : "border-zinc-200  hover:border-zinc-300  bg-zinc-50/50 "
+                        : "border-[var(--border-hairline)]  hover:border-zinc-300  bg-zinc-50/50 "
                     }`}
                   >
                     <div>
@@ -1068,7 +1068,7 @@ export default function ReceptionistProfilePage() {
                           </span>
                         </div>
                         {isSelected && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-600 text-white">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--accent-signal)] text-[var(--accent-signal-ink)]">
                             Selected
                           </span>
                         )}
@@ -1087,7 +1087,7 @@ export default function ReceptionistProfilePage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-zinc-200/60 ">
+                    <div className="flex items-center justify-between pt-2 border-t border-[var(--border-hairline)]/60 ">
                       <div className="flex items-center gap-1 flex-wrap">
                         {voice.recommendedNiches.slice(0, 2).map((n) => (
                           <span
@@ -1107,8 +1107,8 @@ export default function ReceptionistProfilePage() {
                         }}
                         className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-colors ${
                           isPlaying
-                            ? "bg-indigo-600 text-white border-indigo-600"
-                            : "bg-white  border-zinc-200  hover:bg-zinc-100 text-zinc-700 "
+                            ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] border-indigo-600"
+                            : "bg-[var(--surface-panel)]  border-[var(--border-hairline)]  hover:bg-zinc-100 text-zinc-700 "
                         }`}
                       >
                         {isPlaying ? (
@@ -1125,7 +1125,7 @@ export default function ReceptionistProfilePage() {
           </div>
 
           {/* Phonetic Pronunciation Glossary */}
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold tracking-tight">Phonetic Pronunciation Glossary</h3>
@@ -1159,7 +1159,7 @@ export default function ReceptionistProfilePage() {
               {(profile.phonetic_glossary || []).map((entry, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-2 p-2.5 rounded-xl bg-zinc-50  border border-zinc-200  text-xs"
+                  className="flex items-center gap-2 p-2.5 rounded-xl bg-zinc-50  border border-[var(--border-hairline)]  text-xs"
                 >
                   <input
                     type="text"
@@ -1170,7 +1170,7 @@ export default function ReceptionistProfilePage() {
                       updated[idx].term = e.target.value;
                       setProfile({ ...profile, phonetic_glossary: updated });
                     }}
-                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-zinc-200  bg-white "
+                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-[var(--border-hairline)]  bg-[var(--surface-panel)] "
                   />
                   <span className="text-zinc-400">→</span>
                   <input
@@ -1182,7 +1182,7 @@ export default function ReceptionistProfilePage() {
                       updated[idx].spoken_as = e.target.value;
                       setProfile({ ...profile, phonetic_glossary: updated });
                     }}
-                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-zinc-200  bg-white  font-mono"
+                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-[var(--border-hairline)]  bg-[var(--surface-panel)]  font-mono"
                   />
                   <input
                     type="text"
@@ -1193,7 +1193,7 @@ export default function ReceptionistProfilePage() {
                       updated[idx].note = e.target.value;
                       setProfile({ ...profile, phonetic_glossary: updated });
                     }}
-                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-zinc-200  bg-white "
+                    className="w-1/3 px-2.5 py-1.5 rounded-lg border border-[var(--border-hairline)]  bg-[var(--surface-panel)] "
                   />
                   <button
                     type="button"
@@ -1204,7 +1204,7 @@ export default function ReceptionistProfilePage() {
                         window.speechSynthesis.speak(utt);
                       }
                     }}
-                    className="p-1.5 rounded-lg border border-zinc-200  hover:bg-zinc-100  text-zinc-600 "
+                    className="p-1.5 rounded-lg border border-[var(--border-hairline)]  hover:bg-zinc-100  text-zinc-600 "
                   >
                     <Volume2 className="w-3.5 h-3.5" />
                   </button>
@@ -1232,7 +1232,7 @@ export default function ReceptionistProfilePage() {
                     ],
                   });
                 }}
-                className="w-full py-2 border-2 border-dashed border-zinc-200  rounded-xl text-xs font-semibold text-zinc-500 hover:text-zinc-800 hover:border-zinc-400 transition-all flex items-center justify-center gap-1"
+                className="w-full py-2 border-2 border-dashed border-[var(--border-hairline)]  rounded-xl text-xs font-semibold text-zinc-500 hover:text-zinc-800 hover:border-zinc-400 transition-all flex items-center justify-center gap-1"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Phonetic Entry</span>
@@ -1248,7 +1248,7 @@ export default function ReceptionistProfilePage() {
       {activeTab === "pacing" && (
         <div className="space-y-6">
           {/* Cadence & Patience Selector */}
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Conversational Cadence & Patience</h3>
               <p className="text-xs text-zinc-500 ">
@@ -1272,7 +1272,7 @@ export default function ReceptionistProfilePage() {
                     className={`p-4 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
                       isSelected
                         ? "border-cyan-500  bg-cyan-50/50  shadow-xs"
-                        : "border-zinc-200  hover:border-zinc-300  bg-zinc-50/50 "
+                        : "border-[var(--border-hairline)]  hover:border-zinc-300  bg-zinc-50/50 "
                     }`}
                   >
                     <div>
@@ -1299,7 +1299,7 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Silence Detection Slider */}
-            <div className="pt-3 border-t border-zinc-200 ">
+            <div className="pt-3 border-t border-[var(--border-hairline)] ">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-medium text-zinc-700 ">
                   Custom Silence Threshold Endpointing (ms)
@@ -1330,7 +1330,7 @@ export default function ReceptionistProfilePage() {
           {/* Bilingual Spanish Auto-Switch & Empathy Card */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Bilingual Spanish */}
-            <div className="p-5 rounded-2xl bg-white  border border-zinc-200  flex flex-col justify-between">
+            <div className="p-5 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -1358,7 +1358,7 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Adaptive Empathy & Barge-In */}
-            <div className="p-5 rounded-2xl bg-white  border border-zinc-200  flex flex-col justify-between">
+            <div className="p-5 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -1396,7 +1396,7 @@ export default function ReceptionistProfilePage() {
           </div>
 
           {/* Background Ambience Layer */}
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-3">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-3">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Acoustic Ambience Layer</h3>
               <p className="text-xs text-zinc-500 ">
@@ -1414,7 +1414,7 @@ export default function ReceptionistProfilePage() {
                     className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
                       isSelected
                         ? "border-cyan-500 bg-cyan-50/40 "
-                        : "border-zinc-200  hover:border-zinc-300"
+                        : "border-[var(--border-hairline)]  hover:border-zinc-300"
                     }`}
                   >
                     <span className="font-bold text-zinc-900  block mb-0.5">
@@ -1436,7 +1436,7 @@ export default function ReceptionistProfilePage() {
       {/* ===================================================================== */}
       {activeTab === "guardrails" && (
         <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold tracking-tight">Do-Not-Say Guardrails Blacklist</h3>
@@ -1484,7 +1484,7 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Barred Chip Tags */}
-            <div className="flex flex-wrap gap-2 p-3 rounded-xl bg-zinc-50  border border-zinc-200  min-h-[90px]">
+            <div className="flex flex-wrap gap-2 p-3 rounded-xl bg-zinc-50  border border-[var(--border-hairline)]  min-h-[90px]">
               {(profile.barred_phrases || []).map((phrase, idx) => (
                 <span
                   key={idx}
@@ -1513,7 +1513,7 @@ export default function ReceptionistProfilePage() {
                 value={newBarredInput}
                 onChange={(e) => setNewBarredInput(e.target.value)}
                 placeholder="e.g. That is not my problem, We can do it for free"
-                className="flex-1 px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50 "
+                className="flex-1 px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50 "
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && newBarredInput.trim()) {
                     e.preventDefault();
@@ -1545,7 +1545,7 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Returning VIP Recognition */}
-            <div className="pt-4 border-t border-zinc-200  flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="pt-4 border-t border-[var(--border-hairline)]  flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <UserCheck className="w-4 h-4 text-emerald-600 " />
@@ -1580,7 +1580,7 @@ export default function ReceptionistProfilePage() {
                     setProfile({ ...profile, vip_returning_greeting: e.target.value })
                   }
                   placeholder="Welcome back! Are you calling regarding your ongoing service appointment?"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  font-mono"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  font-mono"
                 />
               </div>
             )}
@@ -1593,7 +1593,7 @@ export default function ReceptionistProfilePage() {
       {/* ===================================================================== */}
       {activeTab === "intake" && (
         <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold tracking-tight">Structured Caller Intake Checklist</h3>
@@ -1611,7 +1611,7 @@ export default function ReceptionistProfilePage() {
               {(profile.intake_questions || []).map((item, idx) => (
                 <div
                   key={item.id || idx}
-                  className="flex items-center justify-between p-3 rounded-xl bg-zinc-50  border border-zinc-200  text-xs"
+                  className="flex items-center justify-between p-3 rounded-xl bg-zinc-50  border border-[var(--border-hairline)]  text-xs"
                 >
                   <div className="flex items-center gap-3">
                     <span className="w-5 h-5 rounded-full bg-zinc-200  flex items-center justify-center font-mono text-[10px] font-bold text-zinc-700 ">
@@ -1644,7 +1644,7 @@ export default function ReceptionistProfilePage() {
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
                         item.required
                           ? "bg-amber-500/10 text-amber-700  border border-amber-500/20"
-                          : "bg-zinc-100  text-zinc-400 border border-zinc-200 "
+                          : "bg-zinc-100  text-zinc-400 border border-[var(--border-hairline)] "
                       }`}
                     >
                       {item.required ? "Mandatory" : "Optional"}
@@ -1669,18 +1669,18 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Add Custom Question Row */}
-            <div className="pt-3 border-t border-zinc-200  flex flex-col sm:flex-row gap-2">
+            <div className="pt-3 border-t border-[var(--border-hairline)]  flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={newIntakeLabel}
                 onChange={(e) => setNewIntakeLabel(e.target.value)}
                 placeholder="e.g. Approximate Square Footage, Insurance Policy Number"
-                className="flex-1 px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50 "
+                className="flex-1 px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50 "
               />
               <select
                 value={newIntakeCategory}
                 onChange={(e) => setNewIntakeCategory(e.target.value)}
-                className="px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-700 "
+                className="px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-700 "
               >
                 <option value="location">Location</option>
                 <option value="equipment">Equipment</option>
@@ -1722,7 +1722,7 @@ export default function ReceptionistProfilePage() {
       {/* ===================================================================== */}
       {activeTab === "pricing" && (
         <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Telephone Pricing Policy</h3>
               <p className="text-xs text-zinc-500 ">
@@ -1762,7 +1762,7 @@ export default function ReceptionistProfilePage() {
                     className={`p-4 rounded-xl border text-xs cursor-pointer transition-all ${
                       isSelected
                         ? "border-emerald-500 bg-emerald-50/50  shadow-xs"
-                        : "border-zinc-200  hover:border-zinc-300"
+                        : "border-[var(--border-hairline)]  hover:border-zinc-300"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1.5">
@@ -1778,7 +1778,7 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Price Items Table */}
-            <div className="pt-4 border-t border-zinc-200  space-y-3">
+            <div className="pt-4 border-t border-[var(--border-hairline)]  space-y-3">
               <span className="text-xs font-bold uppercase tracking-wider text-zinc-700  block">
                 Recognized Service Price Menu
               </span>
@@ -1792,7 +1792,7 @@ export default function ReceptionistProfilePage() {
                   return (
                     <div
                       key={idx}
-                      className="flex items-center justify-between p-3 rounded-xl bg-zinc-50  border border-zinc-200  text-xs"
+                      className="flex items-center justify-between p-3 rounded-xl bg-zinc-50  border border-[var(--border-hairline)]  text-xs"
                     >
                       <div>
                         <span className="font-bold text-zinc-900  block">
@@ -1831,14 +1831,14 @@ export default function ReceptionistProfilePage() {
                   value={newPriceItem.service}
                   onChange={(e) => setNewPriceItem({ ...newPriceItem, service: e.target.value })}
                   placeholder="Service Name (e.g. Tankless Flush)"
-                  className="w-1/2 px-3 py-1.5 text-xs rounded-xl border border-zinc-200  bg-zinc-50 "
+                  className="w-1/2 px-3 py-1.5 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50 "
                 />
                 <input
                   type="text"
                   value={newPriceItem.amount}
                   onChange={(e) => setNewPriceItem({ ...newPriceItem, amount: e.target.value })}
                   placeholder="Amount / Range (e.g. $189)"
-                  className="w-1/4 px-3 py-1.5 text-xs rounded-xl border border-zinc-200  bg-zinc-50  font-mono"
+                  className="w-1/4 px-3 py-1.5 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  font-mono"
                 />
                 <button
                   type="button"
@@ -1867,7 +1867,7 @@ export default function ReceptionistProfilePage() {
       {/* ===================================================================== */}
       {activeTab === "emergency" && (
         <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Emergency Protocol & Live SIP Transfer</h3>
               <p className="text-xs text-zinc-500 ">
@@ -1885,7 +1885,7 @@ export default function ReceptionistProfilePage() {
                   value={profile.transfer_number}
                   onChange={(e) => setProfile({ ...profile, transfer_number: e.target.value })}
                   placeholder="+1 (512) 555-0199"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  font-mono"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  font-mono"
                 />
                 <span className="text-[11px] text-zinc-500 mt-1 block">
                   When triggered, AI will initiate warm SIP REFER to this number.
@@ -1899,7 +1899,7 @@ export default function ReceptionistProfilePage() {
                 <select
                   value={profile.emergency_mode || "priority_message"}
                   onChange={(e) => setProfile({ ...profile, emergency_mode: e.target.value as any })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-900 "
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-900 "
                 >
                   <option value="priority_message">Priority Message (Instant SMS notification)</option>
                   <option value="live_transfer">Live SIP Transfer (Direct phone patch)</option>
@@ -1922,7 +1922,7 @@ export default function ReceptionistProfilePage() {
                     emergency_advice: e.target.value,
                   })
                 }
-                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-900  font-mono"
+                className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-900  font-mono"
               />
             </div>
 
@@ -1957,7 +1957,7 @@ export default function ReceptionistProfilePage() {
                   value={newKeywordInput}
                   onChange={(e) => setNewKeywordInput(e.target.value)}
                   placeholder="e.g. water gushing, gas smell, electrical sparks"
-                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-zinc-200  bg-zinc-50 "
+                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50 "
                 />
                 <button
                   type="button"
@@ -1986,7 +1986,7 @@ export default function ReceptionistProfilePage() {
       {/* ===================================================================== */}
       {activeTab === "schedule" && (
         <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Business Hours & Geofenced Service Area</h3>
               <p className="text-xs text-zinc-500 ">
@@ -2004,7 +2004,7 @@ export default function ReceptionistProfilePage() {
                   value={profile.hours}
                   onChange={(e) => setProfile({ ...profile, hours: e.target.value })}
                   placeholder="Monday to Friday, 8:00 AM to 6:00 PM EST"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  font-mono"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  font-mono"
                 />
               </div>
 
@@ -2015,7 +2015,7 @@ export default function ReceptionistProfilePage() {
                 <select
                   value={profile.timezone}
                   onChange={(e) => setProfile({ ...profile, timezone: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  text-zinc-900 "
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  text-zinc-900 "
                 >
                   <option value="America/New_York">Eastern Time (America/New_York)</option>
                   <option value="America/Chicago">Central Time (America/Chicago)</option>
@@ -2034,7 +2034,7 @@ export default function ReceptionistProfilePage() {
                 value={profile.service_area || ""}
                 onChange={(e) => setProfile({ ...profile, service_area: e.target.value })}
                 placeholder="Greater Austin Metro within 35 miles"
-                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50 "
+                className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50 "
               />
             </div>
 
@@ -2069,7 +2069,7 @@ export default function ReceptionistProfilePage() {
                   value={newCityInput}
                   onChange={(e) => setNewCityInput(e.target.value)}
                   placeholder="e.g. Austin, Round Rock, Cedar Park"
-                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-zinc-200  bg-zinc-50 "
+                  className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50 "
                 />
                 <button
                   type="button"
@@ -2098,7 +2098,7 @@ export default function ReceptionistProfilePage() {
       {/* ===================================================================== */}
       {activeTab === "sms" && (
         <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-white  border border-zinc-200  space-y-4">
+          <div className="p-6 rounded-2xl bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  space-y-4">
             <div>
               <h3 className="text-sm font-bold tracking-tight">Automated SMS Dispatch & Cellular Recovery</h3>
               <p className="text-xs text-zinc-500 ">
@@ -2108,7 +2108,7 @@ export default function ReceptionistProfilePage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Mid-Call SMS Toggle */}
-              <div className="p-4 rounded-xl bg-zinc-50  border border-zinc-200  flex flex-col justify-between">
+              <div className="p-4 rounded-xl bg-zinc-50  border border-[var(--border-hairline)]  flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-zinc-900  flex items-center gap-1.5">
@@ -2131,7 +2131,7 @@ export default function ReceptionistProfilePage() {
               </div>
 
               {/* Disconnect Recovery Toggle */}
-              <div className="p-4 rounded-xl bg-zinc-50  border border-zinc-200  flex flex-col justify-between">
+              <div className="p-4 rounded-xl bg-zinc-50  border border-[var(--border-hairline)]  flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-zinc-900  flex items-center gap-1.5">
@@ -2168,7 +2168,7 @@ export default function ReceptionistProfilePage() {
                 onChange={(e) =>
                   setProfile({ ...profile, disconnect_recovery_sms_text: e.target.value })
                 }
-                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  font-mono"
+                className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  font-mono"
               />
               <div className="flex items-center justify-between text-[11px] text-zinc-400">
                 <span>
@@ -2179,15 +2179,15 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Smartphone Simulation Preview */}
-            <div className="p-4 rounded-xl bg-zinc-100  border border-zinc-200  flex items-center justify-center">
-              <div className="w-[340px] bg-white  rounded-2xl border border-zinc-300  p-3 shadow-sm">
+            <div className="p-4 rounded-xl bg-zinc-100  border border-[var(--border-hairline)]  flex items-center justify-center">
+              <div className="w-[340px] bg-[var(--surface-panel)]  rounded-2xl border border-zinc-300  p-3 shadow-sm">
                 <div className="flex items-center justify-between text-[10px] text-zinc-400 pb-2 border-b border-zinc-100 ">
                   <span className="font-semibold text-zinc-700 ">
                     {profile.business_name || "Apex Plumbing"}
                   </span>
                   <span>Now</span>
                 </div>
-                <div className="mt-2.5 p-2.5 rounded-xl bg-indigo-600 text-white text-[11px] font-sans leading-relaxed">
+                <div className="mt-2.5 p-2.5 rounded-xl bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] text-[11px] font-sans leading-relaxed">
                   {profile.disconnect_recovery_sms_text ||
                     "We noticed our call disconnected! Tap here to resume: https://app.vedavoice.com/resume"}
                 </div>
@@ -2195,7 +2195,7 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* 2-Way SMS Confirmation & Automated 24h Reminders */}
-            <div className="pt-6 border-t border-zinc-200  space-y-4">
+            <div className="pt-6 border-t border-[var(--border-hairline)]  space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900  flex items-center gap-2">
@@ -2215,12 +2215,12 @@ export default function ReceptionistProfilePage() {
                     }
                     className="sr-only peer"
                   />
-                  <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer  peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer  peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[var(--surface-panel)] after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
                 </label>
               </div>
 
               {profile.auto_sms_reminders_enabled !== false && (
-                <div className="space-y-4 p-4 rounded-xl bg-zinc-50  border border-zinc-200 ">
+                <div className="space-y-4 p-4 rounded-xl bg-zinc-50  border border-[var(--border-hairline)] ">
                   {/* Lead Hours Selector */}
                   <div>
                     <label className="block text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-1.5">
@@ -2235,7 +2235,7 @@ export default function ReceptionistProfilePage() {
                           className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                             (profile.reminder_lead_hours || 24) === hours
                               ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-500 "
-                              : "bg-white  border-zinc-200  text-zinc-600  hover:border-zinc-300"
+                              : "bg-[var(--surface-panel)]  border-[var(--border-hairline)]  text-zinc-600  hover:border-zinc-300"
                           }`}
                         >
                           {hours} Hours Prior {hours === 24 ? "(Recommended)" : ""}
@@ -2255,7 +2255,7 @@ export default function ReceptionistProfilePage() {
                       onChange={(e) =>
                         setProfile({ ...profile, custom_reminder_template: e.target.value })
                       }
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-white  font-mono text-zinc-900 "
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-[var(--surface-panel)]  font-mono text-zinc-900 "
                     />
 
                     {/* Variable Pills */}
@@ -2292,7 +2292,7 @@ export default function ReceptionistProfilePage() {
                     <span className="block text-[10px] font-mono uppercase tracking-wider text-zinc-400 mb-1.5">
                       Live Customer Handset Preview
                     </span>
-                    <div className="w-full max-w-sm bg-white  rounded-2xl border border-zinc-300  p-3 shadow-xs">
+                    <div className="w-full max-w-sm bg-[var(--surface-panel)]  rounded-2xl border border-zinc-300  p-3 shadow-xs">
                       <div className="flex items-center justify-between text-[10px] text-zinc-400 pb-2 border-b border-zinc-100 ">
                         <span className="font-semibold text-zinc-700 ">
                           {profile.business_name || "Apex Plumbing"}
@@ -2323,7 +2323,7 @@ export default function ReceptionistProfilePage() {
       {/* --------------------------------------------------------------------- */}
       {showMicModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white  border border-zinc-200  rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-100  pb-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-violet-500/10 text-violet-600 flex items-center justify-center font-bold">
@@ -2349,7 +2349,7 @@ export default function ReceptionistProfilePage() {
             </div>
 
             {/* Conversation Bubbles */}
-            <div className="h-64 overflow-y-auto space-y-2.5 p-3 rounded-2xl bg-zinc-50  border border-zinc-200  text-xs">
+            <div className="h-64 overflow-y-auto space-y-2.5 p-3 rounded-2xl bg-zinc-50  border border-[var(--border-hairline)]  text-xs">
               {simMessages.map((msg, i) => (
                 <div
                   key={i}
@@ -2361,7 +2361,7 @@ export default function ReceptionistProfilePage() {
                     className={`max-w-[80%] p-3 rounded-2xl ${
                       msg.sender === "user"
                         ? "bg-violet-600 text-white rounded-br-xs"
-                        : "bg-white  text-zinc-900  border border-zinc-200  rounded-bl-xs"
+                        : "bg-[var(--surface-panel)]  text-zinc-900  border border-[var(--border-hairline)]  rounded-bl-xs"
                     }`}
                   >
                     <p className="leading-relaxed">{msg.text}</p>
@@ -2398,7 +2398,7 @@ export default function ReceptionistProfilePage() {
                   key={chip}
                   type="button"
                   onClick={() => handleSimUserSpeech(chip)}
-                  className="px-2 py-0.5 rounded-full bg-zinc-100  text-zinc-700  hover:bg-zinc-200 border border-zinc-200 "
+                  className="px-2 py-0.5 rounded-full bg-zinc-100  text-zinc-700  hover:bg-zinc-200 border border-[var(--border-hairline)] "
                 >
                   {chip}
                 </button>
@@ -2459,7 +2459,7 @@ export default function ReceptionistProfilePage() {
       {/* --------------------------------------------------------------------- */}
       {showCarrierModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white  border border-zinc-200  rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-100  pb-3">
               <div>
                 <h3 className="text-sm font-bold">Carrier SIP Trunk Architecture</h3>
@@ -2480,7 +2480,7 @@ export default function ReceptionistProfilePage() {
               {(carrierData?.trunks || []).map((trunk) => (
                 <div
                   key={trunk.phone_id}
-                  className="p-3.5 rounded-xl bg-zinc-50  border border-zinc-200  text-xs flex items-center justify-between"
+                  className="p-3.5 rounded-xl bg-zinc-50  border border-[var(--border-hairline)]  text-xs flex items-center justify-between"
                 >
                   <div>
                     <div className="flex items-center gap-2 mb-0.5">
@@ -2529,7 +2529,7 @@ export default function ReceptionistProfilePage() {
       {/* --------------------------------------------------------------------- */}
       {showTestCallModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white  border border-zinc-200  rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-[var(--surface-panel)]  border border-[var(--border-hairline)]  rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-100  pb-3">
               <div className="flex items-center gap-2">
                 <PhoneCall className="w-4 h-4 text-indigo-600 " />
@@ -2554,7 +2554,7 @@ export default function ReceptionistProfilePage() {
                   value={testCallPhone}
                   onChange={(e) => setTestCallPhone(e.target.value)}
                   placeholder="+1 (512) 555-0199"
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200  bg-zinc-50  font-mono"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-[var(--border-hairline)]  bg-zinc-50  font-mono"
                 />
                 <span className="text-[10px] text-zinc-400 mt-1 block">
                   Automated test calls verify sub-second turn latency and TCPA compliance gates.
@@ -2587,7 +2587,7 @@ export default function ReceptionistProfilePage() {
                 <button
                   type="submit"
                   disabled={dispatchingTestCall}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
                 >
                   {dispatchingTestCall ? "Dispatching..." : "Call My Phone Now"}
                 </button>

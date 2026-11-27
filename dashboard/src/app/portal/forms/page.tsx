@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { InlineNoticeBanner, InlineNotice } from "@/components/ui/inline-notice";
 import {
   api,
   LeadFormItem,
@@ -42,6 +43,7 @@ export default function LeadFormBuilderPage() {
 
   // Form Builder Drawer / Creator State
   const [showBuilder, setShowBuilder] = useState(false);
+  const [formNotice, setFormNotice] = useState<InlineNotice | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newSubmitAction, setNewSubmitAction] = useState<"call_triage" | "log_only">("call_triage");
@@ -142,22 +144,23 @@ export default function LeadFormBuilderPage() {
       setNewDescription("");
       loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to create form");
+      setFormNotice({ type: "error", text: err instanceof Error ? err.message : "Failed to create form" });
     }
   };
 
   const handleDeleteForm = async (formId: string) => {
-    if (!confirm("Are you sure you want to delete this lead form?")) return;
     try {
       await api.deleteLeadForm(formId);
+      setFormNotice({ type: "success", text: "Lead form deleted." });
       loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to delete form");
+      setFormNotice({ type: "error", text: err instanceof Error ? err.message : "Failed to delete form" });
     }
   };
 
   const copyEmbedCode = (formId: string) => {
-    const embed = `<iframe src="http://localhost:8000/api/v1/forms/${formId}/public" width="100%" height="480" frameborder="0"></iframe>`;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const embed = `<iframe src="${origin}/api/v1/forms/${formId}/public" width="100%" height="480" frameborder="0"></iframe>`;
     navigator.clipboard.writeText(embed);
     setCopiedId(formId);
     setTimeout(() => setCopiedId(null), 2000);
@@ -167,7 +170,7 @@ export default function LeadFormBuilderPage() {
     setSubmittingPreview(true);
     setPreviewSuccess(null);
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/forms/${formId}/submit`, {
+      const res = await fetch(`/api/v1/forms/${formId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -183,7 +186,7 @@ export default function LeadFormBuilderPage() {
       setPreviewSuccess(data.message);
       loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Submission failed");
+      setFormNotice({ type: "error", text: err instanceof Error ? err.message : "Submission failed" });
     } finally {
       setSubmittingPreview(false);
     }
@@ -194,13 +197,13 @@ export default function LeadFormBuilderPage() {
       await api.updateLeadStatus(leadId, status);
       loadData();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to update status");
+      setFormNotice({ type: "error", text: err instanceof Error ? err.message : "Failed to update status" });
     }
   };
 
   if (loading) {
     return (
-      <div className="p-8 text-xs font-mono text-zinc-500 bg-white rounded-2xl border border-zinc-200 text-center">
+      <div className="p-8 text-xs font-mono text-[var(--ink-muted)] bg-[var(--surface-panel)] rounded-xl border border-[var(--border-hairline)] text-center">
         Loading lead form builder and captured leads...
       </div>
     );
@@ -208,8 +211,9 @@ export default function LeadFormBuilderPage() {
 
   return (
     <div className="space-y-6">
+      <InlineNoticeBanner notice={formNotice} onDismiss={() => setFormNotice(null)} />
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[var(--border-hairline)] gap-4">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-mono font-semibold mb-2">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -227,7 +231,7 @@ export default function LeadFormBuilderPage() {
         <button
           type="button"
           onClick={() => setShowBuilder(!showBuilder)}
-          className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all self-start sm:self-auto"
+          className="px-4 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
           {showBuilder ? "Close Builder" : "Create New Lead Form"}
@@ -236,7 +240,7 @@ export default function LeadFormBuilderPage() {
 
       {/* FORM BUILDER DRAWER */}
       {showBuilder && (
-        <form onSubmit={handleCreateForm} className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-md space-y-6 animate-in fade-in duration-150">
+        <form onSubmit={handleCreateForm} className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-md space-y-6 animate-in fade-in duration-150">
           <div className="space-y-1">
             <h2 className="text-base font-bold text-zinc-900">Custom Intake Form Designer</h2>
             <p className="text-xs text-zinc-500">Configure public customer fields, select dropdowns, and automated speed-to-lead callback triggers.</p>
@@ -251,7 +255,7 @@ export default function LeadFormBuilderPage() {
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="e.g. 24/7 Water Damage Emergency Dispatch"
-                className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--surface-panel)] border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
               />
             </div>
 
@@ -260,7 +264,7 @@ export default function LeadFormBuilderPage() {
               <select
                 value={newSubmitAction}
                 onChange={(e) => setNewSubmitAction(e.target.value as any)}
-                className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--surface-panel)] border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
               >
                 <option value="call_triage">⚡ Sub-2s AI Voice Callback (Instant Call Triage)</option>
                 <option value="log_only">📝 Log to Leads Inbox Only (No Automated Call)</option>
@@ -275,7 +279,7 @@ export default function LeadFormBuilderPage() {
               value={newDescription}
               onChange={(e) => setNewDescription(e.target.value)}
               placeholder="e.g. Enter your job address and phone number for immediate technician dispatch."
-              className="w-full px-3 py-2 rounded-xl bg-white border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+              className="w-full px-3 py-2 rounded-xl bg-[var(--surface-panel)] border border-zinc-300 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
             />
           </div>
 
@@ -296,14 +300,14 @@ export default function LeadFormBuilderPage() {
 
             <div className="space-y-2.5">
               {fields.map((f, idx) => (
-                <div key={idx} className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50/60 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                <div key={idx} className="p-3.5 rounded-xl border border-[var(--border-hairline)] bg-zinc-50/60 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
                   <div className="sm:col-span-3 space-y-0.5">
                     <span className="text-[10px] font-mono text-zinc-400 uppercase">Field Key</span>
                     <input
                       type="text"
                       value={f.name}
                       onChange={(e) => handleFieldChange(idx, "name", e.target.value)}
-                      className="w-full px-2.5 py-1 rounded-lg bg-white border border-zinc-300 text-xs font-mono text-zinc-800"
+                      className="w-full px-2.5 py-1 rounded-lg bg-[var(--surface-panel)] border border-zinc-300 text-xs font-mono text-zinc-800"
                     />
                   </div>
 
@@ -313,7 +317,7 @@ export default function LeadFormBuilderPage() {
                       type="text"
                       value={f.label}
                       onChange={(e) => handleFieldChange(idx, "label", e.target.value)}
-                      className="w-full px-2.5 py-1 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-800"
+                      className="w-full px-2.5 py-1 rounded-lg bg-[var(--surface-panel)] border border-zinc-300 text-xs text-zinc-800"
                     />
                   </div>
 
@@ -322,7 +326,7 @@ export default function LeadFormBuilderPage() {
                     <select
                       value={f.type}
                       onChange={(e) => handleFieldChange(idx, "type", e.target.value)}
-                      className="w-full px-2.5 py-1 rounded-lg bg-white border border-zinc-300 text-xs text-zinc-800"
+                      className="w-full px-2.5 py-1 rounded-lg bg-[var(--surface-panel)] border border-zinc-300 text-xs text-zinc-800"
                     >
                       <option value="text">Text</option>
                       <option value="tel">Telephone</option>
@@ -362,13 +366,13 @@ export default function LeadFormBuilderPage() {
             <button
               type="button"
               onClick={() => setShowBuilder(false)}
-              className="px-4 py-2 rounded-xl border border-zinc-300 bg-white text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+              className="px-4 py-2 rounded-xl border border-zinc-300 bg-[var(--surface-panel)] text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm"
+              className="px-6 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold shadow-sm"
             >
               Save &amp; Publish Form
             </button>
@@ -385,7 +389,7 @@ export default function LeadFormBuilderPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {forms.map((f) => (
-            <div key={f.id} className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-4 flex flex-col justify-between">
+            <div key={f.id} className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-sm space-y-4 flex flex-col justify-between">
               <div className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-0.5">
@@ -405,7 +409,7 @@ export default function LeadFormBuilderPage() {
                 {/* Field Tags */}
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {f.fields.map((fld, i) => (
-                    <span key={i} className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-zinc-200">
+                    <span key={i} className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-700 border border-[var(--border-hairline)]">
                       {fld.label} {fld.required && "*"}
                     </span>
                   ))}
@@ -417,7 +421,7 @@ export default function LeadFormBuilderPage() {
                 <button
                   type="button"
                   onClick={() => copyEmbedCode(f.id)}
-                  className="px-3 py-1.5 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-xs font-semibold text-zinc-700 flex items-center gap-1.5 font-mono shadow-sm"
+                  className="px-3 py-1.5 rounded-xl border border-zinc-300 bg-[var(--surface-panel)] hover:bg-zinc-50 text-xs font-semibold text-zinc-700 flex items-center gap-1.5 font-mono shadow-sm"
                 >
                   {copiedId === f.id ? (
                     <>
@@ -462,7 +466,7 @@ export default function LeadFormBuilderPage() {
       )}
 
       {/* REAL-TIME LEADS INBOX */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-sm space-y-4">
+      <div className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-100 pb-3">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
@@ -482,7 +486,7 @@ export default function LeadFormBuilderPage() {
         </div>
 
         {leads.length === 0 ? (
-          <div className="p-8 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+          <div className="p-8 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl border border-dashed border-[var(--border-hairline)]">
             No leads captured yet. Submit a test inquiry through your form above!
           </div>
         ) : (
@@ -498,12 +502,12 @@ export default function LeadFormBuilderPage() {
                       className={`p-4 rounded-xl border transition-all space-y-3 ${
                         isEmergency
                           ? "border-red-200 bg-red-50/40"
-                          : "border-slate-200 bg-slate-50/60"
+                          : "border-[var(--border-hairline)] bg-slate-50/60"
                       }`}
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-700 text-xs shadow-sm">
+                          <div className="w-8 h-8 rounded-full bg-[var(--surface-panel)] border border-[var(--border-hairline)] flex items-center justify-center font-bold text-slate-700 text-xs shadow-sm">
                             {lead.caller_name ? lead.caller_name[0] : "L"}
                           </div>
                           <div>
@@ -534,7 +538,7 @@ export default function LeadFormBuilderPage() {
                           <select
                             value={lead.status}
                             onChange={(e) => handleUpdateStatus(lead.id, e.target.value)}
-                            className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 text-xs font-semibold text-slate-800 shadow-sm"
+                            className="px-2.5 py-1 rounded-lg bg-[var(--surface-panel)] border border-slate-300 text-xs font-semibold text-slate-800 shadow-sm"
                           >
                             <option value="pending">Pending</option>
                             <option value="contacted">Contacted</option>
@@ -552,7 +556,7 @@ export default function LeadFormBuilderPage() {
                       )}
 
                       {lead.custom_data && Object.keys(lead.custom_data).length > 0 && (
-                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 text-[11px] font-mono text-slate-600 flex flex-wrap gap-2">
+                        <div className="p-2.5 rounded-lg bg-[var(--surface-panel)] border border-[var(--border-hairline)] text-[11px] font-mono text-slate-600 flex flex-wrap gap-2">
                           {Object.entries(lead.custom_data).map(([k, v]) => (
                             <span key={k}>
                               <strong>{k}:</strong> {String(v)}

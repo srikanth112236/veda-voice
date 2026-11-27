@@ -161,10 +161,10 @@ export default function IntegrationsPage() {
       if (res.authorization_url) {
         window.location.href = res.authorization_url;
       } else {
-        alert("No authorization URL returned by server.");
+        setNotification("No authorization URL returned by server.");
       }
-    } catch (err: any) {
-      alert(`HubSpot OAuth initiation failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`HubSpot OAuth initiation failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setConnectingOAuth(false);
     }
@@ -177,10 +177,10 @@ export default function IntegrationsPage() {
       if (res.authorization_url) {
         window.location.href = res.authorization_url;
       } else {
-        alert("No authorization URL returned by server.");
+        setNotification("No authorization URL returned by server.");
       }
-    } catch (err: any) {
-      alert(`GoHighLevel OAuth initiation failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`GoHighLevel OAuth initiation failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setConnectingOAuth(false);
     }
@@ -193,10 +193,10 @@ export default function IntegrationsPage() {
       if (res.authorization_url) {
         window.location.href = res.authorization_url;
       } else {
-        alert("No authorization URL returned by server.");
+        setNotification("No authorization URL returned by server.");
       }
-    } catch (err: any) {
-      alert(`Pipedrive OAuth initiation failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Pipedrive OAuth initiation failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setConnectingOAuth(false);
     }
@@ -209,8 +209,8 @@ export default function IntegrationsPage() {
       setNotification(res.message || "Dead-letter jobs re-queued for delivery.");
       setTimeout(() => setNotification(null), 4000);
       await fetchData();
-    } catch (err: any) {
-      alert(`Failed to retry dead letters: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Failed to retry dead letters: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setRetryingDead(false);
     }
@@ -227,8 +227,8 @@ export default function IntegrationsPage() {
       );
       setTimeout(() => setNotification(null), 4000);
       await fetchData();
-    } catch (err: any) {
-      alert(`Process outbox failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Process outbox failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setProcessingOutbox(false);
     }
@@ -241,8 +241,8 @@ export default function IntegrationsPage() {
       setNotification(res.message || `Test sync enqueued for ${provider.toUpperCase()}`);
       setTimeout(() => setNotification(null), 4000);
       await fetchData();
-    } catch (err: any) {
-      alert(`Test sync failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Test sync failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setTestingSync(null);
     }
@@ -257,8 +257,8 @@ export default function IntegrationsPage() {
         `Calendar sync verified! ${res.busy_blocks_found} calendar blocks mapped with ${res.provider.toUpperCase()} provider.`
       );
       setTimeout(() => setNotification(null), 5000);
-    } catch (err: any) {
-      alert(`Calendar sync test failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      setNotification(`Calendar sync test failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setTestingCalendarSync(false);
     }
@@ -282,8 +282,8 @@ export default function IntegrationsPage() {
         );
       }
       setTimeout(() => setNotification(null), 4500);
-    } catch (err: any) {
-      alert(`Webhook test execution failed: ${err.message || err}`);
+    } catch (err: unknown) {
+      setNotification(`Webhook test execution failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setTestingWebhookId(null);
     }
@@ -303,20 +303,19 @@ export default function IntegrationsPage() {
       setNotification(`Successfully connected ${selectedProvider.toUpperCase()}!`);
       setTimeout(() => setNotification(null), 3500);
       fetchData();
-    } catch (err: any) {
-      alert(`Connection failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Connection failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleDisconnectCRM = async (provider: string) => {
-    if (!confirm(`Are you sure you want to disconnect ${provider.toUpperCase()}?`)) return;
     try {
       await api.disconnectCRM(provider);
       setNotification(`Disconnected ${provider.toUpperCase()}.`);
       setTimeout(() => setNotification(null), 3000);
       fetchData();
-    } catch (err: any) {
-      alert(`Disconnect failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Disconnect failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -334,25 +333,25 @@ export default function IntegrationsPage() {
       setNotification("Webhook endpoint subscribed!");
       setTimeout(() => setNotification(null), 3000);
       fetchData();
-    } catch (err: any) {
-      alert(`Error adding webhook: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Error adding webhook: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleDeleteWebhook = async (id: string) => {
-    if (!confirm("Delete this webhook subscription?")) return;
     try {
       await api.deleteWebhook(id);
+      setNotification("Webhook subscription removed.");
       fetchData();
-    } catch (err: any) {
-      alert(`Failed to delete webhook: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`Failed to delete webhook: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
   const handleCSVUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!csvContent.trim()) {
-      alert("Please enter or paste CSV content.");
+      setNotification("Please enter or paste CSV content.");
       return;
     }
     setUploadingCSV(true);
@@ -364,8 +363,8 @@ export default function IntegrationsPage() {
         `Imported ${res.imported_contacts} leads (${res.suppressed_skipped} DNC skipped).`
       );
       setTimeout(() => setNotification(null), 5000);
-    } catch (err: any) {
-      alert(`CSV Upload failed: ${err.message}`);
+    } catch (err: unknown) {
+      setNotification(`CSV Upload failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setUploadingCSV(false);
     }
@@ -390,7 +389,7 @@ export default function IntegrationsPage() {
   return (
     <div className="space-y-6 pb-20">
       {/* Top Banner & KPI Strip */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[var(--border-hairline)] gap-4">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="p-2 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700">
@@ -414,7 +413,7 @@ export default function IntegrationsPage() {
             type="button"
             onClick={fetchData}
             disabled={loading}
-            className="px-3 py-2 rounded-xl border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-mono flex items-center gap-1.5 transition-colors shadow-xs"
+            className="px-3 py-2 rounded-xl border border-zinc-300 bg-[var(--surface-panel)] hover:bg-zinc-50 text-zinc-700 text-xs font-mono flex items-center gap-1.5 transition-colors shadow-xs"
             title="Refresh all connector states"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-indigo-600" : ""}`} />
@@ -424,7 +423,7 @@ export default function IntegrationsPage() {
           <button
             type="button"
             onClick={() => setActiveModal("webhook")}
-            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
+            className="px-4 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
           >
             <Plus className="w-4 h-4" />
             Add Outbound Webhook
@@ -446,7 +445,7 @@ export default function IntegrationsPage() {
 
       {/* Primary KPI Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Connected CRMs</span>
             <Database className="w-4 h-4 text-indigo-500" />
@@ -460,7 +459,7 @@ export default function IntegrationsPage() {
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Calendar Provider</span>
             <CalendarCheck className="w-4 h-4 text-emerald-500" />
@@ -480,7 +479,7 @@ export default function IntegrationsPage() {
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Outbox Delivery SLA</span>
             <Layers className="w-4 h-4 text-sky-500" />
@@ -493,7 +492,7 @@ export default function IntegrationsPage() {
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Outbound Webhooks</span>
             <Radio className="w-4 h-4 text-amber-500" />
@@ -509,7 +508,7 @@ export default function IntegrationsPage() {
 
       {/* 5-Tab Navigation Suite & Search Filter */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-1 p-1 bg-zinc-100 rounded-2xl border border-zinc-200 overflow-x-auto">
+        <div className="flex items-center gap-1 p-1 bg-zinc-100 rounded-2xl border border-[var(--border-hairline)] overflow-x-auto">
           {[
             { id: "all", label: "All Integrations", icon: Share2 },
             { id: "calendars", label: "Calendars & Scheduling", icon: Calendar },
@@ -526,7 +525,7 @@ export default function IntegrationsPage() {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
                   isSelected
-                    ? "bg-white text-zinc-900 shadow-xs border border-zinc-200 font-bold"
+                    ? "bg-[var(--surface-panel)] text-zinc-900 shadow-xs border border-[var(--border-hairline)] font-bold"
                     : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/60"
                 }`}
               >
@@ -545,7 +544,7 @@ export default function IntegrationsPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search connectors & tools..."
-            className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white border border-zinc-200 text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900"
+            className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] text-xs text-zinc-800 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900"
           />
           {searchQuery && (
             <button
@@ -581,7 +580,7 @@ export default function IntegrationsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Google Calendar Card */}
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -609,7 +608,7 @@ export default function IntegrationsPage() {
                 </p>
 
                 {calendarStatus?.is_connected && calendarStatus?.provider === "google" && (
-                  <div className="p-2.5 rounded-xl bg-zinc-50 border border-zinc-200 font-mono text-[10px] space-y-1">
+                  <div className="p-2.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] font-mono text-[10px] space-y-1">
                     <div className="text-zinc-700 font-semibold truncate">
                       Calendar: {calendarStatus.calendar_id || "primary"}
                     </div>
@@ -633,7 +632,7 @@ export default function IntegrationsPage() {
 
                 <a
                   href="/portal/calendar"
-                  className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs"
+                  className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-xs"
                 >
                   <span>Manage Google Calendar</span>
                   <ExternalLink className="w-3.5 h-3.5" />
@@ -642,7 +641,7 @@ export default function IntegrationsPage() {
             </div>
 
             {/* Microsoft Outlook 365 Card */}
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -669,7 +668,7 @@ export default function IntegrationsPage() {
                   Enterprise exchange sync for commercial trade contractors and corporate dispatch boards with Outlook desktop &amp; web.
                 </p>
 
-                <div className="p-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-[11px] text-zinc-600 font-mono">
+                <div className="p-2.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] text-[11px] text-zinc-600 font-mono">
                   <span>SLA Sync: Sub-second slot reconciliation</span>
                 </div>
               </div>
@@ -677,7 +676,7 @@ export default function IntegrationsPage() {
               <div className="pt-2 border-t border-zinc-100">
                 <a
                   href="/portal/calendar"
-                  className="w-full py-2 rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+                  className="w-full py-2 rounded-xl border border-[var(--border-hairline)] hover:bg-zinc-50 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition"
                 >
                   <span>Connect Outlook 365</span>
                   <ExternalLink className="w-3.5 h-3.5" />
@@ -686,7 +685,7 @@ export default function IntegrationsPage() {
             </div>
 
             {/* Calendly Inbound Webhook & SMS Dispatch */}
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -707,7 +706,7 @@ export default function IntegrationsPage() {
                   When a customer books via your public Calendly link, VedaVoice catches the webhook and dispatches a confirmation SMS with reschedule link.
                 </p>
 
-                <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 space-y-1">
+                <div className="bg-zinc-50 p-2.5 rounded-xl border border-[var(--border-hairline)] space-y-1">
                   <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">
                     Calendly Inbound Webhook URL
                   </span>
@@ -771,7 +770,7 @@ export default function IntegrationsPage() {
               const isConn = isProviderConnected(info);
               const isOAuth = info?.type === "oauth2";
               return (
-                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -794,7 +793,7 @@ export default function IntegrationsPage() {
                       Transactional 2-way sync with envelope encryption. Syncs contacts, call summaries, recording URLs, and stage updates into HubSpot CRM.
                     </p>
                     {isConn && info?.account_id && (
-                      <div className="text-[10px] font-mono text-zinc-600 bg-zinc-50 px-2.5 py-1 rounded-xl border border-zinc-200 truncate">
+                      <div className="text-[10px] font-mono text-zinc-600 bg-zinc-50 px-2.5 py-1 rounded-xl border border-[var(--border-hairline)] truncate">
                         Portal ID: <span className="font-semibold text-zinc-800">{info.account_id}</span>
                       </div>
                     )}
@@ -864,7 +863,7 @@ export default function IntegrationsPage() {
               const isConn = isProviderConnected(info);
               const isOAuth = info?.type === "oauth2";
               return (
-                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -887,7 +886,7 @@ export default function IntegrationsPage() {
                       Agency multi-location sync. Creates sub-account contacts, custom fields, and logs AI conversation notes.
                     </p>
                     {isConn && info?.account_id && (
-                      <div className="text-[10px] font-mono text-zinc-600 bg-zinc-50 px-2.5 py-1 rounded-xl border border-zinc-200 truncate">
+                      <div className="text-[10px] font-mono text-zinc-600 bg-zinc-50 px-2.5 py-1 rounded-xl border border-[var(--border-hairline)] truncate">
                         Loc ID: <span className="font-semibold text-zinc-800">{info.account_id}</span>
                       </div>
                     )}
@@ -955,7 +954,7 @@ export default function IntegrationsPage() {
               const info = getProviderInfo("servicetitan");
               const isConn = isProviderConnected(info);
               return (
-                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -997,7 +996,7 @@ export default function IntegrationsPage() {
                           setSelectedProvider("servicetitan");
                           setActiveModal("crm");
                         }}
-                        className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs"
+                        className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold transition shadow-xs"
                       >
                         Connect ServiceTitan
                       </button>
@@ -1012,7 +1011,7 @@ export default function IntegrationsPage() {
               const info = getProviderInfo("jobber");
               const isConn = isProviderConnected(info);
               return (
-                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1048,7 +1047,7 @@ export default function IntegrationsPage() {
                           setSelectedProvider("jobber");
                           setActiveModal("crm");
                         }}
-                        className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs"
+                        className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold transition shadow-xs"
                       >
                         Connect Jobber
                       </button>
@@ -1063,7 +1062,7 @@ export default function IntegrationsPage() {
               const info = getProviderInfo("housecall_pro");
               const isConn = isProviderConnected(info);
               return (
-                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1099,7 +1098,7 @@ export default function IntegrationsPage() {
                           setSelectedProvider("housecall_pro");
                           setActiveModal("crm");
                         }}
-                        className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-xs"
+                        className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold transition shadow-xs"
                       >
                         Connect Housecall Pro
                       </button>
@@ -1115,7 +1114,7 @@ export default function IntegrationsPage() {
               const isConn = isProviderConnected(info);
               const isOAuth = info?.type === "oauth2";
               return (
-                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
+                <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1192,7 +1191,7 @@ export default function IntegrationsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Google Sheets Two-Way Sync */}
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs space-y-4 flex flex-col justify-between">
+            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs space-y-4 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -1209,7 +1208,7 @@ export default function IntegrationsPage() {
                   </p>
                 </div>
 
-                <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 space-y-1">
+                <div className="bg-zinc-50 p-2.5 rounded-xl border border-[var(--border-hairline)] space-y-1">
                   <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">
                     Google Sheet Inbound Webhook URL
                   </span>
@@ -1266,7 +1265,7 @@ export default function IntegrationsPage() {
             </div>
 
             {/* Universal Website Forms Webhook */}
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs space-y-4 flex flex-col justify-between">
+            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs space-y-4 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">
@@ -1283,7 +1282,7 @@ export default function IntegrationsPage() {
                   </p>
                 </div>
 
-                <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 space-y-1">
+                <div className="bg-zinc-50 p-2.5 rounded-xl border border-[var(--border-hairline)] space-y-1">
                   <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">
                     Universal Form Webhook URL
                   </span>
@@ -1318,7 +1317,7 @@ export default function IntegrationsPage() {
             </div>
 
             {/* Meta Lead Ads */}
-            <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-xs space-y-4 flex flex-col justify-between">
+            <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-5 shadow-xs space-y-4 flex flex-col justify-between">
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="p-2 rounded-xl bg-purple-50 text-purple-700 border border-purple-200">
@@ -1335,7 +1334,7 @@ export default function IntegrationsPage() {
                   </p>
                 </div>
 
-                <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-200 space-y-1">
+                <div className="bg-zinc-50 p-2.5 rounded-xl border border-[var(--border-hairline)] space-y-1">
                   <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">
                     Meta Webhook Callback URL
                   </span>
@@ -1370,7 +1369,7 @@ export default function IntegrationsPage() {
           </div>
 
           {/* CSV Bulk Upload with Compliance Gate */}
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-xs space-y-5">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-6 shadow-xs space-y-5">
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-wider text-xs flex items-center gap-2">
@@ -1417,7 +1416,7 @@ export default function IntegrationsPage() {
                 <button
                   type="submit"
                   disabled={uploadingCSV || !csvContent.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] font-bold text-xs hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs flex items-center gap-2"
                 >
                   {uploadingCSV ? (
                     <>
@@ -1435,22 +1434,22 @@ export default function IntegrationsPage() {
             </form>
 
             {csvResult && (
-              <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-3">
+              <div className="p-4 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] space-y-3">
                 <h4 className="text-xs font-bold text-zinc-900">Upload Processing Report:</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div className="p-2.5 bg-white rounded-lg border border-zinc-200">
+                  <div className="p-2.5 bg-[var(--surface-panel)] rounded-lg border border-[var(--border-hairline)]">
                     <span className="text-[10px] text-zinc-400 font-mono uppercase block">Total Rows</span>
                     <span className="text-base font-bold text-zinc-800 font-mono">{csvResult.total_rows}</span>
                   </div>
-                  <div className="p-2.5 bg-white rounded-lg border border-zinc-200">
+                  <div className="p-2.5 bg-[var(--surface-panel)] rounded-lg border border-[var(--border-hairline)]">
                     <span className="text-[10px] text-zinc-400 font-mono uppercase block">Imported Leads</span>
                     <span className="text-base font-bold text-emerald-600 font-mono">{csvResult.imported_contacts}</span>
                   </div>
-                  <div className="p-2.5 bg-white rounded-lg border border-zinc-200">
+                  <div className="p-2.5 bg-[var(--surface-panel)] rounded-lg border border-[var(--border-hairline)]">
                     <span className="text-[10px] text-zinc-400 font-mono uppercase block">DNC Suppressed</span>
                     <span className="text-base font-bold text-rose-600 font-mono">{csvResult.suppressed_skipped}</span>
                   </div>
-                  <div className="p-2.5 bg-white rounded-lg border border-zinc-200">
+                  <div className="p-2.5 bg-[var(--surface-panel)] rounded-lg border border-[var(--border-hairline)]">
                     <span className="text-[10px] text-zinc-400 font-mono uppercase block">Dials Dispatched</span>
                     <span className="text-base font-bold text-indigo-600 font-mono">{csvResult.outbound_calls_queued}</span>
                   </div>
@@ -1465,7 +1464,7 @@ export default function IntegrationsPage() {
       {(activeTab === "all" || activeTab === "webhooks") && (
         <div className="space-y-6">
           {/* Outbound Webhooks List with Live Test Firing */}
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-xs space-y-5">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-6 shadow-xs space-y-5">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-bold text-zinc-900 uppercase tracking-wider text-xs flex items-center gap-2">
@@ -1478,7 +1477,7 @@ export default function IntegrationsPage() {
               </div>
               <button
                 onClick={() => setActiveModal("webhook")}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition shadow-xs"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] text-xs font-semibold hover:bg-indigo-700 transition shadow-xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add Webhook
@@ -1486,11 +1485,11 @@ export default function IntegrationsPage() {
             </div>
 
             {webhooks.length === 0 ? (
-              <div className="p-8 rounded-2xl border border-dashed border-zinc-200 text-center text-xs text-zinc-400 font-mono">
+              <div className="p-8 rounded-2xl border border-dashed border-[var(--border-hairline)] text-center text-xs text-zinc-400 font-mono">
                 No active webhook subscriptions configured. Click &quot;Add Webhook&quot; above to connect Zapier, Make, or custom API endpoints.
               </div>
             ) : (
-              <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-2xl overflow-hidden">
+              <div className="divide-y divide-zinc-100 border border-[var(--border-hairline)] rounded-2xl overflow-hidden">
                 {webhooks.map((hook) => {
                   const testRes = webhookTestResults[hook.id];
                   const isTesting = testingWebhookId === hook.id;
@@ -1540,7 +1539,7 @@ export default function IntegrationsPage() {
                           type="button"
                           onClick={() => handleTestWebhook(hook.id)}
                           disabled={isTesting}
-                          className="px-3 py-1.5 rounded-xl border border-zinc-200 hover:bg-zinc-100 text-zinc-700 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                          className="px-3 py-1.5 rounded-xl border border-[var(--border-hairline)] hover:bg-zinc-100 text-zinc-700 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
                           title="Send a sample test payload to verify destination webhook connectivity"
                         >
                           <Send className={`w-3 h-3 ${isTesting ? "animate-pulse text-indigo-600" : "text-zinc-500"}`} />
@@ -1564,7 +1563,7 @@ export default function IntegrationsPage() {
           </div>
 
           {/* Transactional CRM Outbox & Queue Monitor */}
-          <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-xs space-y-5">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-2xl p-6 shadow-xs space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
@@ -1585,7 +1584,7 @@ export default function IntegrationsPage() {
                   type="button"
                   onClick={handleProcessOutbox}
                   disabled={processingOutbox}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs flex items-center gap-1.5"
+                  className="px-3.5 py-2 rounded-xl bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs flex items-center gap-1.5"
                 >
                   <Zap className={`w-3.5 h-3.5 ${processingOutbox ? "animate-spin text-amber-400" : "text-amber-300"}`} />
                   Process Queue Now
@@ -1603,7 +1602,7 @@ export default function IntegrationsPage() {
                   type="button"
                   onClick={fetchData}
                   title="Refresh queue status"
-                  className="p-2 rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-600 transition"
+                  className="p-2 rounded-xl border border-[var(--border-hairline)] hover:bg-zinc-50 text-zinc-600 transition"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                 </button>
@@ -1612,7 +1611,7 @@ export default function IntegrationsPage() {
 
             {/* 5-State Outbox Counters */}
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <div className="p-3.5 bg-zinc-50 rounded-2xl border border-zinc-200">
+              <div className="p-3.5 bg-zinc-50 rounded-2xl border border-[var(--border-hairline)]">
                 <span className="text-[10px] text-zinc-500 uppercase font-mono font-bold block">Queued</span>
                 <span className="text-lg font-bold text-zinc-800 font-mono">
                   {outboxData?.counts?.queued ?? 0}
@@ -1638,7 +1637,7 @@ export default function IntegrationsPage() {
               </div>
               <div
                 className={`p-3.5 rounded-2xl border ${
-                  (outboxData?.counts?.dead ?? 0) > 0 ? "bg-rose-50 border-rose-300" : "bg-zinc-50 border-zinc-200"
+                  (outboxData?.counts?.dead ?? 0) > 0 ? "bg-rose-50 border-rose-300" : "bg-zinc-50 border-[var(--border-hairline)]"
                 }`}
               >
                 <span
@@ -1674,7 +1673,7 @@ export default function IntegrationsPage() {
                   )}
                 </div>
 
-                <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50 divide-y divide-slate-200 text-xs">
+                <div className="border border-[var(--border-hairline)] rounded-2xl overflow-hidden bg-slate-50/50 divide-y divide-slate-200 text-xs">
                   {outboxData.recent_jobs
                     .slice((outboxPage - 1) * outboxPageSize, outboxPage * outboxPageSize)
                     .map((job) => {
@@ -1757,7 +1756,7 @@ export default function IntegrationsPage() {
       {/* MODAL: CONNECT CRM */}
       {activeModal === "crm" && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-[var(--surface-panel)] rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <h3 className="text-sm font-bold text-zinc-900 uppercase">
                 Connect {selectedProvider}
@@ -1929,13 +1928,13 @@ export default function IntegrationsPage() {
                 <button
                   type="button"
                   onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 border border-zinc-200 rounded-xl text-zinc-600 hover:bg-zinc-50"
+                  className="px-4 py-2 border border-[var(--border-hairline)] rounded-xl text-zinc-600 hover:bg-zinc-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-xs"
+                  className="px-4 py-2 bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] rounded-xl font-bold hover:bg-indigo-700 transition shadow-xs"
                 >
                   Save &amp; Connect
                 </button>
@@ -1948,7 +1947,7 @@ export default function IntegrationsPage() {
       {/* MODAL: ADD WEBHOOK */}
       {activeModal === "webhook" && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-[var(--surface-panel)] rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <h3 className="text-sm font-bold text-zinc-900">Add Zapier / Make Webhook</h3>
               <button onClick={() => setActiveModal(null)} className="p-1 text-zinc-400 hover:text-zinc-700">
@@ -2000,13 +1999,13 @@ export default function IntegrationsPage() {
                 <button
                   type="button"
                   onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 border border-zinc-200 rounded-xl text-zinc-600 hover:bg-zinc-50"
+                  className="px-4 py-2 border border-[var(--border-hairline)] rounded-xl text-zinc-600 hover:bg-zinc-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition shadow-xs"
+                  className="px-4 py-2 bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] rounded-xl font-bold hover:bg-indigo-700 transition shadow-xs"
                 >
                   Subscribe Webhook
                 </button>
@@ -2019,7 +2018,7 @@ export default function IntegrationsPage() {
       {/* MODAL: INSPECT TRANSACTIONAL OUTBOX JOB PAYLOAD */}
       {selectedOutboxJob && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-[var(--surface-panel)] rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <div className="flex items-center gap-2">
                 <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700">
@@ -2040,7 +2039,7 @@ export default function IntegrationsPage() {
             </div>
 
             <div className="space-y-3 text-xs font-mono">
-              <div className="grid grid-cols-2 gap-2 p-3 bg-zinc-50 rounded-xl border border-zinc-200">
+              <div className="grid grid-cols-2 gap-2 p-3 bg-zinc-50 rounded-xl border border-[var(--border-hairline)]">
                 <div>
                   <span className="text-zinc-400 text-[10px] block">TARGET ENTITY</span>
                   <span className="font-bold text-zinc-900">{selectedOutboxJob.entity}</span>
@@ -2104,7 +2103,7 @@ export default function IntegrationsPage() {
               <button
                 type="button"
                 onClick={() => setSelectedOutboxJob(null)}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs"
+                className="px-4 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold shadow-xs"
               >
                 Close Payload
               </button>

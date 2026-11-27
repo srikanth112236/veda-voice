@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { InlineNoticeBanner, InlineNotice } from "@/components/ui/inline-notice";
 import {
   Calendar as CalendarIcon,
   Users,
@@ -140,6 +141,7 @@ export default function StaffAndDispatchPage() {
 
   // Calendly & Self-Serve In-Call SMS State (Phase 4)
   const [calendlyConfig, setCalendlyConfig] = useState<CalendlyConfigResponse | null>(null);
+  const [calErrorNotice, setCalErrorNotice] = useState<InlineNotice | null>(null);
   const [calendlyInput, setCalendlyInput] = useState("");
   const [savingCalendly, setSavingCalendly] = useState(false);
   const [testSmsPhone, setTestSmsPhone] = useState("");
@@ -244,8 +246,8 @@ export default function StaffAndDispatchPage() {
       setCalendlyConfig(res);
       setCalNotification("Calendly self-serve scheduling link updated successfully.");
       setTimeout(() => setCalNotification(null), 4000);
-    } catch (err: any) {
-      alert(`Failed to save Calendly link: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: `Failed to save Calendly link: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setSavingCalendly(false);
     }
@@ -262,8 +264,8 @@ export default function StaffAndDispatchPage() {
       });
       setCalNotification(`In-call self-serve SMS link successfully sent to ${res.phone_number}!`);
       setTimeout(() => setCalNotification(null), 5000);
-    } catch (err: any) {
-      alert(`Could not send test booking SMS: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: `Could not send test booking SMS: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setSendingTestSms(false);
     }
@@ -289,8 +291,8 @@ export default function StaffAndDispatchPage() {
         });
         setShowOAuthModal(true);
       }
-    } catch (err: any) {
-      alert(`Could not initiate Google OAuth: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: `Could not initiate Google OAuth: ${err instanceof Error ? err.message : String(err)}` });
     }
   };
 
@@ -302,8 +304,8 @@ export default function StaffAndDispatchPage() {
       await loadData();
       setShowOAuthModal(false);
       setTimeout(() => setCalNotification(null), 5000);
-    } catch (err: any) {
-      alert(`Failed to connect Sandbox Calendar: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: `Failed to connect Sandbox Calendar: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setConnectingSandbox(false);
     }
@@ -316,9 +318,6 @@ export default function StaffAndDispatchPage() {
   };
 
   const handleDisconnectGoogleCalendar = async () => {
-    if (!confirm("Are you sure you want to disconnect Google Calendar? Two-way synchronization will be paused.")) {
-      return;
-    }
     try {
       await api.disconnectGoogleCalendar();
       setCalStatus({
@@ -330,8 +329,8 @@ export default function StaffAndDispatchPage() {
       });
       setCalNotification("Google Calendar successfully disconnected.");
       setTimeout(() => setCalNotification(null), 4000);
-    } catch (err: any) {
-      alert(`Failed to disconnect: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: `Failed to disconnect: ${err instanceof Error ? err.message : String(err)}` });
     }
   };
 
@@ -344,17 +343,14 @@ export default function StaffAndDispatchPage() {
       );
       loadData();
       setTimeout(() => setCalNotification(null), 6000);
-    } catch (err: any) {
-      alert(`Two-way sync test failed: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: `Two-way sync test failed: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setTestingCalSync(false);
     }
   };
 
   const handleCancelBooking = async (bookingId: string) => {
-    if (!confirm("Cancel this customer booking and remove it from Google Calendar?")) {
-      return;
-    }
     setCancellingBookingId(bookingId);
     try {
       await api.cancelCalendarBooking(bookingId);
@@ -363,8 +359,8 @@ export default function StaffAndDispatchPage() {
       );
       setCalNotification("Booking cancelled and removed from Google Calendar.");
       setTimeout(() => setCalNotification(null), 4000);
-    } catch (err: any) {
-      alert(`Failed to cancel booking: ${err?.message || err}`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: `Failed to cancel booking: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setCancellingBookingId(null);
     }
@@ -419,8 +415,8 @@ export default function StaffAndDispatchPage() {
       setCalendarBufferMode(res.calendar_buffer_mode);
       setSettingsSavedToast(true);
       setTimeout(() => setSettingsSavedToast(false), 3000);
-    } catch (err: any) {
-      alert(err?.message || "Failed to update calendar buffer settings.");
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: err instanceof Error ? err.message : "Failed to update calendar buffer settings." });
     } finally {
       setSavingSettings(false);
     }
@@ -513,20 +509,20 @@ export default function StaffAndDispatchPage() {
       setNewEmail("");
       setNewPhone("");
       await loadData();
-    } catch (err: any) {
-      alert(err?.message || `Error creating ${semantics.staffSingular.toLowerCase()}.`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: err instanceof Error ? err.message : `Error creating ${semantics.staffSingular.toLowerCase()}.` });
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteStaff = async (staffId: string, name: string) => {
-    if (!confirm(`Are you sure you want to remove ${semantics.staffSingular.toLowerCase()} ${name}?`)) return;
     try {
       await api.deleteStaffMember(staffId);
+      setCalNotification(`${semantics.staffSingular} ${name} removed.`);
       await loadData();
-    } catch (err: any) {
-      alert(err?.message || "Error removing staff member.");
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: err instanceof Error ? err.message : "Error removing staff member." });
     }
   };
 
@@ -534,8 +530,8 @@ export default function StaffAndDispatchPage() {
     try {
       await api.updateStaffMember(staff.id, { is_active: !staff.is_active });
       await loadData();
-    } catch (err: any) {
-      alert(err?.message || `Error updating ${semantics.staffSingular.toLowerCase()} status.`);
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: err instanceof Error ? err.message : `Error updating ${semantics.staffSingular.toLowerCase()} status.` });
     }
   };
 
@@ -548,8 +544,8 @@ export default function StaffAndDispatchPage() {
         postal_code: simZip.trim(),
       });
       setSimResult(result);
-    } catch (err: any) {
-      alert(err?.message || "Dispatch simulation failed.");
+    } catch (err: unknown) {
+      setCalErrorNotice({ type: "error", text: err instanceof Error ? err.message : "Dispatch simulation failed." });
     } finally {
       setSimulating(false);
     }
@@ -557,8 +553,9 @@ export default function StaffAndDispatchPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
+      <InlineNoticeBanner notice={calErrorNotice} onDismiss={() => setCalErrorNotice(null)} />
       {/* Top Banner & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-hairline)] pb-5">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
@@ -567,7 +564,7 @@ export default function StaffAndDispatchPage() {
             <span className="text-xs font-mono text-zinc-500">Google Calendar Two-Way Active</span>
 
             {/* Semantic Industry Context Pill Selector */}
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 border border-zinc-200 shadow-xs">
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 border border-[var(--border-hairline)] shadow-xs">
               <span className="text-[10px] font-mono uppercase text-zinc-400 font-bold">Industry Context:</span>
               <select
                 value={selectedNiche}
@@ -624,7 +621,7 @@ export default function StaffAndDispatchPage() {
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
           >
             <Users className="w-4 h-4" />
             Add {semantics.staffSingular}
@@ -632,7 +629,7 @@ export default function StaffAndDispatchPage() {
           <button
             onClick={loadData}
             title="Refresh"
-            className="p-2 border border-zinc-200 rounded-lg text-zinc-600 hover:bg-zinc-100 transition"
+            className="p-2 border border-[var(--border-hairline)] rounded-lg text-zinc-600 hover:bg-zinc-100 transition"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -641,7 +638,7 @@ export default function StaffAndDispatchPage() {
 
       {/* KPI Stats Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl bg-[var(--surface-panel)] border border-[var(--border-hairline)]/90 shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Total Appointments</span>
             <CalendarIcon className="w-4 h-4 text-purple-600" />
@@ -652,7 +649,7 @@ export default function StaffAndDispatchPage() {
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl bg-[var(--surface-panel)] border border-[var(--border-hairline)]/90 shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Google Calendar</span>
             <Globe className="w-4 h-4 text-blue-600" />
@@ -670,7 +667,7 @@ export default function StaffAndDispatchPage() {
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl bg-[var(--surface-panel)] border border-[var(--border-hairline)]/90 shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>{semantics.activeStaffLabel}</span>
             <Users className="w-4 h-4 text-emerald-600" />
@@ -681,7 +678,7 @@ export default function StaffAndDispatchPage() {
           <div className="text-[10.5px] text-emerald-600 font-mono font-medium">{semantics.readyStatusText}</div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white border border-zinc-200/90 shadow-xs space-y-1">
+        <div className="p-4 rounded-2xl bg-[var(--surface-panel)] border border-[var(--border-hairline)]/90 shadow-xs space-y-1">
           <div className="flex items-center justify-between text-zinc-500 text-xs font-medium">
             <span>Voice Agent Bookings</span>
             <Sparkles className="w-4 h-4 text-amber-500" />
@@ -694,7 +691,7 @@ export default function StaffAndDispatchPage() {
       </div>
 
       {/* Buffer Time Protection & Arrival Window Dispatch Preferences Suite */}
-      <div className="bg-white rounded-2xl border border-zinc-200/90 p-5 shadow-xs space-y-4">
+      <div className="bg-[var(--surface-panel)] rounded-2xl border border-[var(--border-hairline)]/90 p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-700 shrink-0">
@@ -741,7 +738,7 @@ export default function StaffAndDispatchPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-3 border-t border-zinc-100">
           {/* 1. Scheduling Model: Exact Time vs Arrival Window */}
-          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80 space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-zinc-600" />
@@ -758,8 +755,8 @@ export default function StaffAndDispatchPage() {
                 }}
                 className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-left flex flex-col ${
                   schedulingMode === "exact_time"
-                    ? "bg-white border-zinc-900 text-zinc-900 shadow-xs"
-                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                    ? "bg-[var(--surface-panel)] border-zinc-900 text-zinc-900 shadow-xs"
+                    : "bg-zinc-100/60 border-[var(--border-hairline)] text-zinc-600 hover:bg-white"
                 }`}
               >
                 <span className="font-bold">Exact Time</span>
@@ -773,8 +770,8 @@ export default function StaffAndDispatchPage() {
                 }}
                 className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-left flex flex-col ${
                   schedulingMode === "arrival_window"
-                    ? "bg-white border-emerald-700 text-emerald-900 shadow-xs"
-                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                    ? "bg-[var(--surface-panel)] border-emerald-700 text-emerald-900 shadow-xs"
+                    : "bg-zinc-100/60 border-[var(--border-hairline)] text-zinc-600 hover:bg-white"
                 }`}
               >
                 <span className="font-bold flex items-center gap-1">
@@ -786,7 +783,7 @@ export default function StaffAndDispatchPage() {
           </div>
 
           {/* 2. Arrival Window Span (if Arrival Window selected) */}
-          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80 space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
                 <Timer className="w-3.5 h-3.5 text-zinc-600" />
@@ -804,8 +801,8 @@ export default function StaffAndDispatchPage() {
                 }}
                 className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-center disabled:opacity-40 ${
                   arrivalWindowHours === 2 && schedulingMode === "arrival_window"
-                    ? "bg-white border-emerald-700 text-emerald-900 font-bold shadow-xs"
-                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                    ? "bg-[var(--surface-panel)] border-emerald-700 text-emerald-900 font-bold shadow-xs"
+                    : "bg-zinc-100/60 border-[var(--border-hairline)] text-zinc-600 hover:bg-white"
                 }`}
               >
                 2-Hour Windows
@@ -820,8 +817,8 @@ export default function StaffAndDispatchPage() {
                 }}
                 className={`px-3 py-2 text-xs font-semibold rounded-lg border transition text-center disabled:opacity-40 ${
                   arrivalWindowHours === 4 && schedulingMode === "arrival_window"
-                    ? "bg-white border-emerald-700 text-emerald-900 font-bold shadow-xs"
-                    : "bg-zinc-100/60 border-zinc-200 text-zinc-600 hover:bg-white"
+                    ? "bg-[var(--surface-panel)] border-emerald-700 text-emerald-900 font-bold shadow-xs"
+                    : "bg-zinc-100/60 border-[var(--border-hairline)] text-zinc-600 hover:bg-white"
                 }`}
               >
                 4-Hour Windows
@@ -831,7 +828,7 @@ export default function StaffAndDispatchPage() {
           </div>
 
           {/* 3. Customizable Buffer Protection (15, 20, 30, 45 mins) */}
-          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2">
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80 space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-zinc-800 flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -851,7 +848,7 @@ export default function StaffAndDispatchPage() {
                   className={`py-2 text-xs font-bold rounded-lg border transition text-center font-mono ${
                     calendarBufferMinutes === mins
                       ? "bg-emerald-700 text-white border-emerald-700 shadow-xs"
-                      : "bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-100"
+                      : "bg-[var(--surface-panel)] border-[var(--border-hairline)] text-zinc-700 hover:bg-zinc-100"
                   }`}
                 >
                   {mins}m
@@ -869,7 +866,7 @@ export default function StaffAndDispatchPage() {
                   }}
                   className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
                     calendarBufferMode === "after"
-                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                      ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] shadow-2xs font-bold"
                       : "text-slate-600 hover:bg-slate-200"
                   }`}
                 >
@@ -883,7 +880,7 @@ export default function StaffAndDispatchPage() {
                   }}
                   className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
                     calendarBufferMode === "both"
-                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                      ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] shadow-2xs font-bold"
                       : "text-slate-600 hover:bg-slate-200"
                   }`}
                 >
@@ -896,7 +893,7 @@ export default function StaffAndDispatchPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-200 gap-6 text-sm font-medium overflow-x-auto">
+      <div className="flex border-b border-[var(--border-hairline)] gap-6 text-sm font-medium overflow-x-auto">
         <button
           onClick={() => setActiveTab("calendar")}
           className={`pb-3 border-b-2 flex items-center gap-2 whitespace-nowrap transition ${
@@ -988,12 +985,12 @@ export default function StaffAndDispatchPage() {
       {activeTab === "calendar" && (
         <div className="space-y-4">
           {/* Calendar Toolbar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-zinc-200/90 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--surface-panel)] p-4 rounded-2xl border border-[var(--border-hairline)]/90 shadow-xs">
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handlePrevWeek}
-                className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition"
+                className="p-1.5 rounded-lg border border-[var(--border-hairline)] hover:bg-zinc-100 text-zinc-600 transition"
                 title="Previous Week"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -1001,14 +998,14 @@ export default function StaffAndDispatchPage() {
               <button
                 type="button"
                 onClick={handleTodayWeek}
-                className="px-3 py-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-xs font-semibold text-zinc-700 transition"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-hairline)] hover:bg-zinc-100 text-xs font-semibold text-zinc-700 transition"
               >
                 Today
               </button>
               <button
                 type="button"
                 onClick={handleNextWeek}
-                className="p-1.5 rounded-lg border border-zinc-200 hover:bg-zinc-100 text-zinc-600 transition"
+                className="p-1.5 rounded-lg border border-[var(--border-hairline)] hover:bg-zinc-100 text-zinc-600 transition"
                 title="Next Week"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1022,7 +1019,7 @@ export default function StaffAndDispatchPage() {
                     return `${startStr} – ${endStr}`;
                   })()}
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-zinc-200">
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 border border-[var(--border-hairline)]">
                   {getTimezoneAbbr(currentWeekStart, tenantTimezone)}
                 </span>
               </span>
@@ -1045,11 +1042,11 @@ export default function StaffAndDispatchPage() {
           </div>
 
           {/* Interactive Weekly Schedule Grid */}
-          <div className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs overflow-x-auto">
+          <div className="bg-[var(--surface-panel)] rounded-2xl border border-[var(--border-hairline)]/90 shadow-xs overflow-x-auto">
             <div className="min-w-[900px]">
               {/* Day Columns Header */}
-              <div className="grid grid-cols-8 border-b border-zinc-200 text-xs bg-zinc-50/80">
-                <div className="p-2.5 text-center text-zinc-600 font-mono font-semibold border-r border-zinc-200/80 text-[11px] flex flex-col items-center justify-center">
+              <div className="grid grid-cols-8 border-b border-[var(--border-hairline)] text-xs bg-zinc-50/80">
+                <div className="p-2.5 text-center text-zinc-600 font-mono font-semibold border-r border-[var(--border-hairline)]/80 text-[11px] flex flex-col items-center justify-center">
                   <span className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold">TIME</span>
                   <span className="text-[10.5px] font-bold text-zinc-800 bg-zinc-200/70 px-1.5 py-0.5 rounded mt-0.5 border border-zinc-300/60">
                     {getTimezoneAbbr(currentWeekStart, tenantTimezone)}
@@ -1062,7 +1059,7 @@ export default function StaffAndDispatchPage() {
                   return (
                     <div
                       key={idx}
-                      className={`p-3 text-center border-r last:border-r-0 border-zinc-200/80 ${
+                      className={`p-3 text-center border-r last:border-r-0 border-[var(--border-hairline)]/80 ${
                         isToday ? "bg-purple-50/80 font-bold text-purple-900" : "text-zinc-700"
                       }`}
                     >
@@ -1085,7 +1082,7 @@ export default function StaffAndDispatchPage() {
                   return (
                     <div key={hour} className="grid grid-cols-8 min-h-[72px]">
                       {/* Hour Label Column with clean US 12-hour tabular typography */}
-                      <div className="p-2 border-r border-zinc-200/80 text-[11px] font-mono text-right pr-3 bg-zinc-50/40 select-none flex items-start justify-end gap-1">
+                      <div className="p-2 border-r border-[var(--border-hairline)]/80 text-[11px] font-mono text-right pr-3 bg-zinc-50/40 select-none flex items-start justify-end gap-1">
                         <span className="font-bold tabular-nums text-zinc-700">{hourLabel}</span>
                         <span className="text-[9.5px] font-bold text-zinc-400 uppercase">{hourAmPm}</span>
                       </div>
@@ -1129,7 +1126,7 @@ export default function StaffAndDispatchPage() {
                                         ? "bg-emerald-50/90 border-emerald-300 hover:border-emerald-500 text-emerald-950"
                                         : isHeld
                                         ? "bg-amber-50/90 border-amber-300 hover:border-amber-500 text-amber-950"
-                                        : "bg-zinc-100 border-zinc-200 text-zinc-600 line-through opacity-70"
+                                        : "bg-zinc-100 border-[var(--border-hairline)] text-zinc-600 line-through opacity-70"
                                     }`}
                                   >
                                     <div className="flex items-center justify-between gap-1">
@@ -1150,7 +1147,7 @@ export default function StaffAndDispatchPage() {
                                         {getTimezoneAbbr(b.start_at, tenantTimezone)}
                                       </span>
                                     </div>
-                                    <div className="text-[9.5px] px-1.5 py-0.2 rounded bg-white/80 border border-zinc-200/50 inline-block truncate max-w-full font-medium capitalize">
+                                    <div className="text-[9.5px] px-1.5 py-0.2 rounded bg-white/80 border border-[var(--border-hairline)]/50 inline-block truncate max-w-full font-medium capitalize">
                                       {b.service_type.replace(/_/g, " ")}
                                     </div>
                                   </div>
@@ -1172,7 +1169,7 @@ export default function StaffAndDispatchPage() {
       {/* TAB 0.5: ALL APPOINTMENTS DIRECTORY */}
       {activeTab === "bookings" && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-zinc-200 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--surface-panel)] p-4 rounded-2xl border border-[var(--border-hairline)] shadow-xs">
             <div className="relative flex-1 max-w-md">
               <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
               <input
@@ -1192,7 +1189,7 @@ export default function StaffAndDispatchPage() {
                   onClick={() => setBookingStatusFilter(st)}
                   className={`px-3 py-1 rounded-lg capitalize transition text-xs font-semibold ${
                     bookingStatusFilter === st
-                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                      ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] shadow-2xs font-bold"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
@@ -1202,7 +1199,7 @@ export default function StaffAndDispatchPage() {
             </div>
           </div>
 
-          <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-white shadow-xs">
+          <div className="border border-slate-200 rounded-2xl overflow-x-auto bg-[var(--surface-panel)] shadow-xs">
             {(() => {
               const filteredBookings = bookingsList.filter((b) => {
                 const matchesQuery =
@@ -1379,7 +1376,7 @@ export default function StaffAndDispatchPage() {
               </p>
               <button
                 onClick={() => setShowAddModal(true)}
-                className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
+                className="px-3 py-1.5 bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] rounded-xl text-xs font-semibold hover:bg-indigo-700 transition shadow-2xs active:scale-[0.98]"
               >
                 Add Your First {semantics.staffSingular}
               </button>
@@ -1389,8 +1386,8 @@ export default function StaffAndDispatchPage() {
               {staffList.map((staff) => (
                 <div
                   key={staff.id}
-                  className={`border rounded-xl p-5 bg-white shadow-sm flex flex-col justify-between transition ${
-                    staff.is_active ? "border-zinc-200" : "border-zinc-200 bg-zinc-50 opacity-75"
+                  className={`border rounded-xl p-5 bg-[var(--surface-panel)] shadow-sm flex flex-col justify-between transition ${
+                    staff.is_active ? "border-[var(--border-hairline)]" : "border-[var(--border-hairline)] bg-zinc-50 opacity-75"
                   }`}
                 >
                   <div className="space-y-3">
@@ -1402,7 +1399,7 @@ export default function StaffAndDispatchPage() {
                             className={`px-1.5 py-0.5 rounded text-[10px] font-mono uppercase font-semibold ${
                               staff.is_active
                                 ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-zinc-100 text-zinc-500 border border-zinc-200"
+                                : "bg-zinc-100 text-zinc-500 border border-[var(--border-hairline)]"
                             }`}
                           >
                             {staff.is_active ? "Active" : "Inactive"}
@@ -1455,7 +1452,7 @@ export default function StaffAndDispatchPage() {
                           staff.service_territory_zips.map((zip, i) => (
                             <span
                               key={i}
-                              className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-zinc-200 rounded text-[10px] font-mono"
+                              className="px-2 py-0.5 bg-zinc-100 text-zinc-700 border border-[var(--border-hairline)] rounded text-[10px] font-mono"
                             >
                               {zip}
                             </span>
@@ -1480,7 +1477,7 @@ export default function StaffAndDispatchPage() {
                   <div className="pt-4 flex items-center justify-end gap-2 border-t border-zinc-100 mt-4">
                     <button
                       onClick={() => handleToggleActive(staff)}
-                      className="px-2.5 py-1 text-xs border border-zinc-200 rounded text-zinc-600 hover:bg-zinc-50"
+                      className="px-2.5 py-1 text-xs border border-[var(--border-hairline)] rounded text-zinc-600 hover:bg-zinc-50"
                     >
                       {staff.is_active ? "Deactivate" : "Activate"}
                     </button>
@@ -1502,7 +1499,7 @@ export default function StaffAndDispatchPage() {
       {/* TAB 2: SMART ROUTING SIMULATOR */}
       {activeTab === "simulator" && (
         <div className="space-y-6">
-          <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-6 shadow-sm">
             <h2 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
               <Zap className="w-4 h-4 text-amber-500" />
               {semantics.simulatorTabLabel}
@@ -1536,7 +1533,7 @@ export default function StaffAndDispatchPage() {
                 <button
                   type="submit"
                   disabled={simulating}
-                  className="w-full py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.98]"
+                  className="w-full py-2 bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] rounded-xl text-xs font-semibold hover:bg-indigo-700 transition disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.98]"
                 >
                   {simulating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                   {semantics.simulatorActionLabel}
@@ -1554,7 +1551,7 @@ export default function StaffAndDispatchPage() {
                   Routing Decision: Round-Robin Selected
                 </div>
                 {simResult.chosen_technician ? (
-                  <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-lg border border-emerald-100 shadow-sm">
+                  <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--surface-panel)] p-4 rounded-lg border border-emerald-100 shadow-sm">
                     <div>
                       <span className="text-[10px] font-mono uppercase text-emerald-700 font-bold block mb-0.5">
                         {semantics.simulationResultRoleLabel}
@@ -1580,7 +1577,7 @@ export default function StaffAndDispatchPage() {
               </div>
 
               {/* Eligible Pool */}
-              <div className="bg-white border border-zinc-200 rounded-xl p-5 shadow-sm">
+              <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-5 shadow-sm">
                 <h3 className="text-xs font-bold text-zinc-800 uppercase tracking-wider mb-3">
                   {semantics.simulationPoolLabel} ({simResult.eligible_technicians_count} Eligible)
                 </h3>
@@ -1591,7 +1588,7 @@ export default function StaffAndDispatchPage() {
                       className={`p-3 rounded-lg border text-xs font-mono ${
                         simResult.chosen_technician?.id === t.id
                           ? "border-emerald-500 bg-emerald-50/50"
-                          : "border-zinc-200 bg-zinc-50"
+                          : "border-[var(--border-hairline)] bg-zinc-50"
                       }`}
                     >
                       <div className="font-bold text-zinc-900">{t.name}</div>
@@ -1615,7 +1612,7 @@ export default function StaffAndDispatchPage() {
       {/* TAB 3: DAILY ROSTER SCHEDULE */}
       {activeTab === "schedule" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-zinc-200 shadow-sm">
+          <div className="flex items-center justify-between bg-[var(--surface-panel)] p-4 rounded-xl border border-[var(--border-hairline)] shadow-sm">
             <div className="flex items-center gap-3">
               <Clock className="w-5 h-5 text-zinc-500" />
               <div>
@@ -1636,7 +1633,7 @@ export default function StaffAndDispatchPage() {
               <div className="p-8 text-center text-xs font-mono text-zinc-400">No appointments scheduled for {targetDate}.</div>
             ) : (
               rosterSchedule.map((entry) => (
-                <div key={entry.technician_id} className="bg-white border border-zinc-200 rounded-xl p-4 shadow-sm">
+                <div key={entry.technician_id} className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-xl p-4 shadow-sm">
                   <div className="flex items-center justify-between border-b border-zinc-100 pb-2 mb-3">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-xs text-zinc-900">{entry.technician_name}</span>
@@ -1652,7 +1649,7 @@ export default function StaffAndDispatchPage() {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                       {entry.bookings.map((b) => (
-                        <div key={b.id} className="p-2.5 rounded bg-zinc-50 border border-zinc-200 text-xs font-mono">
+                        <div key={b.id} className="p-2.5 rounded bg-zinc-50 border border-[var(--border-hairline)] text-xs font-mono">
                           <div className="font-bold text-zinc-900 truncate">{b.customer_name}</div>
                           <div className="text-[11px] text-zinc-500">{b.service_type.replace("_", " ")}</div>
                           <div className="mt-1">
@@ -1674,7 +1671,7 @@ export default function StaffAndDispatchPage() {
       {activeTab === "google_sync" && (
         <div className="space-y-6">
           {/* Integration Status Card */}
-          <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-4">
+          <div className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-600">
@@ -1688,7 +1685,7 @@ export default function StaffAndDispatchPage() {
                         <CheckCircle2 className="w-3 h-3" /> Connected & Active
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-zinc-200">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-600 border border-[var(--border-hairline)]">
                         Disconnected
                       </span>
                     )}
@@ -1747,15 +1744,15 @@ export default function StaffAndDispatchPage() {
 
             {/* Diagnostic Details Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-zinc-100 text-xs font-mono">
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200/80">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80">
                 <span className="text-[10px] text-zinc-400 block uppercase font-bold">Primary Calendar</span>
                 <span className="text-zinc-800 font-semibold">{calStatus?.calendar_id || "None"}</span>
               </div>
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200/80">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80">
                 <span className="text-[10px] text-zinc-400 block uppercase font-bold">FreeBusy Engine</span>
                 <span className="text-zinc-800 font-semibold">15m Travel Buffer + Drive Time</span>
               </div>
-              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200/80">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80">
                 <span className="text-[10px] text-zinc-400 block uppercase font-bold">Video Conferencing</span>
                 <span className="text-emerald-700 font-semibold flex items-center gap-1">
                   <Video className="w-3.5 h-3.5" /> Google Meet Injected
@@ -1765,7 +1762,7 @@ export default function StaffAndDispatchPage() {
           </div>
 
           {/* Phase 4 & Phase 5: Calendly Alternative & Instant SMS Self-Serve Booking */}
-          <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-4">
+          <div className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-600">
@@ -1787,7 +1784,7 @@ export default function StaffAndDispatchPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-zinc-100">
               {/* Calendly URL Configuration Form */}
-              <form onSubmit={handleSaveCalendlyConfig} className="p-4 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2.5">
+              <form onSubmit={handleSaveCalendlyConfig} className="p-4 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80 space-y-2.5">
                 <label className="block text-xs font-bold text-zinc-800">Direct Self-Serve Booking Link (Calendly / Custom)</label>
                 <div className="flex gap-2">
                   <input
@@ -1801,7 +1798,7 @@ export default function StaffAndDispatchPage() {
                   <button
                     type="submit"
                     disabled={savingCalendly}
-                    className="px-3.5 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition disabled:opacity-50 shadow-2xs active:scale-[0.98]"
+                    className="px-3.5 py-2 text-xs font-semibold bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] rounded-xl transition disabled:opacity-50 shadow-2xs active:scale-[0.98]"
                   >
                     {savingCalendly ? "Saving..." : "Save Link"}
                   </button>
@@ -1820,7 +1817,7 @@ export default function StaffAndDispatchPage() {
               </form>
 
               {/* Test In-Call SMS Dispatch Form */}
-              <form onSubmit={handleSendTestBookingSms} className="p-4 rounded-xl bg-zinc-50 border border-zinc-200/80 space-y-2.5">
+              <form onSubmit={handleSendTestBookingSms} className="p-4 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]/80 space-y-2.5">
                 <label className="block text-xs font-bold text-zinc-800">Test In-Call SMS Dispatch to Mobile Phone</label>
                 <div className="flex gap-2">
                   <input
@@ -1878,9 +1875,9 @@ export default function StaffAndDispatchPage() {
                 No customer bookings recorded yet. When a caller confirms an appointment, it will appear here and sync to your Google Calendar.
               </div>
             ) : (
-              <div className="border border-slate-200 rounded-xl overflow-x-auto bg-white shadow-2xs">
+              <div className="border border-slate-200 rounded-xl overflow-x-auto bg-[var(--surface-panel)] shadow-2xs">
                 <table className="w-full text-left text-xs min-w-[760px]">
-                  <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 uppercase font-mono text-[10px]">
+                  <thead className="bg-zinc-50 border-b border-[var(--border-hairline)] text-zinc-500 uppercase font-mono text-[10px]">
                     <tr>
                       <th className="px-4 py-3">Customer</th>
                       <th className="px-4 py-3">Service</th>
@@ -1923,7 +1920,7 @@ export default function StaffAndDispatchPage() {
                                 ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                                 : b.status === "held"
                                 ? "bg-amber-50 text-amber-700 border border-amber-200"
-                                : "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                                : "bg-zinc-100 text-zinc-600 border border-[var(--border-hairline)]"
                             }`}
                           >
                             {b.status}
@@ -1972,9 +1969,9 @@ export default function StaffAndDispatchPage() {
       {/* APPOINTMENT DETAIL INSPECTOR DRAWER */}
       {selectedBooking && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex justify-end animate-in fade-in duration-150">
-          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col p-6 space-y-6 animate-in slide-in-from-right duration-200 overflow-y-auto">
+          <div className="w-full max-w-lg bg-[var(--surface-panel)] h-full shadow-2xl flex flex-col p-6 space-y-6 animate-in slide-in-from-right duration-200 overflow-y-auto">
             {/* Header */}
-            <div className="flex items-start justify-between pb-4 border-b border-zinc-200">
+            <div className="flex items-start justify-between pb-4 border-b border-[var(--border-hairline)]">
               <div>
                 <div className="flex items-center gap-2">
                   <span
@@ -1983,7 +1980,7 @@ export default function StaffAndDispatchPage() {
                         ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                         : selectedBooking.status === "held"
                         ? "bg-amber-50 text-amber-700 border border-amber-200"
-                        : "bg-zinc-100 text-zinc-600 border border-zinc-200"
+                        : "bg-zinc-100 text-zinc-600 border border-[var(--border-hairline)]"
                     }`}
                   >
                     {selectedBooking.status}
@@ -2005,7 +2002,7 @@ export default function StaffAndDispatchPage() {
             </div>
 
             {/* Quick Contact & Scheduled Time */}
-            <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200/90 space-y-3">
+            <div className="bg-zinc-50 rounded-2xl p-4 border border-[var(--border-hairline)]/90 space-y-3">
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
                   <span className="text-zinc-400 text-[10px] uppercase font-mono block">Phone Number</span>
@@ -2049,13 +2046,13 @@ export default function StaffAndDispatchPage() {
               </div>
 
               {/* Timezone Context Details */}
-              <div className="text-[11px] font-mono text-zinc-500 bg-zinc-50 border border-zinc-200/80 rounded-xl p-2.5 flex items-center justify-between">
+              <div className="text-[11px] font-mono text-zinc-500 bg-zinc-50 border border-[var(--border-hairline)]/80 rounded-xl p-2.5 flex items-center justify-between">
                 <span className="text-zinc-400">Timezone Context:</span>
                 <span className="font-semibold text-zinc-800">{getTimezoneFriendlyName(tenantTimezone)}</span>
               </div>
 
               {selectedBooking.notes && (
-                <div className="pt-2 border-t border-zinc-200 text-xs text-zinc-600">
+                <div className="pt-2 border-t border-[var(--border-hairline)] text-xs text-zinc-600">
                   <span className="text-zinc-400 text-[10px] uppercase font-mono block">Booking Notes</span>
                   <p className="mt-0.5">{selectedBooking.notes}</p>
                 </div>
@@ -2089,7 +2086,7 @@ export default function StaffAndDispatchPage() {
                 </a>
               </div>
             ) : (
-              <div className="p-3.5 rounded-xl border border-zinc-200 bg-zinc-50 text-xs text-zinc-500 flex items-center gap-2">
+              <div className="p-3.5 rounded-xl border border-[var(--border-hairline)] bg-zinc-50 text-xs text-zinc-500 flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-zinc-400 shrink-0" />
                 <span>In-Person On-Site Dispatch Appointment</span>
               </div>
@@ -2119,7 +2116,7 @@ export default function StaffAndDispatchPage() {
                 ) : (
                   <a
                     href={`/portal/calls?search=${encodeURIComponent(selectedBooking.customer_phone)}&autoplay=true`}
-                    className="p-3 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-900 transition flex items-center justify-between group"
+                    className="p-3 rounded-xl border border-[var(--border-hairline)] bg-zinc-50 hover:bg-zinc-100 text-zinc-900 transition flex items-center justify-between group"
                     title="Search calls for this phone number"
                   >
                     <div className="space-y-0.5">
@@ -2151,7 +2148,7 @@ export default function StaffAndDispatchPage() {
             </div>
 
             {/* Footer */}
-            <div className="pt-4 border-t border-zinc-200 flex items-center justify-between mt-auto">
+            <div className="pt-4 border-t border-[var(--border-hairline)] flex items-center justify-between mt-auto">
               {selectedBooking.status !== "cancelled" ? (
                 <button
                   type="button"
@@ -2170,7 +2167,7 @@ export default function StaffAndDispatchPage() {
               <button
                 type="button"
                 onClick={() => setSelectedBooking(null)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-2xs active:scale-[0.98]"
+                className="px-4 py-2 bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] rounded-xl text-xs font-bold transition shadow-2xs active:scale-[0.98]"
               >
                 Close Drawer
               </button>
@@ -2182,8 +2179,8 @@ export default function StaffAndDispatchPage() {
       {/* MODAL: MANUAL NEW APPOINTMENT */}
       {showNewBookingModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
-            <div className="flex items-start justify-between border-b border-zinc-200 pb-3">
+          <div className="bg-[var(--surface-panel)] rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between border-b border-[var(--border-hairline)] pb-3">
               <div>
                 <h3 className="text-base font-bold text-zinc-900 flex items-center gap-2">
                   <CalendarIcon className="w-4 h-4 text-emerald-600" />
@@ -2264,7 +2261,7 @@ export default function StaffAndDispatchPage() {
               </div>
 
               {/* Model Choice: Exact Time vs Arrival Window */}
-              <div className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-50 border border-zinc-200">
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-50 border border-[var(--border-hairline)]">
                 <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5">
                   <Timer className="w-3.5 h-3.5 text-zinc-500" />
                   Booking Time Model:
@@ -2275,7 +2272,7 @@ export default function StaffAndDispatchPage() {
                     onClick={() => setIsManualArrivalWindow(false)}
                     className={`px-2.5 py-1 text-xs rounded-lg font-semibold transition ${
                       !isManualArrivalWindow
-                        ? "bg-indigo-600 text-white shadow-2xs font-bold"
+                        ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] shadow-2xs font-bold"
                         : "text-slate-600 hover:bg-slate-200"
                     }`}
                   >
@@ -2297,7 +2294,7 @@ export default function StaffAndDispatchPage() {
               </div>
 
               {/* Operational Timezone Notice */}
-              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 text-xs font-mono">
+              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] text-xs font-mono">
                 <div className="flex items-center gap-1.5 text-zinc-600">
                   <Clock className="w-3.5 h-3.5 text-zinc-400" />
                   <span>Timezone:</span>
@@ -2462,12 +2459,12 @@ export default function StaffAndDispatchPage() {
                 </label>
               </div>
 
-              <div className="pt-3 border-t border-zinc-200 flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-[var(--border-hairline)] flex items-center justify-end gap-2">
                 <button
                   type="button"
                   disabled={creatingBooking}
                   onClick={() => setShowNewBookingModal(false)}
-                  className="px-4 py-2 text-xs border border-zinc-200 rounded-xl text-zinc-600 hover:bg-zinc-50 font-medium transition"
+                  className="px-4 py-2 text-xs border border-[var(--border-hairline)] rounded-xl text-zinc-600 hover:bg-zinc-50 font-medium transition"
                 >
                   Cancel
                 </button>
@@ -2494,7 +2491,7 @@ export default function StaffAndDispatchPage() {
       {/* CREATE STAFF MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
+          <div className="bg-[var(--surface-panel)] rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4">
             <h3 className="text-base font-bold text-zinc-900">Add {semantics.staffSingular}</h3>
             <p className="text-xs text-zinc-500">
               Configure {semantics.staffSingular.toLowerCase()} credentials, certified {semantics.skillsFieldLabel.toLowerCase()}, and {semantics.territoryFieldLabel.toLowerCase()}.
@@ -2598,14 +2595,14 @@ export default function StaffAndDispatchPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-3 py-1.5 text-xs border border-zinc-200 rounded-lg text-zinc-600 hover:bg-zinc-50"
+                  className="px-3 py-1.5 text-xs border border-[var(--border-hairline)] rounded-lg text-zinc-600 hover:bg-zinc-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 text-xs bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition shadow-2xs active:scale-[0.98]"
+                  className="px-4 py-2 text-xs bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] rounded-xl font-semibold hover:bg-indigo-700 disabled:opacity-50 transition shadow-2xs active:scale-[0.98]"
                 >
                   {submitting ? "Saving..." : `Save ${semantics.staffSingular}`}
                 </button>
@@ -2618,7 +2615,7 @@ export default function StaffAndDispatchPage() {
       {/* GOOGLE OAUTH CONFIGURATION & SANDBOX MODAL */}
       {showOAuthModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in-50 zoom-in-95">
+          <div className="bg-[var(--surface-panel)] rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in-50 zoom-in-95">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
@@ -2671,7 +2668,7 @@ export default function StaffAndDispatchPage() {
             </div>
 
             {/* Production Live Sync Instructions */}
-            <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 space-y-3">
+            <div className="p-4 rounded-xl border border-[var(--border-hairline)] bg-zinc-50 space-y-3">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-zinc-600" />
                 <span className="text-xs font-bold text-zinc-800 uppercase tracking-wide">Option 2: Live Google Calendar Setup (info@vedasynk.com)</span>
@@ -2683,7 +2680,7 @@ export default function StaffAndDispatchPage() {
                 <li>Create <strong>OAuth Client ID</strong> &gt; Application type: <strong>Web application</strong>.</li>
                 <li>
                   Add this <strong>Authorized Redirect URI</strong>:
-                  <div className="mt-1 flex items-center gap-1.5 bg-white border border-zinc-300 rounded-lg p-1.5 font-mono text-[11px] text-zinc-800">
+                  <div className="mt-1 flex items-center gap-1.5 bg-[var(--surface-panel)] border border-zinc-300 rounded-lg p-1.5 font-mono text-[11px] text-zinc-800">
                     <span className="truncate flex-1">{oauthSetupDetails?.redirect_uri || "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io/api/v1/portal/calendar/callback"}</span>
                     <button
                       type="button"
@@ -2703,7 +2700,7 @@ export default function StaffAndDispatchPage() {
               <button
                 type="button"
                 onClick={() => setShowOAuthModal(false)}
-                className="px-4 py-2 text-xs border border-zinc-200 rounded-xl text-zinc-600 hover:bg-zinc-50 font-medium"
+                className="px-4 py-2 text-xs border border-[var(--border-hairline)] rounded-xl text-zinc-600 hover:bg-zinc-50 font-medium"
               >
                 Close
               </button>

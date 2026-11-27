@@ -33,6 +33,7 @@ import {
   Calculator,
 } from "lucide-react";
 import { PaginationBar } from "@/components/ui/pagination";
+import { InlineNoticeBanner, InlineNotice } from "@/components/ui/inline-notice";
 
 interface TopupPackItem {
   code: string;
@@ -50,6 +51,7 @@ const DEFAULT_TOPUP_PACKS: TopupPackItem[] = [
 ];
 
 export default function BillingPage() {
+  const [billingNotice, setBillingNotice] = useState<InlineNotice | null>(null);
   const [sub, setSub] = useState<SubscriptionCurrent | null>(null);
   const [invoices, setInvoices] = useState<TenantInvoiceRecord[]>([]);
   const [topupPacks, setTopupPacks] = useState<TopupPackItem[]>(DEFAULT_TOPUP_PACKS);
@@ -189,7 +191,7 @@ export default function BillingPage() {
       setBillingMode(mode);
       loadSubscription();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to update billing precision mode");
+      setBillingNotice({ type: "error", text: err instanceof Error ? err.message : "Failed to update billing precision mode" });
     } finally {
       setTogglingMode(false);
     }
@@ -251,7 +253,7 @@ export default function BillingPage() {
       } catch (err: unknown) {
         setAuthStep("");
         setUpgrading(false);
-        alert(err instanceof Error ? err.message : "Failed to activate subscription.");
+        setBillingNotice({ type: "error", text: err instanceof Error ? err.message : "Failed to activate subscription." });
       }
     }, 700);
   };
@@ -272,7 +274,7 @@ export default function BillingPage() {
 
   const handleSubmitRefund = async () => {
     if (refundReason.trim().length < 10) {
-      alert("Please enter a detailed explanation (at least 10 characters).");
+      setRefundMsg({ type: "error", text: "Please enter a detailed explanation (at least 10 characters)." });
       return;
     }
     setSubmittingRefund(true);
@@ -305,7 +307,7 @@ export default function BillingPage() {
         loadSubscription();
       }, 1500);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Top-up purchase failed.");
+      setBillingNotice({ type: "error", text: err instanceof Error ? err.message : "Top-up purchase failed." });
     } finally {
       setPurchasingTopup(false);
     }
@@ -315,9 +317,9 @@ export default function BillingPage() {
     setOpeningPortal(true);
     try {
       const res = await api.getStripeCustomerPortalUrl();
-      alert(`Stripe Customer Portal Session Created:\n${res.url}\n(In production, redirects to Stripe Hosted Portal)`);
+      setBillingNotice({ type: "info", text: `Stripe Customer Portal Session Ready: ${res.url}` });
     } catch (err: unknown) {
-      alert("Failed to load customer portal");
+      setBillingNotice({ type: "error", text: "Failed to load customer portal" });
     } finally {
       setOpeningPortal(false);
     }
@@ -325,7 +327,7 @@ export default function BillingPage() {
 
   if (loading || !sub) {
     return (
-      <div className="p-12 text-xs font-mono text-zinc-500 bg-white rounded-2xl border border-zinc-200 text-center">
+      <div className="p-12 text-xs font-mono text-zinc-500 bg-[var(--surface-panel)] rounded-2xl border border-[var(--border-hairline)] text-center">
         Loading minute subscription, rollover telemetry, and rate limits...
       </div>
     );
@@ -550,10 +552,11 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      <InlineNoticeBanner notice={billingNotice} onDismiss={() => setBillingNotice(null)} />
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-zinc-200 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-[var(--border-hairline)] gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-zinc-100 border border-zinc-200 text-zinc-800 text-xs font-mono font-semibold mb-2">
+          <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full bg-zinc-100 border border-[var(--border-hairline)] text-zinc-800 text-xs font-mono font-semibold mb-2">
             <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" />
             LiveKit Telephony Allocation &amp; Rollover Engine
           </div>
@@ -567,7 +570,7 @@ export default function BillingPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-100 border border-zinc-200 text-[11px] text-zinc-700 font-mono">
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-100 border border-[var(--border-hairline)] text-[11px] text-zinc-700 font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>Cycle End: {new Date(sub.cycle_end_date).toLocaleDateString()}</span>
           </div>
@@ -577,7 +580,7 @@ export default function BillingPage() {
               type="button"
               onClick={handleOpenCustomerPortal}
               disabled={openingPortal}
-              className="px-3.5 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all active:scale-[0.98]"
+              className="px-3.5 py-2 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] hover:bg-slate-50 text-slate-800 text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-all active:scale-[0.98]"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Stripe Customer Portal
@@ -625,7 +628,7 @@ export default function BillingPage() {
       )}
 
       {/* SECTION 1: TELEMETRY & ROLLOVER ENGINE */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-6">
+      <div className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -642,7 +645,7 @@ export default function BillingPage() {
                 {sub.status}
               </span>
               {sub.onboarding_fee_paid && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-700 border border-zinc-200">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 text-zinc-700 border border-[var(--border-hairline)]">
                   Setup Fee Paid
                 </span>
               )}
@@ -674,7 +677,7 @@ export default function BillingPage() {
               Total Limit: <strong className="text-zinc-900">{total} min</strong>
             </span>
           </div>
-          <div className="h-3 w-full rounded-full bg-zinc-100 overflow-hidden p-0.5 border border-zinc-200">
+          <div className="h-3 w-full rounded-full bg-zinc-100 overflow-hidden p-0.5 border border-[var(--border-hairline)]">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 pct > 90 ? "bg-red-500" : pct > 75 ? "bg-amber-500" : "bg-emerald-600"
@@ -715,14 +718,14 @@ export default function BillingPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-zinc-100">
           <div className="flex items-center gap-2 text-xs">
             <span className="text-zinc-600 font-medium">Billing Resolution Mode:</span>
-            <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 bg-zinc-50">
+            <div className="inline-flex rounded-lg border border-[var(--border-hairline)] p-0.5 bg-zinc-50">
               <button
                 type="button"
                 onClick={() => handleToggleBillingMode("minute")}
                 disabled={togglingMode}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                   billingMode === "minute"
-                    ? "bg-white text-zinc-900 shadow-xs border border-zinc-200"
+                    ? "bg-[var(--surface-panel)] text-zinc-900 shadow-xs border border-[var(--border-hairline)]"
                     : "text-zinc-500 hover:text-zinc-800"
                 }`}
               >
@@ -734,7 +737,7 @@ export default function BillingPage() {
                 disabled={togglingMode}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
                   billingMode === "second"
-                    ? "bg-white text-indigo-700 shadow-xs border border-zinc-200"
+                    ? "bg-[var(--surface-panel)] text-indigo-700 shadow-xs border border-[var(--border-hairline)]"
                     : "text-zinc-500 hover:text-zinc-800"
                 }`}
               >
@@ -758,7 +761,7 @@ export default function BillingPage() {
       </div>
 
       {/* SECTION 2: STANDALONE MINUTE TOP-UP STORE */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-4">
+      <div className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
           <div>
             <h3 className="text-sm font-bold text-zinc-900 flex items-center gap-2">
@@ -780,7 +783,7 @@ export default function BillingPage() {
           {topupPacks.map((pack) => (
             <div
               key={pack.code}
-              className="p-4 rounded-xl border border-zinc-200 hover:border-zinc-400 bg-zinc-50/50 hover:bg-zinc-50 transition-all flex flex-col justify-between space-y-3"
+              className="p-4 rounded-xl border border-[var(--border-hairline)] hover:border-zinc-400 bg-zinc-50/50 hover:bg-zinc-50 transition-all flex flex-col justify-between space-y-3"
             >
               <div>
                 <div className="flex items-center justify-between">
@@ -800,7 +803,7 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={() => setShowTopupModal(pack)}
-                className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-2xs transition-all active:scale-[0.98]"
+                className="w-full py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold shadow-2xs transition-all active:scale-[0.98]"
               >
                 Buy Top-Up Pack
               </button>
@@ -831,10 +834,10 @@ export default function BillingPage() {
                 onClick={() => handleSelectTier(plan.id)}
                 className={`p-6 rounded-2xl border text-left cursor-pointer transition-all space-y-4 flex flex-col justify-between ${
                   isSelected
-                    ? "border-indigo-600 bg-white ring-2 ring-indigo-500/20 shadow-md"
+                    ? "border-indigo-600 bg-[var(--surface-panel)] ring-2 ring-indigo-500/20 shadow-md"
                     : isCurrent
                     ? "border-emerald-500 bg-emerald-50/20 shadow-xs"
-                    : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs"
+                    : "border-[var(--border-hairline)] bg-[var(--surface-panel)] hover:border-slate-300 hover:shadow-xs"
                 }`}
               >
                 <div className="space-y-2">
@@ -886,7 +889,7 @@ export default function BillingPage() {
                   <div
                     className={`w-full py-2.5 rounded-xl text-center text-xs font-bold transition-all ${
                       isSelected
-                        ? "bg-indigo-600 text-white shadow-2xs"
+                        ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] shadow-2xs"
                         : isCurrent
                         ? "bg-emerald-600 text-white shadow-2xs"
                         : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -902,7 +905,7 @@ export default function BillingPage() {
       </div>
 
       {/* SECTION 4: REAL-TIME SUBSCRIPTION & ONBOARDING FEE CALCULATOR */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-6">
+      <div className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-4">
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 text-[11px] font-mono font-bold mb-1">
@@ -940,8 +943,8 @@ export default function BillingPage() {
                   onClick={() => handleSelectTier(p.id)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold font-mono transition-all flex items-center gap-1.5 ${
                     active
-                      ? "bg-indigo-600 text-white shadow-2xs font-bold"
-                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                      ? "bg-[var(--accent-signal)] text-[var(--accent-signal-ink)] shadow-2xs font-bold"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-[var(--border-hairline)]"
                   }`}
                 >
                   <span>{p.name}</span>
@@ -963,8 +966,8 @@ export default function BillingPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
           {/* Left Column: Transparent Itemized Line Items */}
           <div className="lg:col-span-7 space-y-3">
-            <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50/50 space-y-3 font-mono text-xs">
-              <div className="flex items-center justify-between pb-2 border-b border-zinc-200 text-zinc-900 font-bold">
+            <div className="p-4 rounded-xl border border-[var(--border-hairline)] bg-zinc-50/50 space-y-3 font-mono text-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-[var(--border-hairline)] text-zinc-900 font-bold">
                 <span className="font-sans text-xs">Line Item Description</span>
                 <span className="font-sans text-xs">Amount (USD)</span>
               </div>
@@ -983,7 +986,7 @@ export default function BillingPage() {
               </div>
 
               {/* 2. Onboarding Fee */}
-              <div className="flex items-center justify-between pt-2 border-t border-zinc-200/60 text-zinc-700">
+              <div className="flex items-center justify-between pt-2 border-t border-[var(--border-hairline)]/60 text-zinc-700">
                 <div>
                   <div className="flex items-center gap-2 font-semibold text-zinc-900 font-sans">
                     <span>One-Time Telephony Onboarding Fee</span>
@@ -1012,7 +1015,7 @@ export default function BillingPage() {
 
               {/* 3. Promo / Coupon Discount */}
               {displayDiscount > 0 && (
-                <div className="flex items-center justify-between pt-2 border-t border-zinc-200/60 text-emerald-800">
+                <div className="flex items-center justify-between pt-2 border-t border-[var(--border-hairline)]/60 text-emerald-800">
                   <div>
                     <div className="font-semibold font-sans">
                       Promotional Coupon Discount ({validatedCoupon?.code})
@@ -1026,7 +1029,7 @@ export default function BillingPage() {
               )}
 
               {/* 4. Trial Rollover Guaranteed Minutes */}
-              <div className="flex items-center justify-between pt-2 border-t border-zinc-200/60 text-indigo-800 bg-indigo-50/50 p-2.5 rounded-lg">
+              <div className="flex items-center justify-between pt-2 border-t border-[var(--border-hairline)]/60 text-indigo-800 bg-indigo-50/50 p-2.5 rounded-lg">
                 <div>
                   <div className="font-semibold font-sans flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
@@ -1052,7 +1055,7 @@ export default function BillingPage() {
             </div>
 
             {/* Total Minutes Starting Balance Bar */}
-            <div className="p-3 rounded-xl bg-zinc-100 border border-zinc-200 flex items-center justify-between text-xs">
+            <div className="p-3 rounded-xl bg-zinc-100 border border-[var(--border-hairline)] flex items-center justify-between text-xs">
               <span className="font-bold text-zinc-700">Total Effective Starting Minutes (Month 1):</span>
               <span className="font-mono font-extrabold text-indigo-700 text-sm">
                 {displayTotalMinutes.toLocaleString()} Voice Minutes
@@ -1121,7 +1124,7 @@ export default function BillingPage() {
                   type="button"
                   disabled={Boolean(downgradeWarning) || loadingQuote}
                   onClick={() => setShowCheckoutModal(true)}
-                  className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
+                  className="w-full py-3 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-extrabold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
                 >
                   <Zap className="w-4 h-4 fill-white" />
                   {sub.is_trial
@@ -1151,13 +1154,13 @@ export default function BillingPage() {
               value={couponCode}
               onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
               placeholder="e.g. LAUNCH50 or FOUNDER100"
-              className="flex-1 px-3.5 py-2 rounded-xl bg-white border border-zinc-300 text-xs font-mono font-bold text-zinc-900 focus:outline-hidden focus:border-zinc-900 uppercase"
+              className="flex-1 px-3.5 py-2 rounded-xl bg-[var(--surface-panel)] border border-zinc-300 text-xs font-mono font-bold text-zinc-900 focus:outline-hidden focus:border-zinc-900 uppercase"
             />
             <button
               type="button"
               disabled={validatingCoupon}
               onClick={handleValidateCoupon}
-              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-semibold shadow-2xs transition-all active:scale-[0.98] disabled:opacity-50"
             >
               {validatingCoupon ? "Validating..." : "Apply Coupon"}
             </button>
@@ -1198,7 +1201,7 @@ export default function BillingPage() {
       </div>
 
       {/* SECTION 5: INVOICE HISTORY */}
-      <div className="p-6 rounded-2xl border border-zinc-200 bg-white shadow-xs space-y-4">
+      <div className="p-6 rounded-2xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
           <div className="flex items-center gap-2">
             <Receipt className="w-4 h-4 text-zinc-700" />
@@ -1216,9 +1219,9 @@ export default function BillingPage() {
             No paid invoices generated yet. Your account is currently on trial or awaiting first monthly cycle statement.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-zinc-200">
+          <div className="overflow-hidden rounded-xl border border-[var(--border-hairline)]">
             <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] uppercase text-zinc-500 font-semibold">
+              <thead className="bg-zinc-50 border-b border-[var(--border-hairline)] font-mono text-[10px] uppercase text-zinc-500 font-semibold">
                 <tr>
                   <th className="p-3">Invoice Number</th>
                   <th className="p-3">Date</th>
@@ -1247,8 +1250,8 @@ export default function BillingPage() {
                     <td className="p-3 text-right">
                       <button
                         type="button"
-                        onClick={() => alert(`Stripe Receipt for ${inv.number}\nPaid: $${inv.amount_usd.toFixed(2)}\nStatus: Settled via Stripe Payment Intent`)}
-                        className="inline-flex items-center gap-1 text-zinc-600 hover:text-zinc-900 font-sans font-medium text-xs underline"
+                        onClick={() => setBillingNotice({ type: "info", text: `Receipt ${inv.number}: Paid $${inv.amount_usd.toFixed(2)} via ${inv.payment_method}` })}
+                        className="inline-flex items-center gap-1 text-[var(--ink-secondary)] hover:text-[var(--ink-primary)] font-sans font-medium text-xs underline"
                       >
                         <Download className="w-3 h-3" />
                         View
@@ -1278,7 +1281,7 @@ export default function BillingPage() {
       {/* MODAL 1: CHECKOUT & INSTANT UPGRADE MODAL */}
       {showCheckoutModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-5 shadow-2xl">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-3xl p-6 sm:p-7 max-w-lg w-full space-y-5 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-xl bg-zinc-900 flex items-center justify-center text-white font-bold text-sm">
@@ -1313,7 +1316,7 @@ export default function BillingPage() {
                   className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-center justify-between ${
                     testCardType === "success"
                       ? "border-emerald-500 bg-emerald-50/60 text-emerald-950 font-semibold"
-                      : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                      : "border-[var(--border-hairline)] bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
                   }`}
                 >
                   <div>
@@ -1329,7 +1332,7 @@ export default function BillingPage() {
                   className={`p-2.5 rounded-xl border text-left text-xs transition-all flex items-center justify-between ${
                     testCardType === "decline"
                       ? "border-red-500 bg-red-50/60 text-red-950 font-semibold"
-                      : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+                      : "border-[var(--border-hairline)] bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
                   }`}
                 >
                   <div>
@@ -1342,7 +1345,7 @@ export default function BillingPage() {
             </div>
 
             {/* Itemized Order Summary */}
-            <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 space-y-2 text-xs font-mono">
+            <div className="p-4 rounded-2xl bg-zinc-50 border border-[var(--border-hairline)] space-y-2 text-xs font-mono">
               <div className="flex justify-between text-zinc-600">
                 <span>Selected Plan:</span>
                 <span className="font-bold text-zinc-900 uppercase">
@@ -1373,7 +1376,7 @@ export default function BillingPage() {
                 </div>
               )}
 
-              <div className="pt-2 border-t border-zinc-200 flex justify-between text-sm font-bold text-zinc-900">
+              <div className="pt-2 border-t border-[var(--border-hairline)] flex justify-between text-sm font-bold text-zinc-900">
                 <span>Due Today:</span>
                 <span className="text-emerald-700">${displayTotalDue.toFixed(2)} USD</span>
               </div>
@@ -1408,7 +1411,7 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={() => setShowCheckoutModal(false)}
-                className="px-4 py-2.5 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+                className="px-4 py-2.5 rounded-xl border border-[var(--border-hairline)] text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
               >
                 Cancel
               </button>
@@ -1416,7 +1419,7 @@ export default function BillingPage() {
                 type="button"
                 disabled={upgrading}
                 onClick={handleUpgrade}
-                className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
+                className="px-6 py-2.5 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold flex items-center gap-2 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
               >
                 <Lock className="w-3.5 h-3.5 text-white" />
                 {upgrading ? "Processing..." : `Confirm & Pay $${displayTotalDue.toFixed(2)} USD`}
@@ -1429,7 +1432,7 @@ export default function BillingPage() {
       {/* MODAL 2: DOWNGRADE OPTIONS & FEATURE RESTRICTION MODAL */}
       {showDowngradeModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2 text-amber-700">
                 <AlertTriangle className="w-5 h-5 text-amber-600" />
@@ -1449,7 +1452,7 @@ export default function BillingPage() {
               Downgrading reduces your monthly included minutes and restricts multi-location or advanced calendar features.
             </p>
 
-            <div className="space-y-2 border border-zinc-200 p-4 rounded-xl bg-zinc-50 text-xs">
+            <div className="space-y-2 border border-[var(--border-hairline)] p-4 rounded-xl bg-zinc-50 text-xs">
               <label className="flex items-start gap-2.5 cursor-pointer">
                 <input
                   type="radio"
@@ -1466,7 +1469,7 @@ export default function BillingPage() {
                 </div>
               </label>
 
-              <label className="flex items-start gap-2.5 cursor-pointer pt-2 border-t border-zinc-200">
+              <label className="flex items-start gap-2.5 cursor-pointer pt-2 border-t border-[var(--border-hairline)]">
                 <input
                   type="radio"
                   name="downgrade_type"
@@ -1487,7 +1490,7 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={() => setShowDowngradeModal(false)}
-                className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+                className="px-4 py-2 rounded-xl border border-[var(--border-hairline)] text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
               >
                 Cancel
               </button>
@@ -1506,7 +1509,7 @@ export default function BillingPage() {
       {/* MODAL 3: STRICT REFUND POLICY & REQUEST MODAL */}
       {showRefundModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-indigo-600" />
@@ -1556,7 +1559,7 @@ export default function BillingPage() {
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-[11px] text-zinc-600 leading-relaxed font-sans">
+                <div className="p-3 rounded-xl bg-zinc-50 border border-[var(--border-hairline)] text-[11px] text-zinc-600 leading-relaxed font-sans">
                   <strong>Policy Terms:</strong> {effectiveEligibility.policy_terms}
                 </div>
 
@@ -1591,7 +1594,7 @@ export default function BillingPage() {
                   <button
                     type="button"
                     onClick={() => setShowRefundModal(false)}
-                    className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+                    className="px-4 py-2 rounded-xl border border-[var(--border-hairline)] text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
                   >
                     Close
                   </button>
@@ -1600,7 +1603,7 @@ export default function BillingPage() {
                       type="button"
                       disabled={submittingRefund}
                       onClick={handleSubmitRefund}
-                      className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
+                      className="px-5 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
                     >
                       {submittingRefund ? "Submitting..." : "Submit Exception Request"}
                     </button>
@@ -1615,7 +1618,7 @@ export default function BillingPage() {
       {/* MODAL 4: STANDALONE TOP-UP PURCHASE MODAL */}
       {showTopupModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-zinc-200 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+          <div className="bg-[var(--surface-panel)] border border-[var(--border-hairline)] rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <Coins className="w-5 h-5 text-amber-500" />
@@ -1654,7 +1657,7 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={() => setShowTopupModal(null)}
-                className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
+                className="px-4 py-2 rounded-xl border border-[var(--border-hairline)] text-zinc-700 text-xs font-semibold hover:bg-zinc-50"
               >
                 Cancel
               </button>
@@ -1662,7 +1665,7 @@ export default function BillingPage() {
                 type="button"
                 disabled={purchasingTopup}
                 onClick={handlePurchaseTopup}
-                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
+                className="px-5 py-2 rounded-xl bg-[var(--accent-signal)] hover:opacity-90 text-[var(--accent-signal-ink)] text-xs font-bold shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
               >
                 {purchasingTopup ? "Processing..." : `Pay $${showTopupModal.price_usd.toFixed(2)} USD`}
               </button>

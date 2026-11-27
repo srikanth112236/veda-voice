@@ -213,15 +213,12 @@ export default function LocationsPage() {
   };
 
   const handleDelete = async (loc: TenantLocation) => {
-    if (!confirm(`Are you sure you want to delete ${loc.name}? Associated phone numbers will revert to tenant unassigned.`)) {
-      return;
-    }
     try {
       await api.deleteLocation(loc.id);
       setMessage({ type: "success", text: `Location "${loc.name}" deleted.` });
       await loadLocations();
-    } catch (err: any) {
-      setMessage({ type: "error", text: err.message || "Failed to delete location" });
+    } catch (err: unknown) {
+      setMessage({ type: "error", text: err instanceof Error ? err.message : "Failed to delete location" });
     }
   };
 
@@ -251,8 +248,8 @@ export default function LocationsPage() {
       setStaffList((prev) =>
         prev.map((s) => (s.id === staff.id ? { ...s, duty_status: nextStatus as any } : s))
       );
-    } catch (err: any) {
-      alert(`Failed to update technician duty status: ${err.message || err}`);
+    } catch (err: unknown) {
+      setMessage({ type: "error", text: `Failed to update technician duty status: ${err instanceof Error ? err.message : String(err)}` });
     }
   };
 
@@ -278,8 +275,8 @@ export default function LocationsPage() {
       setNewStaffEmail("");
       setNewStaffPhone("");
       setNewStaffSkills("");
-    } catch (err: any) {
-      alert(`Failed to add staff: ${err.message || err}`);
+    } catch (err: unknown) {
+      setMessage({ type: "error", text: `Failed to add staff: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setAddingStaff(false);
     }
@@ -332,8 +329,8 @@ export default function LocationsPage() {
       });
       setOverridesModalOpen(false);
       loadLocations();
-    } catch (err: any) {
-      alert(`Failed to save overrides: ${err.message || err}`);
+    } catch (err: unknown) {
+      setMessage({ type: "error", text: `Failed to save overrides: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setSavingOverrides(false);
     }
@@ -371,8 +368,8 @@ export default function LocationsPage() {
       });
       setGeofenceModalOpen(false);
       loadLocations();
-    } catch (err: any) {
-      alert(`Failed to save geofence settings: ${err.message || err}`);
+    } catch (err: unknown) {
+      setMessage({ type: "error", text: `Failed to save geofence settings: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setSavingGeofence(false);
     }
@@ -410,7 +407,7 @@ export default function LocationsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col justify-between gap-4 border-b border-zinc-200 pb-5 sm:flex-row sm:items-center">
+      <div className="flex flex-col justify-between gap-4 border-b border-[var(--border-hairline)] pb-5 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50 text-teal-600">
@@ -437,7 +434,7 @@ export default function LocationsPage() {
           <button
             onClick={loadLocations}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 transition"
           >
             <RotateCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -483,14 +480,14 @@ export default function LocationsPage() {
             value={simZip}
             onChange={(e) => setSimZip(e.target.value)}
             placeholder="Caller Zip Code (e.g. 78701)"
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-800 focus:outline-none focus:border-indigo-500 w-48"
+            className="rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-1.5 text-xs text-zinc-800 focus:outline-none focus:border-indigo-500 w-48"
           />
           <input
             type="text"
             value={simCity}
             onChange={(e) => setSimCity(e.target.value)}
             placeholder="Spoken City (e.g. Austin)"
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-800 focus:outline-none focus:border-indigo-500 w-44"
+            className="rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-1.5 text-xs text-zinc-800 focus:outline-none focus:border-indigo-500 w-44"
           />
           <button
             onClick={handleTestRoute}
@@ -526,7 +523,7 @@ export default function LocationsPage() {
             .map((loc) => (
           <div
             key={loc.id}
-            className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm hover:shadow transition flex flex-col justify-between space-y-4"
+            className="rounded-xl border border-[var(--border-hairline)] bg-[var(--surface-panel)] p-5 shadow-sm hover:shadow transition flex flex-col justify-between space-y-4"
           >
             <div>
               <div className="flex items-start justify-between">
@@ -619,7 +616,7 @@ export default function LocationsPage() {
                 <button
                   type="button"
                   onClick={() => openStaffModal(loc)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-hairline)] bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
                 >
                   <Users className="h-3 w-3 text-indigo-600" />
                   Technicians
@@ -627,7 +624,7 @@ export default function LocationsPage() {
                 <button
                   type="button"
                   onClick={() => openSlotsModal(loc)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-hairline)] bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
                 >
                   <Calendar className="h-3 w-3 text-teal-600" />
                   Slots
@@ -635,7 +632,7 @@ export default function LocationsPage() {
                 <button
                   type="button"
                   onClick={() => openOverridesModal(loc)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-hairline)] bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
                 >
                   <BookOpen className="h-3 w-3 text-amber-600" />
                   Local FAQs
@@ -643,7 +640,7 @@ export default function LocationsPage() {
                 <button
                   type="button"
                   onClick={() => openGeofenceModal(loc)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--border-hairline)] bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 transition"
                 >
                   <Compass className="h-3 w-3 text-blue-600" />
                   Geofencing
@@ -687,8 +684,8 @@ export default function LocationsPage() {
       {/* Location Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5">
+          <div className="w-full max-w-xl rounded-xl bg-[var(--surface-panel)] shadow-xl border border-[var(--border-hairline)] overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[var(--border-hairline)] px-5 py-3.5">
               <h3 className="text-sm font-bold text-zinc-900">
                 {editingLoc ? `Edit Location: ${editingLoc.name}` : "Create New Branch Location"}
               </h3>
@@ -876,7 +873,7 @@ export default function LocationsPage() {
                 </label>
               </div>
 
-              <div className="pt-3 border-t border-zinc-200 flex justify-end gap-2">
+              <div className="pt-3 border-t border-[var(--border-hairline)] flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
@@ -900,8 +897,8 @@ export default function LocationsPage() {
       {/* Staff / Technicians Roster Modal */}
       {staffModalOpen && selectedLocForStaff && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+          <div className="w-full max-w-2xl rounded-xl bg-[var(--surface-panel)] shadow-xl border border-[var(--border-hairline)] overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[var(--border-hairline)] px-5 py-3.5 bg-zinc-50/70">
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-indigo-600" />
                 <h3 className="text-sm font-bold text-zinc-900">
@@ -918,7 +915,7 @@ export default function LocationsPage() {
 
             <div className="p-5 overflow-y-auto space-y-5">
               {/* Add New Technician Form */}
-              <form onSubmit={handleAddStaff} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-3">
+              <form onSubmit={handleAddStaff} className="rounded-xl border border-[var(--border-hairline)] bg-zinc-50/50 p-4 space-y-3">
                 <span className="text-xs font-bold text-zinc-800 uppercase tracking-wider block">
                   Add Technician to Branch
                 </span>
@@ -929,7 +926,7 @@ export default function LocationsPage() {
                     placeholder="Full Name (e.g. Dave Miller)"
                     value={newStaffName}
                     onChange={(e) => setNewStaffName(e.target.value)}
-                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                    className="rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
                   />
                   <input
                     type="email"
@@ -937,21 +934,21 @@ export default function LocationsPage() {
                     placeholder="Email (e.g. dave@example.com)"
                     value={newStaffEmail}
                     onChange={(e) => setNewStaffEmail(e.target.value)}
-                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                    className="rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
                   />
                   <input
                     type="text"
                     placeholder="Mobile Phone (for SMS dispatch)"
                     value={newStaffPhone}
                     onChange={(e) => setNewStaffPhone(e.target.value)}
-                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                    className="rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
                   />
                   <input
                     type="text"
                     placeholder="Skills (e.g. water_heater, drain_cleaning)"
                     value={newStaffSkills}
                     onChange={(e) => setNewStaffSkills(e.target.value)}
-                    className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
+                    className="rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
                 <div className="flex justify-end pt-1">
@@ -977,11 +974,11 @@ export default function LocationsPage() {
                     No technicians currently assigned to this branch location.
                   </div>
                 ) : (
-                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl overflow-hidden">
+                  <div className="divide-y divide-zinc-100 border border-[var(--border-hairline)] rounded-xl overflow-hidden">
                     {staffList.map((st) => (
                       <div
                         key={st.id}
-                        className="flex items-center justify-between p-3 bg-white hover:bg-zinc-50/50 transition text-xs"
+                        className="flex items-center justify-between p-3 bg-[var(--surface-panel)] hover:bg-zinc-50/50 transition text-xs"
                       >
                         <div>
                           <div className="flex items-center gap-2">
@@ -1044,8 +1041,8 @@ export default function LocationsPage() {
       {/* Live Calendar Availability Inspector Modal */}
       {slotsModalOpen && selectedLocForSlots && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+          <div className="w-full max-w-lg rounded-xl bg-[var(--surface-panel)] shadow-xl border border-[var(--border-hairline)] overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[var(--border-hairline)] px-5 py-3.5 bg-zinc-50/70">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-teal-600" />
                 <h3 className="text-sm font-bold text-zinc-900">
@@ -1072,7 +1069,7 @@ export default function LocationsPage() {
                       fetchSlotsForDate(selectedLocForSlots.id, e.target.value);
                     }
                   }}
-                  className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-teal-500"
+                  className="rounded-lg border border-zinc-300 bg-[var(--surface-panel)] px-3 py-1.5 text-xs text-zinc-900 focus:outline-none focus:border-teal-500"
                 />
                 <button
                   type="button"
@@ -1114,8 +1111,8 @@ export default function LocationsPage() {
       {/* Phase A: Hyper-Local Knowledge & FAQs Modal */}
       {overridesModalOpen && selectedLocForOverrides && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+          <div className="w-full max-w-xl rounded-xl bg-[var(--surface-panel)] shadow-xl border border-[var(--border-hairline)] overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[var(--border-hairline)] px-5 py-3.5 bg-zinc-50/70">
               <div className="flex items-center gap-2">
                 <BookOpen className="h-4 w-4 text-amber-600" />
                 <h3 className="text-sm font-bold text-zinc-900">
@@ -1191,7 +1188,7 @@ export default function LocationsPage() {
 
                 <div className="space-y-3">
                   {overridesFaqs.map((faq, idx) => (
-                    <div key={idx} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-2.5 space-y-1.5">
+                    <div key={idx} className="rounded-lg border border-[var(--border-hairline)] bg-zinc-50/50 p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Question #{idx + 1}</span>
                         <button
@@ -1211,7 +1208,7 @@ export default function LocationsPage() {
                           updated[idx].question = e.target.value;
                           setOverridesFaqs(updated);
                         }}
-                        className="w-full rounded border border-zinc-300 bg-white p-1.5 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                        className="w-full rounded border border-zinc-300 bg-[var(--surface-panel)] p-1.5 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
                       />
                       <textarea
                         rows={2}
@@ -1222,7 +1219,7 @@ export default function LocationsPage() {
                           updated[idx].answer = e.target.value;
                           setOverridesFaqs(updated);
                         }}
-                        className="w-full rounded border border-zinc-300 bg-white p-1.5 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                        className="w-full rounded border border-zinc-300 bg-[var(--surface-panel)] p-1.5 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
                       />
                     </div>
                   ))}
@@ -1234,7 +1231,7 @@ export default function LocationsPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
+              <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border-hairline)]">
                 <button
                   type="button"
                   onClick={() => setOverridesModalOpen(false)}
@@ -1259,8 +1256,8 @@ export default function LocationsPage() {
       {/* Phase B: Smart Geofencing & Territories Modal */}
       {geofenceModalOpen && selectedLocForGeofence && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+          <div className="w-full max-w-xl rounded-xl bg-[var(--surface-panel)] shadow-xl border border-[var(--border-hairline)] overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[var(--border-hairline)] px-5 py-3.5 bg-zinc-50/70">
               <div className="flex items-center gap-2">
                 <Compass className="h-4 w-4 text-blue-600" />
                 <h3 className="text-sm font-bold text-zinc-900">
@@ -1350,7 +1347,7 @@ export default function LocationsPage() {
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200">
+              <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border-hairline)]">
                 <button
                   type="button"
                   onClick={() => setGeofenceModalOpen(false)}
@@ -1375,8 +1372,8 @@ export default function LocationsPage() {
       {/* Unserved Demand Inquiries Modal */}
       {unservedModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-xl bg-white shadow-xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 bg-zinc-50/70">
+          <div className="w-full max-w-xl rounded-xl bg-[var(--surface-panel)] shadow-xl border border-[var(--border-hairline)] overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[var(--border-hairline)] px-5 py-3.5 bg-zinc-50/70">
               <div className="flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-amber-600" />
                 <h3 className="text-sm font-bold text-zinc-900">
@@ -1403,9 +1400,9 @@ export default function LocationsPage() {
                   No unserved territory inquiries recorded yet. All caller inquiries have matched active branches.
                 </div>
               ) : (
-                <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-lg overflow-hidden">
+                <div className="divide-y divide-zinc-100 border border-[var(--border-hairline)] rounded-lg overflow-hidden">
                   {unservedItems.map((item) => (
-                    <div key={item.id} className="p-3 flex items-center justify-between bg-white hover:bg-zinc-50 text-xs">
+                    <div key={item.id} className="p-3 flex items-center justify-between bg-[var(--surface-panel)] hover:bg-zinc-50 text-xs">
                       <div>
                         <div className="font-semibold text-zinc-900">{item.requested_location_raw}</div>
                         <div className="text-[11px] font-mono text-zinc-500">{item.caller_phone || "Unknown Phone"} {item.postal_code ? `&bull; ${item.postal_code}` : ""}</div>
