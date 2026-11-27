@@ -87,6 +87,13 @@ class InternalTenantConfigResponse(BaseModel):
     industry_pack_slug: str | None = None
     industry_pack_prompt: str | None = None
     industry_pack_intake_schema: dict[str, Any] = Field(default_factory=dict)
+    custom_instructions: str = ""
+    do_rules: list[str] = Field(default_factory=list)
+    dont_rules: list[str] = Field(default_factory=list)
+    objection_handlers: list[dict[str, Any]] = Field(default_factory=list)
+    strict_grounding: bool = False
+    unknown_fallback_script: str = ""
+    escalation_rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CallStartRequest(BaseModel):
@@ -279,6 +286,15 @@ def _build_tenant_config(
         industry_pack_slug=pack_slug,
         industry_pack_prompt=pack_prompt,
         industry_pack_intake_schema=pack_intake_schema,
+        custom_instructions=(getattr(profile, "custom_instructions", "") or "") if profile else "",
+        do_rules=(getattr(profile, "do_rules", None) or []) if profile else [],
+        dont_rules=(getattr(profile, "dont_rules", None) or []) if profile else [],
+        objection_handlers=(getattr(profile, "objection_handlers", None) or []) if profile else [],
+        strict_grounding=bool(getattr(profile, "strict_grounding", False)) if profile else False,
+        unknown_fallback_script=(getattr(profile, "unknown_fallback_script", "") or "")
+        if profile
+        else "",
+        escalation_rules=(getattr(profile, "escalation_rules", None) or []) if profile else [],
     )
 
 

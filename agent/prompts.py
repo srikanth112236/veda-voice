@@ -240,6 +240,77 @@ def build_system_prompt(
 Note: Platform safety rules and emergency protocols above strictly take precedence over business notes.
 """
 
+    # Phase 1: Customizations, Objection Playbooks, Escalation Rules & Strict Grounding
+    custom_parts: list[str] = []
+    if getattr(config, "custom_instructions", "").strip():
+        custom_parts.append(
+            f"CUSTOM OPERATIONAL INSTRUCTIONS:\n{config.custom_instructions.strip()[:2500]}"
+        )
+
+    do_rules = [str(r).strip() for r in (getattr(config, "do_rules", None) or []) if str(r).strip()]
+    if do_rules:
+        custom_parts.append("ALWAYS DO:\n" + "\n".join(f"- {r}" for r in do_rules))
+
+    dont_rules = [
+        str(r).strip() for r in (getattr(config, "dont_rules", None) or []) if str(r).strip()
+    ]
+    if dont_rules:
+        custom_parts.append("NEVER DO:\n" + "\n".join(f"- {r}" for r in dont_rules))
+
+    objections = getattr(config, "objection_handlers", None) or []
+    if objections:
+        obj_lines: list[str] = []
+        for item in objections:
+            if not isinstance(item, dict):
+                continue
+            trig = str(item.get("trigger") or "").strip()
+            resp = str(item.get("response") or "").strip()
+            act = str(item.get("action") or "").strip()
+            if trig and resp:
+                act_suffix = f" [Next Action: {act}]" if act else ""
+                obj_lines.append(f'- If caller says/asks "{trig}": "{resp}"{act_suffix}')
+        if obj_lines:
+            custom_parts.append("OBJECTION & TOUGH-CALLER PLAYBOOK:\n" + "\n".join(obj_lines))
+
+    esc_rules = getattr(config, "escalation_rules", None) or []
+    if esc_rules:
+        esc_lines: list[str] = []
+        for rule in esc_rules:
+            if not isinstance(rule, dict):
+                continue
+            cond = str(rule.get("condition") or "").strip()
+            target = str(rule.get("target_number") or "").strip()
+            label = str(rule.get("label") or "").strip()
+            if cond:
+                target_str = f" -> transfer/route to {label or target}" if (label or target) else ""
+                esc_lines.append(f"- When {cond}{target_str}")
+        if esc_lines:
+            custom_parts.append("CUSTOM ESCALATION TRIGGERS:\n" + "\n".join(esc_lines))
+
+    if getattr(config, "strict_grounding", False):
+        fallback_line = (
+            getattr(config, "unknown_fallback_script", "").strip()
+            or "I want to make sure I give you the exact information—let me have our team confirm that and follow up with you right away."
+        )
+        custom_parts.append(
+            "STRICT GROUNDING MODE (ZERO HALLUCINATION):\n"
+            "- Only state prices, warranties, policies, or technical claims explicitly verified in the FAQs, business profile, or knowledge tools.\n"
+            f'- If an answer is not verified in your context, NEVER guess or invent details. Say: "{fallback_line}"'
+        )
+
+    custom_parts.append(
+        "UNIVERSAL INDUSTRY COMPLIANCE GUARDRAILS:\n"
+        "- Never provide medical diagnoses, prescriptions, legal advice, or tax/investment advice. Always defer professional opinions to a licensed specialist."
+    )
+
+    customizations_block = (
+        "\n\n=== CLIENT AI CUSTOMIZATIONS & GUARDRAILS ===\n"
+        + "\n\n".join(custom_parts)
+        + "\n=============================================\n"
+        + "Note: Platform safety rules and emergency protocols above strictly take precedence."
+    )
+    business_notes_block = f"{customizations_block}{business_notes_block}"
+
     pack_block = ""
     if getattr(config, "industry_pack_prompt", None):
         pack_slug_label = (getattr(config, "industry_pack_slug", None) or "CUSTOM").upper()

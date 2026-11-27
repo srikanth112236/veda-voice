@@ -112,6 +112,13 @@ def sync_tenant_to_livekit(
         if getattr(profile, "disconnect_recovery_sms_enabled", None) is None
         else bool(profile.disconnect_recovery_sms_enabled),
         "disconnect_recovery_sms_text": getattr(profile, "disconnect_recovery_sms_text", "") or "",
+        "custom_instructions": getattr(profile, "custom_instructions", "") or "",
+        "do_rules": getattr(profile, "do_rules", []) or [],
+        "dont_rules": getattr(profile, "dont_rules", []) or [],
+        "objection_handlers": getattr(profile, "objection_handlers", []) or [],
+        "strict_grounding": bool(getattr(profile, "strict_grounding", False)),
+        "unknown_fallback_script": getattr(profile, "unknown_fallback_script", "") or "",
+        "escalation_rules": getattr(profile, "escalation_rules", []) or [],
     }
 
     # Resolve output directory (default to data/tenants)

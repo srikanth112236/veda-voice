@@ -232,6 +232,13 @@ class UpdateAgentProfileRequest(BaseModel):
     auto_sms_reminders_enabled: bool | None = None
     reminder_lead_hours: int | None = None
     custom_reminder_template: str | None = None
+    custom_instructions: str | None = Field(default=None, max_length=2500)
+    do_rules: list[str] | None = None
+    dont_rules: list[str] | None = None
+    objection_handlers: list[dict[str, Any]] | None = None
+    strict_grounding: bool | None = None
+    unknown_fallback_script: str | None = Field(default=None, max_length=1000)
+    escalation_rules: list[dict[str, Any]] | None = None
 
 
 class AgentProfileResponse(BaseModel):
@@ -281,6 +288,13 @@ class AgentProfileResponse(BaseModel):
     auto_sms_reminders_enabled: bool = True
     reminder_lead_hours: int = 24
     custom_reminder_template: str = ""
+    custom_instructions: str = ""
+    do_rules: list[str] = Field(default_factory=list)
+    dont_rules: list[str] = Field(default_factory=list)
+    objection_handlers: list[dict[str, Any]] = Field(default_factory=list)
+    strict_grounding: bool = False
+    unknown_fallback_script: str = ""
+    escalation_rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @router.get("/dashboard", response_model=TenantDashboardStats)
@@ -1646,6 +1660,13 @@ def get_agent_profile(
         else bool(profile.auto_sms_reminders_enabled),
         reminder_lead_hours=int(getattr(profile, "reminder_lead_hours", 24) or 24),
         custom_reminder_template=getattr(profile, "custom_reminder_template", "") or "",
+        custom_instructions=getattr(profile, "custom_instructions", "") or "",
+        do_rules=getattr(profile, "do_rules", None) or [],
+        dont_rules=getattr(profile, "dont_rules", None) or [],
+        objection_handlers=getattr(profile, "objection_handlers", None) or [],
+        strict_grounding=bool(getattr(profile, "strict_grounding", False)),
+        unknown_fallback_script=getattr(profile, "unknown_fallback_script", "") or "",
+        escalation_rules=getattr(profile, "escalation_rules", None) or [],
     )
 
 
@@ -1759,6 +1780,20 @@ def update_agent_profile(
         profile.reminder_lead_hours = req.reminder_lead_hours
     if req.custom_reminder_template is not None:
         profile.custom_reminder_template = req.custom_reminder_template
+    if req.custom_instructions is not None:
+        profile.custom_instructions = req.custom_instructions.strip()
+    if req.do_rules is not None:
+        profile.do_rules = [r.strip() for r in req.do_rules if r and r.strip()]
+    if req.dont_rules is not None:
+        profile.dont_rules = [r.strip() for r in req.dont_rules if r and r.strip()]
+    if req.objection_handlers is not None:
+        profile.objection_handlers = req.objection_handlers
+    if req.strict_grounding is not None:
+        profile.strict_grounding = req.strict_grounding
+    if req.unknown_fallback_script is not None:
+        profile.unknown_fallback_script = req.unknown_fallback_script.strip()
+    if req.escalation_rules is not None:
+        profile.escalation_rules = req.escalation_rules
 
     profile.updated_at = datetime.now(UTC)
     db.commit()
@@ -1849,6 +1884,13 @@ def update_agent_profile(
         else bool(profile.auto_sms_reminders_enabled),
         reminder_lead_hours=int(getattr(profile, "reminder_lead_hours", 24) or 24),
         custom_reminder_template=getattr(profile, "custom_reminder_template", "") or "",
+        custom_instructions=getattr(profile, "custom_instructions", "") or "",
+        do_rules=getattr(profile, "do_rules", None) or [],
+        dont_rules=getattr(profile, "dont_rules", None) or [],
+        objection_handlers=getattr(profile, "objection_handlers", None) or [],
+        strict_grounding=bool(getattr(profile, "strict_grounding", False)),
+        unknown_fallback_script=getattr(profile, "unknown_fallback_script", "") or "",
+        escalation_rules=getattr(profile, "escalation_rules", None) or [],
     )
 
 

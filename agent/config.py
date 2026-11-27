@@ -109,6 +109,13 @@ class TenantConfig(BaseModel):
     location_service_cities: list[str] = Field(default_factory=list)
     location_allows_out_of_area: bool = True
     location_extended_dispatch_surcharge: str = ""
+    custom_instructions: str = Field(default="", max_length=2500)
+    do_rules: list[str] = Field(default_factory=list)
+    dont_rules: list[str] = Field(default_factory=list)
+    objection_handlers: list[dict[str, Any]] = Field(default_factory=list)
+    strict_grounding: bool = False
+    unknown_fallback_script: str = Field(default="", max_length=1000)
+    escalation_rules: list[dict[str, Any]] = Field(default_factory=list)
 
     @property
     def emergency_keywords(self) -> list[str]:

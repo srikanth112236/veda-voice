@@ -154,6 +154,19 @@ class AgentProfile(Base):
     reminder_lead_hours: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
     custom_reminder_template: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
+    # Phase 1: Core Prompt Rules, Objections & Strict Grounding Suite
+    custom_instructions: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    do_rules: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    dont_rules: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    objection_handlers: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+    strict_grounding: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    unknown_fallback_script: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    escalation_rules: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, default=list, nullable=False
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

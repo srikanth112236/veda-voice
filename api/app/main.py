@@ -721,6 +721,30 @@ def _sync_pg_missing_columns(
                 conn.rollback()
 
 
+def _sync_sqlite_missing_columns(conn: Any) -> None:
+    """Add any SQLAlchemy model columns missing from local SQLite tables."""
+    from sqlalchemy import text
+
+    tables_rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    existing_tables = {row[0] for row in tables_rows}
+
+    for table in Base.metadata.sorted_tables:
+        tbl = table.name
+        if tbl not in existing_tables:
+            continue
+        col_rows = conn.execute(text(f'PRAGMA table_info("{tbl}")')).fetchall()
+        existing_cols = {row[1] for row in col_rows}
+        for col in table.columns:
+            if col.name in existing_cols:
+                continue
+            ddl = _pg_column_ddl(col)
+            stmt = f'ALTER TABLE "{tbl}" ADD COLUMN "{col.name}" {ddl}'
+            try:
+                conn.execute(text(stmt))
+            except Exception as exc:
+                logger.warning("Failed to add SQLite column %s.%s: %s", tbl, col.name, exc)
+
+
 def init_db() -> None:
     """Ensure database tables exist and seed initial platform records."""
     try:
@@ -1422,6 +1446,7 @@ def init_db() -> None:
                     text("ALTER TABLE crm_connections ADD COLUMN key_fingerprint VARCHAR(32) NULL")
                 )
 
+            _sync_sqlite_missing_columns(conn)
             conn.commit()
 
     if "postgresql" in str(engine.url) or "psycopg" in str(engine.url):

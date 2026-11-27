@@ -110,6 +110,13 @@ def parse_tenant_config_from_dict(data: dict[str, Any], dialed_number: str = "")
         industry_pack_slug=data.get("industry_pack_slug"),
         industry_pack_prompt=data.get("industry_pack_prompt"),
         industry_pack_intake_schema=data.get("industry_pack_intake_schema") or {},
+        custom_instructions=str(data.get("custom_instructions") or "")[:2500],
+        do_rules=list(data.get("do_rules") or []),
+        dont_rules=list(data.get("dont_rules") or []),
+        objection_handlers=list(data.get("objection_handlers") or []),
+        strict_grounding=bool(data.get("strict_grounding", False)),
+        unknown_fallback_script=str(data.get("unknown_fallback_script") or "")[:1000],
+        escalation_rules=list(data.get("escalation_rules") or []),
     )
 
 
