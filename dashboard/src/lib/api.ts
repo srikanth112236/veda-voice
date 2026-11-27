@@ -2736,6 +2736,10 @@ export interface LocationOverrides {
   regional_license_number: string;
   faq_overrides: Array<{ question: string; answer: string }>;
   custom_policies: Record<string, any>;
+  greeting_override?: string;
+  custom_instructions_override?: string;
+  pricing_mode_override?: string;
+  services_override?: string[];
 }
 
 export interface LocationGeofence {

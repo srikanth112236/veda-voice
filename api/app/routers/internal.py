@@ -94,6 +94,10 @@ class InternalTenantConfigResponse(BaseModel):
     location_service_cities: list[str] = Field(default_factory=list)
     location_allows_out_of_area: bool = True
     location_extended_dispatch_surcharge: str = ""
+    location_greeting_override: str = ""
+    location_custom_instructions_override: str = ""
+    location_pricing_mode_override: str = ""
+    location_services_override: list[str] = Field(default_factory=list)
     industry_pack_slug: str | None = None
     industry_pack_prompt: str | None = None
     industry_pack_intake_schema: dict[str, Any] = Field(default_factory=dict)
@@ -293,6 +297,20 @@ def _build_tenant_config(
         or ""
         if location
         else "",
+        location_greeting_override=(getattr(location, "greeting_override", "") or "")
+        if location
+        else "",
+        location_custom_instructions_override=(
+            getattr(location, "custom_instructions_override", "") or ""
+        )
+        if location
+        else "",
+        location_pricing_mode_override=(getattr(location, "pricing_mode_override", "") or "")
+        if location
+        else "",
+        location_services_override=(getattr(location, "services_override", []) or [])
+        if location
+        else [],
         industry_pack_slug=pack_slug,
         industry_pack_prompt=pack_prompt,
         industry_pack_intake_schema=pack_intake_schema,

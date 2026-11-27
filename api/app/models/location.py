@@ -68,6 +68,10 @@ class Location(Base):
     regional_license_number: Mapped[str] = mapped_column(String(128), default="", nullable=False)
     faq_overrides: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list, nullable=False)
     custom_policies: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    greeting_override: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    custom_instructions_override: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    pricing_mode_override: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    services_override: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
     # Location-specific transfer and emergency phone number
     transfer_number: Mapped[str] = mapped_column(String(32), default="", nullable=False)

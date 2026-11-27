@@ -83,6 +83,9 @@ export default function LocationsPage() {
   const [overridesFee, setOverridesFee] = useState<string>("");
   const [overridesLicense, setOverridesLicense] = useState<string>("");
   const [overridesFaqs, setOverridesFaqs] = useState<Array<{ question: string; answer: string }>>([]);
+  const [overridesGreeting, setOverridesGreeting] = useState<string>("");
+  const [overridesInstructions, setOverridesInstructions] = useState<string>("");
+  const [overridesPricingMode, setOverridesPricingMode] = useState<string>("");
   const [savingOverrides, setSavingOverrides] = useState<boolean>(false);
 
   // Phase B: Smart Geofencing State
@@ -309,11 +312,17 @@ export default function LocationsPage() {
       setOverridesFee(res.diagnostic_fee || "");
       setOverridesLicense(res.regional_license_number || "");
       setOverridesFaqs(res.faq_overrides || []);
+      setOverridesGreeting(res.greeting_override || "");
+      setOverridesInstructions(res.custom_instructions_override || "");
+      setOverridesPricingMode(res.pricing_mode_override || "");
     } catch {
       setOverridesParking(loc.parking_directions || "");
       setOverridesFee(loc.diagnostic_fee || "");
       setOverridesLicense(loc.regional_license_number || "");
       setOverridesFaqs(loc.faq_overrides || []);
+      setOverridesGreeting("");
+      setOverridesInstructions("");
+      setOverridesPricingMode("");
     }
   };
 
@@ -326,6 +335,9 @@ export default function LocationsPage() {
         diagnostic_fee: overridesFee,
         regional_license_number: overridesLicense,
         faq_overrides: overridesFaqs.filter((f) => f.question.trim()),
+        greeting_override: overridesGreeting,
+        custom_instructions_override: overridesInstructions,
+        pricing_mode_override: overridesPricingMode,
       });
       setOverridesModalOpen(false);
       loadLocations();
@@ -1169,6 +1181,52 @@ export default function LocationsPage() {
                     placeholder="e.g. TACLA001234E Master HVAC"
                     className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
                   />
+                </div>
+              </div>
+
+              {/* Branch AI Behavior Overrides */}
+              <div className="pt-2 border-t border-zinc-100 space-y-2.5">
+                <span className="text-xs font-bold text-zinc-800 block">Branch AI Behavior Overrides</span>
+                <div>
+                  <label className="text-[11px] font-semibold text-zinc-600 block mb-1">
+                    Branch Greeting Override (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={overridesGreeting}
+                    onChange={(e) => setOverridesGreeting(e.target.value)}
+                    placeholder="Thanks for calling our Austin North branch..."
+                    className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="md:col-span-2">
+                    <label className="text-[11px] font-semibold text-zinc-600 block mb-1">
+                      Branch Operational Instructions
+                    </label>
+                    <input
+                      type="text"
+                      value={overridesInstructions}
+                      onChange={(e) => setOverridesInstructions(e.target.value)}
+                      placeholder="e.g. Mention free parking behind Building B."
+                      className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-zinc-600 block mb-1">
+                      Pricing Mode Override
+                    </label>
+                    <select
+                      value={overridesPricingMode}
+                      onChange={(e) => setOverridesPricingMode(e.target.value)}
+                      className="w-full rounded-lg border border-zinc-300 p-2 text-xs text-zinc-900 bg-white"
+                    >
+                      <option value="">Inherit Tenant Default</option>
+                      <option value="no_quote">No Quote</option>
+                      <option value="listed">Listed Menu</option>
+                      <option value="range">Estimate Range</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 

@@ -107,6 +107,12 @@ def parse_tenant_config_from_dict(data: dict[str, Any], dialed_number: str = "")
         location_service_cities=data.get("location_service_cities") or [],
         location_allows_out_of_area=data.get("location_allows_out_of_area", True),
         location_extended_dispatch_surcharge=data.get("location_extended_dispatch_surcharge") or "",
+        location_greeting_override=str(data.get("location_greeting_override") or ""),
+        location_custom_instructions_override=str(
+            data.get("location_custom_instructions_override") or ""
+        ),
+        location_pricing_mode_override=str(data.get("location_pricing_mode_override") or ""),
+        location_services_override=list(data.get("location_services_override") or []),
         industry_pack_slug=data.get("industry_pack_slug"),
         industry_pack_prompt=data.get("industry_pack_prompt"),
         industry_pack_intake_schema=data.get("industry_pack_intake_schema") or {},

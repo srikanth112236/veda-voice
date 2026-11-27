@@ -58,6 +58,10 @@ class LocationCreateUpdateRequest(BaseModel):
     regional_license_number: str = ""
     faq_overrides: list[dict[str, str]] = Field(default_factory=list)
     custom_policies: dict[str, Any] = Field(default_factory=dict)
+    greeting_override: str = ""
+    custom_instructions_override: str = ""
+    pricing_mode_override: str = ""
+    services_override: list[str] = Field(default_factory=list)
     transfer_number: str = ""
     emergency_phone: str = ""
     calendar_provider: str = "internal"
@@ -92,6 +96,10 @@ class LocationResponse(BaseModel):
     regional_license_number: str = ""
     faq_overrides: list[dict[str, str]] = Field(default_factory=list)
     custom_policies: dict[str, Any] = Field(default_factory=dict)
+    greeting_override: str = ""
+    custom_instructions_override: str = ""
+    pricing_mode_override: str = ""
+    services_override: list[str] = Field(default_factory=list)
     transfer_number: str
     emergency_phone: str
     calendar_provider: str
@@ -117,6 +125,10 @@ class LocationOverridesResponse(BaseModel):
     regional_license_number: str
     faq_overrides: list[dict[str, str]]
     custom_policies: dict[str, Any]
+    greeting_override: str = ""
+    custom_instructions_override: str = ""
+    pricing_mode_override: str = ""
+    services_override: list[str] = Field(default_factory=list)
 
 
 class LocationOverridesUpdateRequest(BaseModel):
@@ -125,6 +137,10 @@ class LocationOverridesUpdateRequest(BaseModel):
     regional_license_number: str | None = None
     faq_overrides: list[dict[str, str]] | None = None
     custom_policies: dict[str, Any] | None = None
+    greeting_override: str | None = None
+    custom_instructions_override: str | None = None
+    pricing_mode_override: str | None = None
+    services_override: list[str] | None = None
 
 
 class LocationGeofenceResponse(BaseModel):
@@ -225,6 +241,10 @@ def _build_location_response(loc: Location, db: Session) -> LocationResponse:
         regional_license_number=getattr(loc, "regional_license_number", "") or "",
         faq_overrides=getattr(loc, "faq_overrides", []) or [],
         custom_policies=getattr(loc, "custom_policies", {}) or {},
+        greeting_override=getattr(loc, "greeting_override", "") or "",
+        custom_instructions_override=getattr(loc, "custom_instructions_override", "") or "",
+        pricing_mode_override=getattr(loc, "pricing_mode_override", "") or "",
+        services_override=getattr(loc, "services_override", []) or [],
         transfer_number=loc.transfer_number,
         emergency_phone=loc.emergency_phone,
         calendar_provider=loc.calendar_provider,
@@ -499,6 +519,10 @@ def get_location_overrides(
         regional_license_number=loc.regional_license_number or "",
         faq_overrides=loc.faq_overrides or [],
         custom_policies=loc.custom_policies or {},
+        greeting_override=getattr(loc, "greeting_override", "") or "",
+        custom_instructions_override=getattr(loc, "custom_instructions_override", "") or "",
+        pricing_mode_override=getattr(loc, "pricing_mode_override", "") or "",
+        services_override=getattr(loc, "services_override", []) or [],
     )
 
 
@@ -532,6 +556,14 @@ def update_location_overrides(
         loc.faq_overrides = req.faq_overrides
     if req.custom_policies is not None:
         loc.custom_policies = req.custom_policies
+    if req.greeting_override is not None:
+        loc.greeting_override = req.greeting_override.strip()
+    if req.custom_instructions_override is not None:
+        loc.custom_instructions_override = req.custom_instructions_override.strip()
+    if req.pricing_mode_override is not None:
+        loc.pricing_mode_override = req.pricing_mode_override.strip()
+    if req.services_override is not None:
+        loc.services_override = [s.strip() for s in req.services_override if s and s.strip()]
 
     db.commit()
     db.refresh(loc)
@@ -542,6 +574,10 @@ def update_location_overrides(
         regional_license_number=loc.regional_license_number or "",
         faq_overrides=loc.faq_overrides or [],
         custom_policies=loc.custom_policies or {},
+        greeting_override=getattr(loc, "greeting_override", "") or "",
+        custom_instructions_override=getattr(loc, "custom_instructions_override", "") or "",
+        pricing_mode_override=getattr(loc, "pricing_mode_override", "") or "",
+        services_override=getattr(loc, "services_override", []) or [],
     )
 
 

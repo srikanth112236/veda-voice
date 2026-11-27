@@ -8,9 +8,12 @@ import { PublicDocumentShell } from "@/components/public/PublicDocumentShell";
 import { Calendar, CheckCircle2, Clock } from "lucide-react";
 
 interface SlotOption {
-  start: string;
-  end: string;
+  start?: string;
+  end?: string;
+  start_iso?: string;
+  end_iso?: string;
   label?: string;
+  display_time?: string;
 }
 
 export default function PublicBookingPage() {
@@ -49,10 +52,10 @@ export default function PublicBookingPage() {
       .then((res) => {
         setBusinessName(res.business_name);
         setTimezone(res.timezone);
-        const list = res.availability.slots || res.availability.available_slots || [];
+        const list: SlotOption[] = res.availability.slots || res.availability.available_slots || [];
         setSlots(list);
         if (list.length > 0) {
-          setSelectedSlot(list[0].start);
+          setSelectedSlot(list[0].start || list[0].start_iso || "");
         } else {
           setSelectedSlot("");
         }
@@ -178,19 +181,23 @@ export default function PublicBookingPage() {
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {slots.slice(0, 12).map((slot) => {
-                  const isSelected = selectedSlot === slot.start;
-                  const label =
-                    slot.label ||
-                    new Date(slot.start).toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    });
+                {slots.slice(0, 12).map((slot, idx) => {
+                  const slotStart = slot.start || slot.start_iso || "";
+                  const isSelected = selectedSlot === slotStart;
+                  const parsedDate = slotStart ? new Date(slotStart) : null;
+                  const fallbackTime =
+                    parsedDate && !Number.isNaN(parsedDate.getTime())
+                      ? parsedDate.toLocaleTimeString([], {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : slotStart;
+                  const label = slot.label || slot.display_time || fallbackTime;
                   return (
                     <button
-                      key={slot.start}
+                      key={slotStart || idx}
                       type="button"
-                      onClick={() => setSelectedSlot(slot.start)}
+                      onClick={() => setSelectedSlot(slotStart)}
                       className={`min-h-[44px] px-3 py-2 rounded-lg border font-mono tabular-nums text-xs transition-colors ${
                         isSelected
                           ? "bg-[var(--ink-primary)] text-[var(--surface-panel)] border-[var(--ink-primary)] font-semibold"

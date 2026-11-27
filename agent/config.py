@@ -109,6 +109,10 @@ class TenantConfig(BaseModel):
     location_service_cities: list[str] = Field(default_factory=list)
     location_allows_out_of_area: bool = True
     location_extended_dispatch_surcharge: str = ""
+    location_greeting_override: str = ""
+    location_custom_instructions_override: str = ""
+    location_pricing_mode_override: str = ""
+    location_services_override: list[str] = Field(default_factory=list)
     custom_instructions: str = Field(default="", max_length=2500)
     do_rules: list[str] = Field(default_factory=list)
     dont_rules: list[str] = Field(default_factory=list)

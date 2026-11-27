@@ -25,9 +25,12 @@ def build_system_prompt(
     date_str = current_dt.strftime("%A, %B %d, %Y")
     time_str = current_dt.strftime("%I:%M %p")
 
+    effective_services = (
+        getattr(config, "location_services_override", None) or []
+    ) or config.services
     services_formatted = (
-        "\n".join(f"- {service}" for service in config.services)
-        if config.services
+        "\n".join(f"- {service}" for service in effective_services)
+        if effective_services
         else "- General inquiries and service intake"
     )
 
@@ -311,6 +314,25 @@ Note: Platform safety rules and emergency protocols above strictly take preceden
         "- LOOP BREAKER: Never ask the exact same intake question more than twice. After two failed attempts, pivot to taking a callback number, texting a booking/quote link (`send_booking_link_tool` / `send_quote_link_tool`), or offering human transfer.\n"
         '- TOOL HOLD CUE: When invoking `check_availability`, `book_appointment`, or `lookup_business_info`, briefly acknowledge first (e.g., "Checking that schedule for you now...") so there is no dead air.'
     )
+
+    if getattr(config, "location_name", None):
+        branch_ov: list[str] = []
+        if getattr(config, "location_greeting_override", "").strip():
+            branch_ov.append(
+                f'- Branch Greeting Override: "{config.location_greeting_override.strip()}"'
+            )
+        if getattr(config, "location_custom_instructions_override", "").strip():
+            branch_ov.append(
+                f"- Branch Operational Instructions: {config.location_custom_instructions_override.strip()}"
+            )
+        if getattr(config, "location_pricing_mode_override", "").strip():
+            branch_ov.append(
+                f"- Branch Pricing Mode Override: {config.location_pricing_mode_override.strip()}"
+            )
+        if branch_ov:
+            custom_parts.append(
+                f"BRANCH AI OVERRIDES ({config.location_name}):\n" + "\n".join(branch_ov)
+            )
 
     if caller_context and caller_context.get("returning_caller"):
         mem_lines: list[str] = ["RETURNING CALLER MEMORY (HYDRATED PRE-CALL):"]
