@@ -92,6 +92,7 @@ class Settings(BaseSettings):
     META_APP_SECRET: str = ""
 
     # Notifications (Email & SMS)
+    REDIS_URL: str = ""
     NOTIFICATION_ENABLED: bool = True
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "alerts@updates.vedasynk.com"

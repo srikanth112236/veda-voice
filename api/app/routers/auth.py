@@ -8,14 +8,14 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
-from api.app.core.deps import get_current_user
+from api.app.core.deps import clear_auth_cookies, get_current_user, set_auth_cookie
 from api.app.core.security import (
     create_access_token,
     decode_access_token,
@@ -254,8 +254,8 @@ def get_public_industry_packs(db: Session = Depends(get_db)) -> Any:
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)) -> Any:
-    """Authenticate platform admin or tenant user and issue JWT."""
+def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)) -> Any:
+    """Authenticate platform admin or tenant user and issue JWT + HttpOnly cookie."""
     stmt = select(User).where(User.email == req.email.lower(), User.is_active.is_(True))
     user = db.scalar(stmt)
     if not user or not verify_password(req.password, user.hashed_password):
@@ -266,6 +266,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)) -> Any:
 
     tenant_name = user.tenant.name if user.tenant else "VedaVoice Platform"
     token = create_access_token({"sub": user.id, "role": user.role, "tenant_id": user.tenant_id})
+    set_auth_cookie(response, token)
 
     return LoginResponse(
         access_token=token,
@@ -280,8 +281,17 @@ def login(req: LoginRequest, db: Session = Depends(get_db)) -> Any:
     )
 
 
+@router.post("/logout")
+def logout_user(response: Response) -> dict[str, bool]:
+    """Clear HttpOnly authentication cookies."""
+    clear_auth_cookies(response)
+    return {"success": True}
+
+
 @router.post("/register", response_model=LoginResponse)
-def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -> Any:
+def register_tenant(
+    req: RegisterTenantRequest, response: Response, db: Session = Depends(get_db)
+) -> Any:
     """Public self-service tenant onboarding (supports password or verified Google token)."""
     owner_email = req.email.lower()
     owner_name = req.owner_name
@@ -521,6 +531,7 @@ def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)) -
         )
 
     token = create_access_token({"sub": user.id, "role": user.role, "tenant_id": tenant.id})
+    set_auth_cookie(response, token)
 
     return LoginResponse(
         access_token=token,
@@ -683,7 +694,9 @@ async def google_login_callback(
             "auth_provider": "google",
         }
     )
-    return RedirectResponse(url=f"{dashboard_origin}/login#token={jwt_token}")
+    redir = RedirectResponse(url=f"{dashboard_origin}/login?google_auth=1")
+    set_auth_cookie(redir, jwt_token)
+    return redir
 
 
 _GOOGLE_ONBOARDING_CODES: dict[str, str] = {}

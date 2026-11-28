@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from starlette.testclient import TestClient
 
-from api.app.core.encryption import encrypt_token
+from api.app.core.security import encrypt_token
 from api.app.db.session import SessionLocal
 from api.app.main import app
 from api.app.models.booking import Booking, TenantIntegration

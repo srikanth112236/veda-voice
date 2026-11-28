@@ -37,8 +37,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [studio, setStudio] = useState<StudioConfigData | null>(null);
 
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : null;
-    if (!token || !user) {
+    if (!user) {
       setStudio(null);
       const root = document.documentElement.style;
       root.removeProperty("--accent-signal");
@@ -49,7 +48,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     }
 
     fetch("/api/v1/portal/studio", {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {

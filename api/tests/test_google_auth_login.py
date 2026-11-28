@@ -181,8 +181,9 @@ def test_google_callback_issues_jwt_for_active_user(monkeypatch: Any) -> None:
     )
     assert resp.status_code == 307
     loc = resp.headers["location"]
-    assert "#token=" in loc
-    jwt_token = loc.split("#token=", 1)[1]
+    assert loc.endswith("/login?google_auth=1")
+    jwt_token = resp.cookies.get("vedavoice_token")
+    assert jwt_token
 
     me_resp = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {jwt_token}"})
     assert me_resp.status_code == 200

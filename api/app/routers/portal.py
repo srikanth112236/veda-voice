@@ -1494,12 +1494,14 @@ async def execute_call_action(
 @router.websocket("/calls/{call_id}/stream")
 async def websocket_call_supervision(websocket: WebSocket, call_id: str) -> None:
     """Real-time bi-directional supervisor WebSocket event and action streaming connection."""
-    # Authenticate token from query parameter or authorization header
+    # Authenticate token from query parameter, authorization header, or HttpOnly cookie
     token = websocket.query_params.get("token")
     if not token:
         auth_header = websocket.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split("Bearer ", 1)[1]
+    if not token:
+        token = websocket.cookies.get("vedavoice_token")
 
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

@@ -55,26 +55,20 @@ export default function LoginPage() {
       setError(messages[oauthErr] || `Google sign-in failed (${oauthErr}).`);
     }
 
-    const hash = window.location.hash;
-    if (hash.startsWith("#token=")) {
-      const token = decodeURIComponent(hash.slice("#token=".length));
-      if (token) {
-        setGoogleLoading(true);
-        localStorage.setItem("vedavoice_token", token);
-        window.history.replaceState(null, "", window.location.pathname);
-        api
-          .getMe()
-          .then((u) => {
-            setUser(u);
-            const target = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
-            launchDashboardWithLoader(target);
-          })
-          .catch(() => {
-            localStorage.removeItem("vedavoice_token");
-            setError("Failed to verify Google sign-in session.");
-            setGoogleLoading(false);
-          });
-      }
+    if (params.get("google_auth") === "1") {
+      setGoogleLoading(true);
+      window.history.replaceState(null, "", window.location.pathname);
+      api
+        .getMe()
+        .then((u) => {
+          setUser(u);
+          const target = u.role === "platform_admin" ? "/admin/dashboard" : "/portal/dashboard";
+          launchDashboardWithLoader(target);
+        })
+        .catch(() => {
+          setError("Failed to verify Google sign-in session.");
+          setGoogleLoading(false);
+        });
     }
   }, [setUser]);
 

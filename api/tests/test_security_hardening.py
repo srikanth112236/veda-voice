@@ -148,3 +148,87 @@ def test_compliance_window_rollover_at_minute_55() -> None:
         assert res.passed is False
         assert res.reason == "outside_calling_window"
         assert "scheduled_for" in res.details
+
+
+def test_httponly_cookie_login_and_logout_flow() -> None:
+    """Verify /auth/login sets HttpOnly cookie, /auth/me accepts it, and /auth/logout clears it."""
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": settings.PLATFORM_ADMIN_EMAIL,
+            "password": settings.PLATFORM_ADMIN_PASSWORD,
+        },
+    )
+    assert login_resp.status_code == 200
+    assert login_resp.cookies.get("vedavoice_token")
+
+    me_resp = client.get("/api/v1/auth/me")
+    assert me_resp.status_code == 200
+    assert me_resp.json()["email"] == settings.PLATFORM_ADMIN_EMAIL
+
+    logout_resp = client.post("/api/v1/auth/logout")
+    assert logout_resp.status_code == 200
+    assert logout_resp.json()["success"] is True
+
+
+def test_unified_security_encryption_dual_read_legacy_fernet() -> None:
+    """Verify security.decrypt_token decrypts both legacy ENCRYPTION_SECRET and JWT_SECRET tokens."""
+    from api.app.core.security import (
+        _get_legacy_envelope_cipher,
+        decrypt_token,
+        encrypt_token,
+    )
+
+    fresh_cipher = encrypt_token({"refresh_token": "r1"})
+    assert decrypt_token(fresh_cipher) == {"refresh_token": "r1"}
+
+    legacy_cipher = (
+        _get_legacy_envelope_cipher().encrypt(b'{"refresh_token": "legacy_r1"}').decode("utf-8")
+    )
+    assert decrypt_token(legacy_cipher) == {"refresh_token": "legacy_r1"}
+
+
+def test_dnc_scrub_persists_to_db_and_reads_fresh() -> None:
+    """Verify DNC hits persist to PlatformSuppression and are read back within 31 days."""
+    from api.app.services.dnc_scrub import (
+        clear_dnc_cache,
+        register_mock_dnc_number,
+        scrub_phone_against_dnc,
+    )
+
+    test_phone = "+15125559901"
+    register_mock_dnc_number(test_phone)
+    with SessionLocal() as db:
+        res1 = scrub_phone_against_dnc(test_phone, db=db)
+        assert res1.is_dnc is True
+        db.commit()
+
+        clear_dnc_cache()
+        res2 = scrub_phone_against_dnc(test_phone, db=db)
+        assert res2.is_dnc is True
+        assert res2.is_fresh is True
+
+
+async def test_supervisor_redis_pubsub_publish_when_configured(monkeypatch: Any) -> None:
+    """Verify supervisor_manager publishes to Redis channel when REDIS_URL is set."""
+    import sys
+    from types import SimpleNamespace
+
+    published: list[tuple[str, str]] = []
+
+    class _FakeRedis:
+        async def publish(self, channel: str, payload: str) -> None:
+            published.append((channel, payload))
+
+        async def aclose(self) -> None:
+            return None
+
+    fake_redis_async = SimpleNamespace(from_url=lambda url: _FakeRedis())
+    monkeypatch.setitem(sys.modules, "redis.asyncio", fake_redis_async)
+    monkeypatch.setattr(settings, "REDIS_URL", "redis://localhost:6379/0")
+
+    from api.app.services.supervisor import supervisor_manager
+
+    await supervisor_manager.broadcast_call_event("call-redis-1", {"event": "turn"})
+    assert len(published) == 1
+    assert published[0][0] == "vedavoice:call:call-redis-1"

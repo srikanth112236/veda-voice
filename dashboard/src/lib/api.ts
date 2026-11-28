@@ -807,21 +807,15 @@ export interface CSVUploadResult {
   sample_imported: Array<{ name: string; phone: string }>;
 }
 
-function getAuthHeader(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("vedavoice_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = {
     "Content-Type": "application/json",
-    ...getAuthHeader(),
     ...options.headers,
   };
 
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: "include",
     headers,
   });
 
@@ -1668,24 +1662,13 @@ export const api = {
     request<AgencySubAccount>(`/api/v1/agency/sub-accounts/${tenantId}/summary`),
 
   impersonateSubAccount: async (tenantId: string, reason = "support_troubleshooting") => {
-    if (typeof window !== "undefined") {
-      const existingAdminToken = localStorage.getItem("vedavoice_admin_token");
-      const currentToken = localStorage.getItem("vedavoice_token");
-      if (!existingAdminToken && currentToken) {
-        localStorage.setItem("vedavoice_admin_token", currentToken);
-      }
-    }
-    const res = await request<ImpersonationResponse>(
+    return request<ImpersonationResponse>(
       `/api/v1/agency/sub-accounts/${tenantId}/impersonate`,
       {
         method: "POST",
         body: JSON.stringify({ reason }),
       }
     );
-    if (typeof window !== "undefined") {
-      localStorage.setItem("vedavoice_token", res.access_token);
-    }
-    return res;
   },
 
   exitImpersonation: async () => {
@@ -1695,13 +1678,6 @@ export const api = {
       });
     } catch {
       // Ignore exit error if session already expired
-    }
-    if (typeof window !== "undefined") {
-      const adminToken = localStorage.getItem("vedavoice_admin_token");
-      if (adminToken) {
-        localStorage.setItem("vedavoice_token", adminToken);
-        localStorage.removeItem("vedavoice_admin_token");
-      }
     }
   },
 
@@ -1743,12 +1719,9 @@ export const api = {
     const formData = new FormData();
     formData.append("file", file);
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : null;
     const res = await fetch("/api/v1/portal/knowledge/upload", {
       method: "POST",
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      credentials: "include",
       body: formData,
     });
     if (!res.ok) {

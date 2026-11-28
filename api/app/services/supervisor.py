@@ -10,6 +10,7 @@ Implements Milestone M7a per SRS Section 6.2 & SRS Addendum v1.1:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -17,6 +18,7 @@ from typing import Any
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
 
+from api.app.core.config import settings
 from api.app.models.call import Call
 from api.app.models.crm import ContactTimelineEvent
 from api.app.models.user import User
@@ -50,8 +52,7 @@ class SupervisorConnectionManager:
                 del self._call_subscribers[call_id]
         logger.info("Supervisor disconnected from call stream: %s", call_id)
 
-    async def broadcast_call_event(self, call_id: str, event_data: dict[str, Any]) -> None:
-        """Broadcast live event (transcript turn, sentiment shift, whisper, barge-in) to supervisors."""
+    async def _deliver_local(self, call_id: str, event_data: dict[str, Any]) -> None:
         subscribers = list(self._call_subscribers.get(call_id, []))
         if not subscribers:
             return
@@ -66,6 +67,26 @@ class SupervisorConnectionManager:
 
         for dead in dead_sockets:
             self.disconnect_call(call_id, dead)
+
+    async def broadcast_call_event(self, call_id: str, event_data: dict[str, Any]) -> None:
+        """Broadcast live event to local sockets and Redis pub/sub channel when configured."""
+        if settings.REDIS_URL:
+            try:
+                import importlib
+
+                redis_async = importlib.import_module("redis.asyncio")
+                client = redis_async.from_url(settings.REDIS_URL)
+                try:
+                    await client.publish(
+                        f"vedavoice:call:{call_id}",
+                        json.dumps(event_data, default=str),
+                    )
+                finally:
+                    await client.aclose()
+            except Exception as err:
+                logger.debug("Redis pub/sub publish skipped (%s); falling back to local", err)
+
+        await self._deliver_local(call_id, event_data)
 
 
 supervisor_manager = SupervisorConnectionManager()

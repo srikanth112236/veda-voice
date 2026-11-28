@@ -62,6 +62,14 @@ def _get_encryption_cipher() -> Fernet:
     return Fernet(key)
 
 
+def _get_legacy_envelope_cipher() -> Fernet:
+    """Derive legacy 32-byte Fernet key from ENCRYPTION_SECRET for dual-read migration."""
+    key = base64.urlsafe_b64encode(
+        hashlib.sha256(settings.ENCRYPTION_SECRET.encode("utf-8")).digest()
+    )
+    return Fernet(key)
+
+
 def encrypt_token(token_data: dict[str, Any] | str) -> str:
     """Encrypt OAuth token or credentials using AES-128-CBC with HMAC-SHA256 (envelope encryption)."""
     cipher = _get_encryption_cipher()
@@ -71,8 +79,10 @@ def encrypt_token(token_data: dict[str, Any] | str) -> str:
 
 
 def decrypt_token(ciphertext: str) -> dict[str, Any] | str:
-    """Decrypt OAuth token ciphertext, supporting both modern v2:gcm: and legacy Fernet."""
+    """Decrypt OAuth token ciphertext, supporting v2:gcm:, JWT_SECRET Fernet, and legacy ENCRYPTION_SECRET Fernet."""
     clean_ciphertext = (ciphertext or "").strip()
+    if not clean_ciphertext:
+        return ""
     if clean_ciphertext.startswith("v2:gcm:"):
         parts = clean_ciphertext.split(":", 4)
         if len(parts) == 5:
@@ -80,7 +90,17 @@ def decrypt_token(ciphertext: str) -> dict[str, Any] | str:
             return decrypt_crm_credentials(enc_tenant, enc_provider, clean_ciphertext)
 
     cipher = _get_encryption_cipher()
-    decrypted_bytes = cipher.decrypt(clean_ciphertext.encode("utf-8"))
+    try:
+        decrypted_bytes = cipher.decrypt(clean_ciphertext.encode("utf-8"))
+    except Exception:
+        try:
+            decrypted_bytes = _get_legacy_envelope_cipher().decrypt(
+                clean_ciphertext.encode("utf-8")
+            )
+        except Exception as err:
+            raise ValueError(
+                "Failed to decrypt token: invalid ciphertext or secret key mismatch"
+            ) from err
     decrypted_str = str(decrypted_bytes.decode("utf-8"))
     try:
         parsed = json.loads(decrypted_str)

@@ -5,7 +5,7 @@ import socket
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -17,6 +17,32 @@ from api.app.models.tenant import Tenant
 from api.app.models.user import User
 
 security_scheme = HTTPBearer(auto_error=False)
+AUTH_COOKIE_NAME = "vedavoice_token"
+ADMIN_COOKIE_NAME = "vedavoice_admin_token"
+
+
+def set_auth_cookie(
+    response: Response,
+    token: str,
+    key: str = AUTH_COOKIE_NAME,
+    max_age: int = 86400,
+) -> None:
+    """Set HttpOnly; SameSite=Lax auth cookie (Secure in production)."""
+    response.set_cookie(
+        key=key,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.ENVIRONMENT.lower() in ("prod", "production"),
+        path="/",
+        max_age=max_age,
+    )
+
+
+def clear_auth_cookies(response: Response) -> None:
+    """Clear browser auth and impersonation cookies."""
+    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
+    response.delete_cookie(key=ADMIN_COOKIE_NAME, path="/")
 
 
 def validate_public_webhook_url(url: str) -> str:
@@ -72,18 +98,24 @@ def build_oauth_redirect_url(request: Request, path_with_query: str) -> str:
 
 
 def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security_scheme)],
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    """Validate JWT token and return authenticated user model."""
-    if credentials is None or not credentials.credentials:
+    """Validate JWT from Bearer header or HttpOnly cookie and return authenticated user."""
+    raw_token = (
+        credentials.credentials
+        if (credentials is not None and credentials.credentials)
+        else request.cookies.get(AUTH_COOKIE_NAME)
+    )
+    if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication credentials were not provided",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    payload = decode_access_token(credentials.credentials)
+    payload = decode_access_token(raw_token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -25,31 +25,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : null;
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      api
-        .getMe()
-        .then((profile) => {
-          if (active) setUser(profile);
-        })
-        .catch(() => {
-          if (typeof window !== "undefined") {
-            localStorage.removeItem("vedavoice_token");
-            localStorage.removeItem("vedavoice_admin_token");
-          }
-          if (active) setUser(null);
-        })
-        .finally(() => {
-          if (active) setLoading(false);
-        });
-    } catch {
-      setLoading(false);
-    }
+    api
+      .getMe()
+      .then((profile) => {
+        if (active) setUser(profile);
+      })
+      .catch(() => {
+        if (active) setUser(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
     return () => {
       active = false;
@@ -58,14 +44,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, pass: string): Promise<UserProfile> => {
     const res = await api.login({ email, password: pass });
-    localStorage.setItem("vedavoice_token", res.access_token);
     setUser(res.user);
     return res.user;
   };
 
-  const logout = () => {
-    localStorage.removeItem("vedavoice_token");
-    localStorage.removeItem("vedavoice_admin_token");
+  const logout = async () => {
+    try {
+      await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+    } catch {
+      // Ignore network errors during logout
+    }
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("vedavoice_token");
+      localStorage.removeItem("vedavoice_admin_token");
+    }
     setUser(null);
     window.location.href = "/login";
   };

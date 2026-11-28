@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime, time, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from api.app.core.encryption import decrypt_token
+from api.app.core.security import decrypt_token
 from api.app.models.booking import Booking, TenantIntegration
 from api.app.models.tenant import Tenant
 from api.app.services.calendar.base import CalendarProvider, Interval
@@ -70,12 +71,14 @@ def _get_tenant_calendar_provider(
         return None, "primary"
 
     try:
-        tokens_json = decrypt_token(integration.encrypted_tokens)
-        token_data = {}
-        if tokens_json:
+        tokens_val = decrypt_token(integration.encrypted_tokens)
+        token_data: dict[str, Any] = {}
+        if isinstance(tokens_val, dict):
+            token_data = tokens_val
+        elif tokens_val:
             import json
 
-            token_data = json.loads(tokens_json)
+            token_data = json.loads(tokens_val)
 
         refresh_token = token_data.get("refresh_token", "")
         access_token = token_data.get("access_token")

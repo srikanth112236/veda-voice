@@ -21,8 +21,12 @@ from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
 from api.app.core.deps import build_oauth_redirect_url, get_current_tenant
-from api.app.core.encryption import decrypt_token, encrypt_token
-from api.app.core.security import create_access_token, decode_access_token
+from api.app.core.security import (
+    create_access_token,
+    decode_access_token,
+    decrypt_token,
+    encrypt_token,
+)
 from api.app.db.session import get_db
 from api.app.models.booking import Booking, TenantIntegration
 from api.app.models.crm import Contact
@@ -317,7 +321,8 @@ def handle_google_oauth_callback(
     # Preserve existing refresh_token if Google omits it on re-authorization
     if not token_data.get("refresh_token") and integration and integration.encrypted_tokens:
         try:
-            prev = json.loads(decrypt_token(integration.encrypted_tokens) or "{}")
+            decrypted = decrypt_token(integration.encrypted_tokens)
+            prev = decrypted if isinstance(decrypted, dict) else json.loads(decrypted or "{}")
             if prev.get("refresh_token"):
                 token_data["refresh_token"] = prev["refresh_token"]
         except Exception:

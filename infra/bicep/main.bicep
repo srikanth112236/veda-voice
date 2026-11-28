@@ -139,8 +139,6 @@ module containerAppsModule 'modules/containerapps.bicep' = {
     logAnalyticsCustomerId: monitoringModule.outputs.logAnalyticsCustomerId
     logAnalyticsSharedKey: monitoringModule.outputs.logAnalyticsSharedKey
     acrLoginServer: acrModule.outputs.acrLoginServer
-    acrUsername: acrModule.outputs.acrName
-    acrPassword: acrModule.outputs.acrAdminPassword
     apiImage: empty(apiImage) ? '${acrModule.outputs.acrLoginServer}/api:latest' : apiImage
     dashboardImage: empty(dashboardImage) ? '${acrModule.outputs.acrLoginServer}/dashboard:latest' : dashboardImage
     agentImage: empty(agentImage) ? '${acrModule.outputs.acrLoginServer}/agent:latest' : agentImage
@@ -153,7 +151,22 @@ module containerAppsModule 'modules/containerapps.bicep' = {
   }
 }
 
-// 7. Key Vault RBAC Role Assignments (Key Vault Secrets User for Managed Identities - SRS 15.3)
+// 7. Key Vault & ACR RBAC Role Assignments (Managed Identities)
+module acrAccessModule 'modules/acr-access.bicep' = {
+  name: 'acrAccessDeployment'
+  params: {
+    acrName: acrModule.outputs.acrName
+    principalIds: [
+      containerAppsModule.outputs.apiPrincipalId
+      containerAppsModule.outputs.dashboardPrincipalId
+      containerAppsModule.outputs.dialerPrincipalId
+      containerAppsModule.outputs.notifierPrincipalId
+      containerAppsModule.outputs.agentPrincipalId
+      containerAppsModule.outputs.migrationPrincipalId
+    ]
+  }
+}
+
 module keyVaultAccessModule 'modules/keyvault-access.bicep' = {
   name: 'keyVaultAccessDeployment'
   params: {

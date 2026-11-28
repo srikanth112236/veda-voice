@@ -7,12 +7,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from api.app.core.deps import get_current_user, require_platform_admin
+from api.app.core.deps import (
+    ADMIN_COOKIE_NAME,
+    AUTH_COOKIE_NAME,
+    get_current_user,
+    require_platform_admin,
+    set_auth_cookie,
+)
 from api.app.core.security import create_access_token
 from api.app.db.session import get_db
 from api.app.models.audit import AgencyAuditLog
@@ -210,6 +216,7 @@ def impersonate_sub_account(
     tenant_id: str,
     req: ImpersonateRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     admin: User = Depends(require_platform_admin),
 ) -> ImpersonationResponse:
@@ -260,6 +267,11 @@ def impersonate_sub_account(
         ip_address=client_ip,
     )
 
+    current_cookie = request.cookies.get(AUTH_COOKIE_NAME)
+    if current_cookie and not request.cookies.get(ADMIN_COOKIE_NAME):
+        set_auth_cookie(response, current_cookie, key=ADMIN_COOKIE_NAME, max_age=expires_in_seconds)
+    set_auth_cookie(response, token, key=AUTH_COOKIE_NAME, max_age=expires_in_seconds)
+
     return ImpersonationResponse(
         access_token=token,
         token_type="bearer",
@@ -282,6 +294,7 @@ def impersonate_sub_account(
 @router.post("/sub-accounts/impersonate/exit")
 def exit_sub_account_impersonation(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -306,6 +319,11 @@ def exit_sub_account_impersonation(
             details={"status": "manual_exit"},
             ip_address=client_ip,
         )
+
+    admin_cookie = request.cookies.get(ADMIN_COOKIE_NAME)
+    if admin_cookie:
+        set_auth_cookie(response, admin_cookie, key=AUTH_COOKIE_NAME)
+        response.delete_cookie(key=ADMIN_COOKIE_NAME, path="/")
 
     return {
         "status": "impersonation_ended",

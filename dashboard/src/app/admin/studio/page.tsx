@@ -24,19 +24,15 @@ export default function HiddenAdminStudioPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const authHeaders = () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : "";
-    return {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
-  };
+  const authHeaders = () => ({
+    "Content-Type": "application/json",
+  });
 
   useEffect(() => {
     if (!user || user.role !== "platform_admin") return;
     Promise.all([
-      fetch("/api/v1/admin/tenants", { headers: authHeaders() }).then((r) => (r.ok ? r.json() : [])),
-      fetch("/api/v1/admin/studio/presets", { headers: authHeaders() }).then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/v1/admin/tenants", { credentials: "include", headers: authHeaders() }).then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/v1/admin/studio/presets", { credentials: "include", headers: authHeaders() }).then((r) => (r.ok ? r.json() : null)),
     ]).then(([tList, presetRes]) => {
       if (Array.isArray(tList) && tList.length > 0) {
         setTenants(tList);
@@ -52,6 +48,7 @@ export default function HiddenAdminStudioPage() {
     if (!tenantId) return;
     setNotice(null);
     const res = await fetch(`/api/v1/admin/studio/tenants/${tenantId}`, {
+      credentials: "include",
       headers: authHeaders(),
     });
     if (res.ok) {
@@ -98,6 +95,7 @@ export default function HiddenAdminStudioPage() {
     try {
       const res = await fetch(`/api/v1/admin/studio/tenants/${selectedTenantId}`, {
         method: "PUT",
+        credentials: "include",
         headers: authHeaders(),
         body: JSON.stringify({
           studio: overrideData,
@@ -124,6 +122,7 @@ export default function HiddenAdminStudioPage() {
     try {
       const res = await fetch(`/api/v1/admin/studio/tenants/${selectedTenantId}/apply-preset`, {
         method: "POST",
+        credentials: "include",
         headers: authHeaders(),
         body: JSON.stringify({ preset_slug: slug }),
       });

@@ -52,12 +52,16 @@ async function handleProxy(
     });
 
     const responseHeaders = new Headers();
+    const setCookies = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
     res.headers.forEach((value, key) => {
       const lower = key.toLowerCase();
-      if (lower !== "content-encoding" && lower !== "transfer-encoding") {
+      if (lower !== "content-encoding" && lower !== "transfer-encoding" && lower !== "set-cookie") {
         responseHeaders.set(key, value);
       }
     });
+    for (const cookie of setCookies) {
+      responseHeaders.append("set-cookie", cookie);
+    }
 
     return new NextResponse(res.body, {
       status: res.status,

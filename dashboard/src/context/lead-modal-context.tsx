@@ -39,7 +39,6 @@ export function LeadModalProvider({ children }: { children: React.ReactNode }) {
     if (!isPublic) return;
     if (typeof window === "undefined") return;
     if (sessionStorage.getItem("vedavoice_lead_modal_dismissed") === "1") return;
-    if (localStorage.getItem("vedavoice_token")) return;
 
     const timer = setTimeout(() => {
       setIsOpen(true);

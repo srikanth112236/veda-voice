@@ -613,10 +613,6 @@ export default function OnboardingPage() {
         niche_pack_slug: formData.niche_pack_slug,
       });
 
-      if (typeof window !== "undefined") {
-        localStorage.setItem("vedavoice_token", registerRes.access_token);
-      }
-
       setLaunching(true);
       setLaunchStep(0);
       setTimeout(() => setLaunchStep(1), 600);

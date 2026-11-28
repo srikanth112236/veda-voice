@@ -19,7 +19,7 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
     name: sku
   }
   properties: {
-    adminUserEnabled: true
+    adminUserEnabled: false
     publicNetworkAccess: 'Enabled'
   }
 }
@@ -27,6 +27,3 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
 output acrId string = acr.id
 output acrLoginServer string = acr.properties.loginServer
 output acrName string = acr.name
-#disable-next-line outputs-should-not-contain-secrets
-@secure()
-output acrAdminPassword string = acr.listCredentials().passwords[0].value

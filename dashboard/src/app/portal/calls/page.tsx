@@ -383,8 +383,7 @@ export default function CallsPage() {
         console.warn("LiveKit WebRTC supervision stream notice:", err);
       });
 
-    // 2. Establish WebSocket Bridge for real-time text events & supervisor telemetry
-    const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : "";
+    // 2. Establish WebSocket Bridge for real-time text events & supervisor telemetry (uses HttpOnly cookie)
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     let host = window.location.host;
     if (host.startsWith("dashboard.")) {
@@ -392,7 +391,7 @@ export default function CallsPage() {
     } else if (host.includes("localhost") || host.includes("127.0.0.1")) {
       host = "127.0.0.1:8000";
     }
-    const wsUrl = `${protocol}//${host}/api/v1/portal/calls/${supervisingCall.call_id}/stream?token=${encodeURIComponent(token || "")}`;
+    const wsUrl = `${protocol}//${host}/api/v1/portal/calls/${supervisingCall.call_id}/stream`;
 
     setWsStatus("connecting");
     const ws = new WebSocket(wsUrl);

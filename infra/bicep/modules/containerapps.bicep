@@ -11,13 +11,6 @@ param logAnalyticsSharedKey string
 @description('ACR Login Server')
 param acrLoginServer string
 
-@description('ACR Admin Username')
-param acrUsername string
-
-@description('ACR Admin Password')
-@secure()
-param acrPassword string
-
 @description('API Container Image')
 param apiImage string
 
@@ -92,10 +85,6 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
       }
       secrets: [
         {
-          name: 'acr-password'
-          value: acrPassword
-        }
-        {
           name: 'db-url'
           value: databaseUrl
         }
@@ -119,8 +108,7 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
       registries: [
         {
           server: acrLoginServer
-          username: acrUsername
-          passwordSecretRef: 'acr-password'
+          identity: 'system'
         }
       ]
     }
@@ -191,6 +179,9 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
 resource dashboardApp 'Microsoft.App/containerApps@2023-05-01' = {
   name: 'dashboard'
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     managedEnvironmentId: containerAppEnv.id
     configuration: {
@@ -201,16 +192,11 @@ resource dashboardApp 'Microsoft.App/containerApps@2023-05-01' = {
         transport: 'auto'
       }
       secrets: [
-        {
-          name: 'acr-password'
-          value: acrPassword
-        }
       ]
       registries: [
         {
           server: acrLoginServer
-          username: acrUsername
-          passwordSecretRef: 'acr-password'
+          identity: 'system'
         }
       ]
     }
@@ -255,10 +241,6 @@ resource dialerApp 'Microsoft.App/containerApps@2023-05-01' = {
     configuration: {
       secrets: [
         {
-          name: 'acr-password'
-          value: acrPassword
-        }
-        {
           name: 'db-url'
           value: databaseUrl
         }
@@ -278,8 +260,7 @@ resource dialerApp 'Microsoft.App/containerApps@2023-05-01' = {
       registries: [
         {
           server: acrLoginServer
-          username: acrUsername
-          passwordSecretRef: 'acr-password'
+          identity: 'system'
         }
       ]
     }
@@ -325,10 +306,6 @@ resource notifierApp 'Microsoft.App/containerApps@2023-05-01' = {
     configuration: {
       secrets: [
         {
-          name: 'acr-password'
-          value: acrPassword
-        }
-        {
           name: 'db-url'
           value: databaseUrl
         }
@@ -336,8 +313,7 @@ resource notifierApp 'Microsoft.App/containerApps@2023-05-01' = {
       registries: [
         {
           server: acrLoginServer
-          username: acrUsername
-          passwordSecretRef: 'acr-password'
+          identity: 'system'
         }
       ]
     }
@@ -379,10 +355,6 @@ resource agentApp 'Microsoft.App/containerApps@2023-05-01' = {
     configuration: {
       secrets: [
         {
-          name: 'acr-password'
-          value: acrPassword
-        }
-        {
           name: 'signing-key'
           value: internalSigningKey
         }
@@ -398,8 +370,7 @@ resource agentApp 'Microsoft.App/containerApps@2023-05-01' = {
       registries: [
         {
           server: acrLoginServer
-          username: acrUsername
-          passwordSecretRef: 'acr-password'
+          identity: 'system'
         }
       ]
     }
@@ -448,6 +419,9 @@ resource agentApp 'Microsoft.App/containerApps@2023-05-01' = {
 resource migrationJob 'Microsoft.App/jobs@2023-05-01' = {
   name: 'db-migrate-job'
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     environmentId: containerAppEnv.id
     configuration: {
@@ -456,10 +430,6 @@ resource migrationJob 'Microsoft.App/jobs@2023-05-01' = {
       replicaRetryLimit: 1
       secrets: [
         {
-          name: 'acr-password'
-          value: acrPassword
-        }
-        {
           name: 'db-url'
           value: databaseUrl
         }
@@ -467,8 +437,7 @@ resource migrationJob 'Microsoft.App/jobs@2023-05-01' = {
       registries: [
         {
           server: acrLoginServer
-          username: acrUsername
-          passwordSecretRef: 'acr-password'
+          identity: 'system'
         }
       ]
     }
@@ -497,6 +466,9 @@ resource migrationJob 'Microsoft.App/jobs@2023-05-01' = {
 output apiFqdn string = apiApp.properties.configuration.ingress.fqdn
 output dashboardFqdn string = dashboardApp.properties.configuration.ingress.fqdn
 output apiPrincipalId string = apiApp.identity.principalId
+output dashboardPrincipalId string = dashboardApp.identity.principalId
 output dialerPrincipalId string = dialerApp.identity.principalId
 output notifierPrincipalId string = notifierApp.identity.principalId
+output agentPrincipalId string = agentApp.identity.principalId
+output migrationPrincipalId string = migrationJob.identity.principalId
 output migrationJobName string = migrationJob.name
