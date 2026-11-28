@@ -71,7 +71,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
 
   if (loading || !user || (user.role === "platform_admin" && !user.is_impersonated)) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[var(--surface-canvas)] font-mono text-xs text-[var(--ink-muted)]">
+      <div className="flex h-screen w-full items-center justify-center bg-[var(--surface-canvas)] font-mono text-xs text-[var(--ink-muted)]">
         <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] shadow-xs">
           <LiveRadarRing color="emerald" size="sm" />
           <span>Authenticating client workspace...</span>
@@ -201,16 +201,17 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                   </div>
                   <button
                     onClick={() => setMobileMenuOpen(false)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
+                    aria-label="Close navigation menu"
+                    className="touch-target flex items-center justify-center p-1 rounded-lg text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
                 {/* Tenant Card */}
-                <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-2">
+                <div className="p-3 rounded-2xl bg-[var(--surface-subtle)] border border-[var(--border-hairline)] space-y-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center font-bold text-white text-xs shadow-xs">
+                    <div className="w-8 h-8 rounded-xl bg-[var(--ink-primary)] flex items-center justify-center font-bold text-[var(--accent-signal-ink)] text-xs shadow-xs">
                       {user.tenant_name ? user.tenant_name.charAt(0).toUpperCase() : "V"}
                     </div>
                     <div className="truncate">
@@ -241,21 +242,21 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                         key={item.href}
                         href={item.href}
                         onClick={() => setMobileMenuOpen(false)}
-                        className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                        className={`flex items-center justify-between px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] ${
                           active
-                            ? "bg-indigo-50 border border-indigo-200/80 text-indigo-700 font-bold shadow-2xs"
-                            : "text-slate-600 hover:bg-slate-100/70 hover:text-slate-900"
+                            ? "bg-[var(--ink-primary)] text-[var(--accent-signal-ink)] font-bold shadow-2xs"
+                            : "text-[var(--ink-secondary)] hover:bg-[var(--surface-subtle)] hover:text-[var(--ink-primary)]"
                         }`}
                       >
                         <div className="flex items-center gap-2.5 truncate">
                           <Icon
                             className={`w-4 h-4 shrink-0 ${
-                              active ? "text-indigo-600" : "text-slate-400"
+                              active ? "text-[var(--accent-signal)]" : "text-[var(--ink-muted)]"
                             }`}
                           />
                           <span className="truncate">{item.label}</span>
                         </div>
-                        {active && <ChevronRight className="w-3.5 h-3.5 text-indigo-500" />}
+                        {active && <ChevronRight className="w-3.5 h-3.5 text-[var(--accent-signal)]" />}
                       </Link>
                     );
                   })}

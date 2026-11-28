@@ -322,7 +322,6 @@ def test_portal_google_calendar_oauth_and_status() -> None:
     )
     assert reg_res.status_code == 200
     token = reg_res.json()["access_token"]
-    tenant_id = reg_res.json()["user"]["tenant_id"]
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -335,11 +334,12 @@ def test_portal_google_calendar_oauth_and_status() -> None:
     connect_res = client.get("/api/v1/portal/calendar/connect", headers=headers)
     assert connect_res.status_code == 200
     assert "accounts.google.com" in connect_res.json()["auth_url"]
-    assert connect_res.json()["state"] == tenant_id
+    signed_state = connect_res.json()["state"]
+    assert signed_state
 
     # 3. Simulate OAuth callback with mock code
     callback_res = client.get(
-        f"/api/v1/portal/calendar/callback?code=mock_code_12345&state={tenant_id}"
+        f"/api/v1/portal/calendar/callback?code=mock_code_12345&state={signed_state}"
     )
     assert callback_res.status_code == 200
     assert callback_res.json()["status"] == "connected"

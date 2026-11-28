@@ -1,14 +1,16 @@
 "use client";
 
 import React from "react";
-import { motion, HTMLMotionProps, Variants } from "framer-motion";
+import { motion, HTMLMotionProps, Variants, useReducedMotion } from "framer-motion";
+
+const EASE_OUT_EXPO: [number, number, number, number] = [0.16, 1, 0.3, 1];
 
 export const fadeInVariant: Variants = {
   hidden: { opacity: 0, y: 8 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.2, ease: "easeOut" },
+    transition: { duration: 0.2, ease: EASE_OUT_EXPO },
   },
 };
 
@@ -35,19 +37,20 @@ export function MotionCard({
   hoverEffect = true,
   ...props
 }: MotionCardProps) {
+  const prefersReduced = useReducedMotion();
   return (
     <motion.div
-      variants={fadeInVariant}
+      variants={prefersReduced ? undefined : fadeInVariant}
       whileHover={
-        hoverEffect
+        hoverEffect && !prefersReduced
           ? {
               y: -2,
-              transition: { duration: 0.15, ease: "easeOut" },
+              transition: { duration: 0.15, ease: EASE_OUT_EXPO },
             }
           : undefined
       }
-      whileTap={{ scale: 0.99 }}
-      className={`rounded-2xl border border-slate-200/80 bg-white shadow-xs transition-shadow hover:shadow-sm ${className}`}
+      whileTap={prefersReduced ? undefined : { scale: 0.99 }}
+      className={`rounded-2xl border border-slate-200/80 bg-[var(--surface-panel)] shadow-xs transition-shadow hover:shadow-sm ${className}`}
       {...props}
     >
       {children}

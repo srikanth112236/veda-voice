@@ -90,7 +90,9 @@ def _build_turn_detector() -> Any:
 def _build_noise_cancellation(is_sip: bool) -> Any:
     """Load LiveKit BVC / BVCTelephony noise cancellation filter when available."""
     try:
-        from livekit.plugins import noise_cancellation
+        import importlib
+
+        noise_cancellation = importlib.import_module("livekit.plugins.noise_cancellation")
 
         return noise_cancellation.BVCTelephony() if is_sip else noise_cancellation.BVC()
     except Exception as exc:
@@ -205,8 +207,11 @@ async def entrypoint(ctx: JobContext) -> None:
     recorded_tags: set[str] = set()
     call_outcome: str = "abandoned"  # Default if closed before resolution
     call_record_written = False
+    turn_sync_queue: asyncio.Queue[tuple[str, str, str, str] | None] | None = None
 
-    # Check pre-connected participant attributes if available
+    await ctx.connect()
+
+    # Check connected participant attributes
     attrs: dict[str, Any] = {}
     for participant in ctx.room.remote_participants.values():
         attrs = getattr(participant, "attributes", {}) or {}
@@ -222,17 +227,17 @@ async def entrypoint(ctx: JobContext) -> None:
     tenant_hint = attrs.get("tenant_id") if isinstance(attrs, dict) else ""
 
     if dialed_number:
-        config = resolve_tenant(dialed_number)
+        config = await asyncio.to_thread(resolve_tenant, dialed_number)
     elif tenant_hint:
         try:
-            config = load_business_config(tenant_hint)
+            config = await asyncio.to_thread(load_business_config, tenant_hint)
         except Exception:
-            config = load_business_config("default")
+            config = await asyncio.to_thread(load_business_config, "default")
     else:
         logger.info(
             "Direct session without dialed number; defaulting to active business config (Apex Plumbing)"
         )
-        config = load_business_config("default")
+        config = await asyncio.to_thread(load_business_config, "default")
 
     message_collector.tenant_id = config.tenant_id
     message_collector.caller_id_phone = sip_info["caller_number"]
@@ -244,7 +249,8 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     # Distributed HTTP call-start handshake (capacity check, quota gate, and call token)
-    start_handshake = default_api_client.start_call_session(
+    start_handshake = await asyncio.to_thread(
+        default_api_client.start_call_session,
         dialed_number=dialed_number or (config.numbers[0] if config.numbers else ""),
         caller_number=sip_info.get("caller_number", ""),
         call_id=room_name or sip_info.get("call_id") or "call",
@@ -299,8 +305,8 @@ async def entrypoint(ctx: JobContext) -> None:
             if raw_cfg.get("industry_pack_prompt"):
                 config.industry_pack_prompt = raw_cfg["industry_pack_prompt"]
 
-    # Fallback local signed token generation for local dev / direct dispatch
-    if not config.call_token:
+    # Fallback local signed token generation only in test environments
+    if not config.call_token and (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING")):
         try:
             from api.app.core.security import create_access_token
 
@@ -491,7 +497,12 @@ async def entrypoint(ctx: JobContext) -> None:
     @session.on("conversation_item_added")
     def on_conversation_item_added(event: ConversationItemAddedEvent) -> None:
         """Record transcript entry and broadcast live turn to supervisors in real time."""
-        nonlocal call_outcome, last_turn_latency_ms, consecutive_interruptions, adaptive_ep_applied
+        nonlocal \
+            call_outcome, \
+            last_turn_latency_ms, \
+            consecutive_interruptions, \
+            adaptive_ep_applied, \
+            turn_sync_queue
         item = event.item
         if isinstance(item, ChatMessage):
             text_str = item.text_content or ""
@@ -566,25 +577,25 @@ async def entrypoint(ctx: JobContext) -> None:
             canonical_call_id = sip_info.get("call_id") or room_name
             api_base = getattr(default_api_client, "base_url", None)
             if api_base:
-                turn_queue = getattr(session, "_veda_turn_sync_queue", None)
-                if turn_queue is None:
-                    turn_queue = asyncio.Queue()
-                    session._veda_turn_sync_queue = turn_queue
+                if turn_sync_queue is None:
+                    turn_sync_queue = asyncio.Queue()
+                    active_queue = turn_sync_queue
 
                     async def _turn_sync_worker() -> None:
                         import httpx
 
                         with httpx.Client(timeout=2.0) as http_client:
                             while True:
-                                payload_item = await turn_queue.get()
+                                payload_item = await active_queue.get()
                                 if payload_item is None:
-                                    turn_queue.task_done()
+                                    active_queue.task_done()
                                     break
                                 c_id, t_role, t_text, t_time = payload_item
                                 try:
                                     await asyncio.to_thread(
                                         http_client.post,
                                         f"{api_base}/api/v1/internal/calls/{c_id}/turn",
+                                        headers=default_api_client._get_headers(config.call_token),
                                         json={
                                             "call_id": c_id,
                                             "role": t_role,
@@ -595,11 +606,11 @@ async def entrypoint(ctx: JobContext) -> None:
                                 except Exception as s_err:
                                     logger.debug("Turn API broadcast notice: %s", s_err)
                                 finally:
-                                    turn_queue.task_done()
+                                    active_queue.task_done()
 
                     asyncio.create_task(_turn_sync_worker())
 
-                turn_queue.put_nowait((canonical_call_id, item.role, text_str, entry_time))
+                turn_sync_queue.put_nowait((canonical_call_id, item.role, text_str, entry_time))
 
             # Auto-disconnect watchdog: when assistant delivers goodbye, cleanly terminate room after TTS finishes
             if item.role in ("assistant", "agent"):
@@ -640,11 +651,19 @@ async def entrypoint(ctx: JobContext) -> None:
         """Log incoming participant details with phone numbers redacted and resolve tenant."""
         nonlocal sip_info, config
         sip_info = parse_sip_attributes(participant.attributes)
-        config = resolve_tenant(sip_info["dialed_number"])
-        message_collector.tenant_id = config.tenant_id
         message_collector.caller_id_phone = sip_info["caller_number"]
         caller_masked = redact_phone(sip_info["caller_number"])
         dialed_masked = redact_phone(sip_info["dialed_number"])
+
+        async def _refresh_tenant() -> None:
+            nonlocal config
+            if sip_info["dialed_number"]:
+                resolved = await asyncio.to_thread(resolve_tenant, sip_info["dialed_number"])
+                if not config.call_token:
+                    config = resolved
+                    message_collector.tenant_id = config.tenant_id
+
+        asyncio.create_task(_refresh_tenant())
         logger.info(
             "Caller joined room %s: identity=%s caller=%s dialed=%s call_id=%s tenant=%s",
             room_name,
@@ -658,6 +677,11 @@ async def entrypoint(ctx: JobContext) -> None:
     @ctx.room.on("data_received")
     def on_data_received(data_packet: rtc.DataPacket) -> None:
         """Handle real-time data channel messages including supervisor whisper coaching."""
+        sender = getattr(data_packet, "participant", None)
+        sender_identity = getattr(sender, "identity", "") if sender else ""
+        if not sender_identity.startswith("supervisor-"):
+            return
+
         try:
             raw_data = data_packet.data.decode("utf-8")
             payload = json.loads(raw_data)
@@ -770,14 +794,16 @@ async def entrypoint(ctx: JobContext) -> None:
         )
 
         try:
+            if turn_sync_queue is not None:
+                turn_sync_queue.put_nowait(None)
             saved_path = call_store.save_call_record(record, tenant_id=config.tenant_id)
             logger.info(
                 "Call record successfully stored at %s for tenant %s", saved_path, config.tenant_id
             )
-            # Sync call record and billable minutes to live PostgreSQL database immediately
-            synced = sync_call_record_to_api(record, config.call_token)
-            logger.info("Call record API sync result: %s for call_id=%s", synced, record.call_id)
-            # Dispatch post-call notification asynchronously so teardown does not block
+            # Sync call record and billable minutes asynchronously so teardown never blocks event loop
+            asyncio.create_task(
+                asyncio.to_thread(sync_call_record_to_api, record, config.call_token)
+            )
             asyncio.create_task(asyncio.to_thread(dispatch_post_call_notification, record, config))
         except Exception as e:
             logger.error("Failed to write call record: %s", e)
@@ -796,45 +822,6 @@ async def entrypoint(ctx: JobContext) -> None:
         write_shutdown_call_record("shutdown")
 
     ctx.add_shutdown_callback(on_job_shutdown)
-
-    await ctx.connect()
-
-    # Pre-connected participant check
-    for participant in ctx.room.remote_participants.values():
-        attrs = getattr(participant, "attributes", {}) or {}
-        sip_info = parse_sip_attributes(attrs)
-        p_dialed = (
-            sip_info["dialed_number"]
-            or (attrs.get("dialed_number") if isinstance(attrs, dict) else "")
-            or (attrs.get("phone_number") if isinstance(attrs, dict) else "")
-        )
-        p_tenant = attrs.get("tenant_id") if isinstance(attrs, dict) else ""
-        if p_dialed:
-            config = resolve_tenant(p_dialed)
-        elif p_tenant:
-            try:
-                config = load_business_config(p_tenant)
-            except Exception:
-                config = load_business_config("default")
-        else:
-            config = load_business_config("default")
-
-        message_collector.tenant_id = config.tenant_id
-        message_collector.caller_id_phone = sip_info["caller_number"]
-        caller_masked = redact_phone(sip_info["caller_number"])
-        dialed_masked = redact_phone(
-            p_dialed or (config.numbers[0] if config.numbers else "[default]")
-        )
-        logger.info(
-            "Pre-connected caller in room %s: identity=%s caller=%s dialed=%s call_id=%s tenant=%s",
-            room_name,
-            participant.identity,
-            caller_masked,
-            dialed_masked,
-            sip_info["call_id"] or "none",
-            config.tenant_id,
-        )
-        break
 
     # Check if outbound speed-to-lead call
     metadata_raw = getattr(ctx.job, "metadata", "") or ""
@@ -866,7 +853,8 @@ async def entrypoint(ctx: JobContext) -> None:
     else:
         caller_ctx: dict[str, Any] = {}
         if config.call_token and sip_info.get("caller_number"):
-            caller_ctx = default_api_client.fetch_caller_context(
+            caller_ctx = await asyncio.to_thread(
+                default_api_client.fetch_caller_context,
                 sip_info["caller_number"],
                 config.call_token,
             )

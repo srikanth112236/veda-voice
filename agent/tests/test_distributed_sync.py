@@ -44,8 +44,13 @@ def test_internal_tenant_lookup_by_id_endpoint() -> None:
     assert reg_res.status_code == 200
     tenant_id = reg_res.json()["user"]["tenant_id"]
 
+    from api.app.core.config import settings
+
     # 1. Fetch via GET /internal/tenants/{tenant_id}
-    res = client.get(f"/api/v1/internal/tenants/{tenant_id}")
+    res = client.get(
+        f"/api/v1/internal/tenants/{tenant_id}",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["tenant_id"] == tenant_id
@@ -56,7 +61,10 @@ def test_internal_tenant_lookup_by_id_endpoint() -> None:
     assert len(data["call_token"]) > 20
 
     # 2. Fetch non-existent tenant returns 404
-    non_existent = client.get(f"/api/v1/internal/tenants/{uuid.uuid4()}")
+    non_existent = client.get(
+        f"/api/v1/internal/tenants/{uuid.uuid4()}",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
+    )
     assert non_existent.status_code == 404
 
 

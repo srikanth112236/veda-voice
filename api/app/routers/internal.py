@@ -1,5 +1,6 @@
 """Internal endpoints dedicated to LiveKit Voice Agent worker."""
 
+import hmac
 import json
 import logging
 import math
@@ -326,7 +327,25 @@ def _build_tenant_config(
     )
 
 
-@router.get("/tenants/by-number/{e164}", response_model=InternalTenantConfigResponse)
+def _verify_internal_secret(
+    x_internal_key: str | None = Header(None, alias="X-Internal-Key"),
+    x_internal_secret: str | None = Header(None, alias="X-Internal-Secret"),
+) -> None:
+    """Verify service-to-service shared secret for internal worker endpoints."""
+    expected = settings.INTERNAL_SIGNING_KEY
+    provided = x_internal_secret or x_internal_key or ""
+    if not expected or not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid internal service key",
+        )
+
+
+@router.get(
+    "/tenants/by-number/{e164}",
+    response_model=InternalTenantConfigResponse,
+    dependencies=[Depends(_verify_internal_secret)],
+)
 def resolve_tenant_by_number(e164: str, db: Session = Depends(get_db)) -> Any:
     """Resolve dialed phone number to active tenant and agent configuration."""
     clean_number = e164.strip()
@@ -352,7 +371,11 @@ def resolve_tenant_by_number(e164: str, db: Session = Depends(get_db)) -> Any:
     )
 
 
-@router.get("/tenants/{tenant_id}", response_model=InternalTenantConfigResponse)
+@router.get(
+    "/tenants/{tenant_id}",
+    response_model=InternalTenantConfigResponse,
+    dependencies=[Depends(_verify_internal_secret)],
+)
 def get_tenant_config_by_id(tenant_id: str, db: Session = Depends(get_db)) -> Any:
     """Resolve tenant configuration directly by tenant_id for distributed workers and outbound dialers."""
     clean_id = tenant_id.strip()
@@ -572,7 +595,7 @@ async def handle_call_transfer(
     }
 
 
-@router.post("/calls/{call_id}/turn")
+@router.post("/calls/{call_id}/turn", dependencies=[Depends(_verify_internal_secret)])
 async def record_call_turn(
     call_id: str,
     payload: CallTurnRequest,
@@ -614,7 +637,11 @@ async def record_call_turn(
     return {"status": "ok", "call_id": call_id, "turn_count": turn_count}
 
 
-@router.post("/calls/start", response_model=CallStartResponse)
+@router.post(
+    "/calls/start",
+    response_model=CallStartResponse,
+    dependencies=[Depends(_verify_internal_secret)],
+)
 def start_call(payload: CallStartRequest, db: Session = Depends(get_db)) -> Any:
     """Evaluate capacity, check concurrency caps, and register active call session."""
     clean_number = payload.dialed_number.strip()
@@ -938,26 +965,8 @@ def save_call_record_from_agent(
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     """Ingest completed call record from agent worker with call-scoped token verification."""
-    token_tenant_id: str | None = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ")[1]
-        token_data = decode_access_token(token)
-        if not token_data:
-            try:
-                import jwt as pyjwt
-
-                unverified = pyjwt.decode(token, options={"verify_signature": False})
-                if unverified.get("role") == "agent":
-                    token_data = unverified
-            except Exception:
-                token_data = None
-
-        if not token_data or token_data.get("role") != "agent":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or unauthorized agent call token",
-            )
-        token_tenant_id = token_data.get("tenant_id")
+    token_data = _verify_agent_token(authorization)
+    token_tenant_id: str | None = token_data.get("tenant_id")
 
     # Find existing in-progress call or look up tenant
     existing_call = db.scalar(
@@ -967,27 +976,10 @@ def save_call_record_from_agent(
     if existing_call:
         # Cross-tenant security check: Agent token MUST match call's tenant_id
         if token_tenant_id and token_tenant_id != existing_call.tenant_id:
-            tenant_obj = db.scalar(select(Tenant).where(Tenant.id == existing_call.tenant_id))
-            is_valid_alias = (
-                token_tenant_id in ("apex-plumbing", "default")
-                or token_tenant_id
-                in (
-                    "45124363-dcf6-4771-b569-e60f0d19bd0c",
-                    "ab1dec11-d70d-4c26-ad0f-62c507a0c356",
-                )
-            ) and (
-                (tenant_obj and "apex" in tenant_obj.name.lower())
-                or existing_call.tenant_id
-                in (
-                    "45124363-dcf6-4771-b569-e60f0d19bd0c",
-                    "ab1dec11-d70d-4c26-ad0f-62c507a0c356",
-                )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cross-tenant call completion forbidden",
             )
-            if not is_valid_alias:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cross-tenant call completion forbidden",
-                )
         tenant_id = existing_call.tenant_id
         call = existing_call
     else:
@@ -1782,8 +1774,13 @@ async def handle_livekit_webhook(
     room_sid = ""
     participant_data: dict[str, Any] = {}
 
-    # 1. Verify via LiveKit SDK WebhookReceiver when API keys are configured and auth header present
-    if settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_SECRET and authorization:
+    # 1. Verify via LiveKit SDK WebhookReceiver when API keys are configured
+    if settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_SECRET:
+        if not authorization:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing LiveKit webhook Authorization header",
+            )
         try:
             from livekit.api import TokenVerifier, WebhookReceiver
 
@@ -1803,9 +1800,17 @@ async def handle_livekit_webhook(
                 }
         except Exception as e:
             logger.warning("LiveKit Webhook signature validation failed: %s", e)
-
-    # 2. Fallback JSON parser if SDK receiver wasn't triggered
-    if not event_type and body_str:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid LiveKit webhook signature",
+            ) from e
+    elif settings.ENVIRONMENT.lower() in ("prod", "production"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LiveKit webhook verification is not configured.",
+        )
+    elif body_str:
+        # Local dev/test without LiveKit keys configured
         try:
             data = json.loads(body_str)
             event_type = data.get("event", "")

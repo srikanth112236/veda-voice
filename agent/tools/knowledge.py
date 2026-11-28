@@ -91,8 +91,16 @@ def _call_internal_knowledge_api(
             data = json.loads(resp.read().decode("utf-8"))
             return dict(data) if isinstance(data, dict) else {}
     except Exception as e:
-        logger.debug("HTTP call to internal knowledge endpoint failed: %s; trying in-process", e)
-        return _execute_in_process_knowledge_search(payload, call_token)
+        logger.warning("HTTP call to internal knowledge endpoint failed: %s", e)
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
+            return _execute_in_process_knowledge_search(payload, call_token)
+        return {
+            "out_of_scope": True,
+            "confidence_score": 0.0,
+            "top_matches": [],
+            "grounding_prompt": "Knowledge lookup temporarily unavailable.",
+            "latency_ms": 0.0,
+        }
 
 
 def create_knowledge_tools(call_token: str) -> list[FunctionTool]:

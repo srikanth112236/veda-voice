@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,8 +20,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
-from api.app.core.deps import get_current_tenant
+from api.app.core.deps import build_oauth_redirect_url, get_current_tenant
 from api.app.core.encryption import decrypt_token, encrypt_token
+from api.app.core.security import create_access_token, decode_access_token
 from api.app.db.session import get_db
 from api.app.models.booking import Booking, TenantIntegration
 from api.app.models.crm import Contact
@@ -155,6 +159,10 @@ def initiate_google_oauth(
         "https://www.googleapis.com/auth/calendar.freebusy",
     ]
 
+    signed_state = create_access_token(
+        {"tenant_id": tenant.id, "flow": "google_calendar_oauth"},
+        expires_delta=timedelta(minutes=15),
+    )
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -162,17 +170,17 @@ def initiate_google_oauth(
         "scope": " ".join(scopes),
         "access_type": "offline",
         "prompt": "consent",
-        "state": tenant.id,
+        "state": signed_state,
     }
 
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urllib.parse.urlencode(params)}"
     sandbox_connect_url = (
-        f"/api/v1/portal/calendar/callback?code=mock_sandbox_code&state={tenant.id}"
+        f"/api/v1/portal/calendar/callback?code=mock_sandbox_code&state={signed_state}"
     )
 
     return {
         "auth_url": auth_url,
-        "state": tenant.id,
+        "state": signed_state,
         "is_configured": is_configured,
         "sandbox_connect_url": sandbox_connect_url,
         "redirect_uri": redirect_uri,
@@ -237,7 +245,17 @@ def handle_google_oauth_callback(
     db: Session = Depends(get_db),
 ) -> Any:
     """Exchange authorization code for refresh tokens and save with envelope encryption."""
-    tenant_id = state
+    state_payload = decode_access_token(state)
+    if (
+        not state_payload
+        or state_payload.get("flow") != "google_calendar_oauth"
+        or not state_payload.get("tenant_id")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google Calendar OAuth state",
+        )
+    tenant_id = str(state_payload["tenant_id"])
     tenant = db.scalar(select(Tenant).where(Tenant.id == tenant_id))
     if not tenant:
         raise HTTPException(
@@ -245,8 +263,12 @@ def handle_google_oauth_callback(
             detail="Tenant specified in OAuth state not found",
         )
 
-    # In local testing without Google credentials, allow mock code
-    if code.startswith("mock_"):
+    is_dev_or_test = bool(
+        os.getenv("PYTEST_CURRENT_TEST")
+        or os.getenv("TESTING")
+        or settings.ENVIRONMENT.lower() in ("dev", "development", "local")
+    )
+    if code.startswith("mock_") and is_dev_or_test:
         token_data = {
             "refresh_token": f"mock_refresh_{code}",
             "access_token": f"mock_access_{code}",
@@ -328,13 +350,9 @@ def handle_google_oauth_callback(
 
     if request and "text/html" in request.headers.get("accept", ""):
         # Browser was redirected here directly from Google OAuth consent flow
-        host = request.headers.get("host", "")
-        dashboard_url = (
-            "http://localhost:3000"
-            if ("localhost" in host or "127.0.0.1" in host)
-            else settings.DASHBOARD_URL.rstrip("/")
+        return RedirectResponse(
+            url=build_oauth_redirect_url(request, "/portal/integrations?calendar_connected=true")
         )
-        return RedirectResponse(url=f"{dashboard_url}/portal/integrations?calendar_connected=true")
 
     return {"status": "connected", "tenant_id": tenant.id, "provider": "google_calendar"}
 
@@ -809,12 +827,38 @@ def send_calendly_test_sms(
 
 
 @router.post("/calendly/webhook")
-def handle_calendly_inbound_webhook(
-    payload: dict[str, Any],
+async def handle_calendly_inbound_webhook(
+    request: Request,
     tenant_id: str | None = None,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Ingest Calendly webhook event (invitee.created / invitee.canceled) and sync to CRM and DB."""
+    raw_body = await request.body()
+    signing_key = os.getenv("CALENDLY_WEBHOOK_SIGNING_KEY", "")
+    sig_header = request.headers.get("calendly-webhook-signature", "")
+    if signing_key or sig_header:
+        if not signing_key or not sig_header:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing Calendly webhook signature",
+            )
+        parts = dict(item.split("=", 1) for item in sig_header.split(",") if "=" in item)
+        ts = parts.get("t", "")
+        v1 = parts.get("v1", "")
+        signed_payload = f"{ts}.{raw_body.decode('utf-8')}".encode()
+        expected = hmac.new(signing_key.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+        if not ts or not v1 or not hmac.compare_digest(v1, expected):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Calendly webhook signature",
+            )
+    elif settings.ENVIRONMENT.lower() in ("prod", "production"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Calendly webhook signing key is not configured.",
+        )
+
+    payload: dict[str, Any] = json.loads(raw_body.decode("utf-8")) if raw_body else {}
     event_type = payload.get("event")
     event_payload = payload.get("payload", {})
 

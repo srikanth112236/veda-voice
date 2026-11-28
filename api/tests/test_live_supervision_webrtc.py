@@ -141,8 +141,12 @@ def test_end_active_call_by_supervisor(supervisor_client: tuple[TestClient, str,
     assert call.outcome == "ended_by_supervisor"
 
 
-def test_livekit_webhook_participant_left_reconciliation() -> None:
+def test_livekit_webhook_participant_left_reconciliation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify LiveKit Webhook participant_left marks caller session as completed."""
+    from api.app.core.config import settings
+
+    monkeypatch.setattr(settings, "LIVEKIT_API_KEY", "")
+    monkeypatch.setattr(settings, "LIVEKIT_API_SECRET", "")
     db: Session = SessionLocal()
     suffix = uuid.uuid4().hex[:6]
     room_name = f"room-webhook-{suffix}"

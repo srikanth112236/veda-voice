@@ -216,16 +216,19 @@ def test_google_callback_new_user_redirects_to_onboarding_with_profile(monkeypat
     )
     assert resp.status_code == 307
     loc = resp.headers["location"]
-    assert "/onboarding#google_token=" in loc
-    g_token = loc.split("#google_token=", 1)[1]
+    assert "/onboarding?google_code=" in loc
+    g_code = loc.split("google_code=", 1)[1]
+
+    exch_resp = client.post("/api/v1/auth/google/onboarding-exchange", json={"code": g_code})
+    assert exch_resp.status_code == 200
+    exch_data = exch_resp.json()
+    g_token = exch_data["google_token"]
+    assert exch_data["email"] == new_email
+    assert exch_data["name"] == "Jane Founder"
+    assert exch_data["picture"] == "https://lh3.googleusercontent.com/a/avatar.png"
 
     sess_resp = client.get("/api/v1/auth/google/onboarding-session", params={"token": g_token})
     assert sess_resp.status_code == 200
-    assert sess_resp.json() == {
-        "email": new_email,
-        "name": "Jane Founder",
-        "picture": "https://lh3.googleusercontent.com/a/avatar.png",
-    }
 
     reg_resp = client.post(
         "/api/v1/auth/register",

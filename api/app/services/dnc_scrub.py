@@ -7,13 +7,15 @@ Categories C (Speed-to-lead marketing) and D (Reactivation).
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger("vedavoice.dnc_scrub")
 
-# In-memory 31-day cache: phone -> DNCScrubResult
-_DNC_CACHE: dict[str, DNCScrubResult] = {}
+# Bounded in-memory 31-day LRU cache: phone -> DNCScrubResult
+_DNC_CACHE_MAX_SIZE = 10_000
+_DNC_CACHE: OrderedDict[str, DNCScrubResult] = OrderedDict()
 # Known test phone numbers simulated as registered on National/State DNC
 _MOCK_DNC_REGISTRY: set[str] = {
     "+15125559999",
@@ -66,6 +68,9 @@ def scrub_phone_against_dnc(
         state=state,
     )
     _DNC_CACHE[phone_number] = result
+    _DNC_CACHE.move_to_end(phone_number)
+    if len(_DNC_CACHE) > _DNC_CACHE_MAX_SIZE:
+        _DNC_CACHE.popitem(last=False)
     return result
 
 

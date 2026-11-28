@@ -119,9 +119,7 @@ export default function IntegrationsPage() {
 
   const baseUrl =
     process.env.NEXT_PUBLIC_API_URL ||
-    (typeof window !== "undefined" && window.location.hostname === "localhost"
-      ? window.location.origin
-      : "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io");
+    (typeof window !== "undefined" ? window.location.origin : "");
 
   const fetchData = async () => {
     setLoading(true);
@@ -1965,7 +1963,7 @@ export default function IntegrationsPage() {
                 <span className="text-zinc-500 text-[10px] font-bold block mb-1">
                   PAYLOAD DISPATCH SPECIFICATION:
                 </span>
-                <pre className="p-3 bg-indigo-600 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto max-h-48">
+                <pre className="p-3 bg-slate-900 text-emerald-300 font-mono text-[11px] rounded-xl overflow-x-auto max-h-48">
 {JSON.stringify(
   {
     event: `${selectedOutboxJob.entity}.${selectedOutboxJob.op}`,

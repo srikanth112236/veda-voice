@@ -7,6 +7,9 @@ from Telnyx and Twilio telephony carriers.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -17,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from api.app.core.config import settings
 from api.app.db.session import get_db
 from api.app.models.booking import Booking
 from api.app.models.tenant import Tenant
@@ -343,6 +347,31 @@ def execute_public_reschedule(
 # ===========================================================================
 
 
+def _verify_telnyx_signature(
+    raw_body: bytes, signature_b64: str, timestamp: str, pub_key_b64: str
+) -> bool:
+    """Verify Telnyx Ed25519 webhook signature."""
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+        pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(pub_key_b64))
+        signed_payload = f"{timestamp}|".encode() + raw_body
+        pub.verify(base64.b64decode(signature_b64), signed_payload)
+        return True
+    except Exception:
+        return False
+
+
+def _verify_twilio_signature(
+    url: str, params: dict[str, Any], signature: str, auth_token: str
+) -> bool:
+    """Verify Twilio X-Twilio-Signature HMAC-SHA1."""
+    data = url + "".join(f"{k}{params[k]}" for k in sorted(params.keys()))
+    digest = hmac.new(auth_token.encode("utf-8"), data.encode("utf-8"), hashlib.sha1).digest()
+    expected = base64.b64encode(digest).decode("utf-8")
+    return hmac.compare_digest(expected, signature)
+
+
 @router.post("/webhooks/sms/inbound")
 async def handle_carrier_inbound_sms(
     request: Request,
@@ -352,7 +381,36 @@ async def handle_carrier_inbound_sms(
     from_phone = ""
     message_body = ""
 
+    raw_body = await request.body()
     content_type = request.headers.get("content-type", "")
+    telnyx_sig = request.headers.get("telnyx-signature-ed25519", "")
+    telnyx_ts = request.headers.get("telnyx-timestamp", "")
+    twilio_sig = request.headers.get("x-twilio-signature", "")
+
+    if settings.TELNYX_PUBLIC_KEY and telnyx_sig:
+        if not _verify_telnyx_signature(
+            raw_body, telnyx_sig, telnyx_ts, settings.TELNYX_PUBLIC_KEY
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Telnyx webhook signature",
+            )
+    elif settings.TWILIO_AUTH_TOKEN and twilio_sig:
+        form_params = dict(await request.form()) if "form" in content_type else {}
+        if not _verify_twilio_signature(
+            str(request.url), form_params, twilio_sig, settings.TWILIO_AUTH_TOKEN
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Twilio webhook signature",
+            )
+    elif settings.ENVIRONMENT.lower() in ("prod", "production") or (
+        settings.TELNYX_PUBLIC_KEY or settings.TWILIO_AUTH_TOKEN
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing carrier webhook signature",
+        )
 
     if "application/json" in content_type:
         try:

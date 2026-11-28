@@ -90,7 +90,10 @@ def test_tenant_registration_and_portal_access() -> None:
 
 def test_internal_tenant_resolution_by_number() -> None:
     """Verify voice agent can resolve tenant by dialed E.164 phone number."""
-    response = client.get("/api/v1/internal/tenants/by-number/+18005550199")
+    response = client.get(
+        "/api/v1/internal/tenants/by-number/+18005550199",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["business_name"] == "Apex Plumbing & Heating"
@@ -333,7 +336,10 @@ def test_admin_number_search_and_voice_sync() -> None:
     assert create_resp.status_code == 200
 
     # 4. Verify LiveKit Dynamic Sync via /internal/tenants/by-number/
-    sync_resp = client.get(f"/api/v1/internal/tenants/by-number/{test_e164}")
+    sync_resp = client.get(
+        f"/api/v1/internal/tenants/by-number/{test_e164}",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
+    )
     assert sync_resp.status_code == 200
     synced = sync_resp.json()
     assert synced["voice_id"] == "Ashley"
@@ -408,7 +414,10 @@ def test_self_serve_onboarding_wizard_full_flow() -> None:
     assert len(profile_data["faq"]) == 1
 
     # 4. Verify LiveKit Dynamic Sync resolves Rime TTS Arcana immediately
-    sync_resp = client.get(f"/api/v1/internal/tenants/by-number/{test_e164}")
+    sync_resp = client.get(
+        f"/api/v1/internal/tenants/by-number/{test_e164}",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
+    )
     assert sync_resp.status_code == 200
     synced = sync_resp.json()
     assert synced["voice_id"] == "Arcana"

@@ -4,6 +4,7 @@ Generates structured summaries and dispatches email/SMS alerts to the business o
 within 60 seconds of call completion, prioritizing emergencies and urgent callbacks.
 """
 
+import html
 import json
 import logging
 import os
@@ -47,25 +48,14 @@ class ConsoleEmailDispatcher:
     """Dispatches notifications by logging to application logs and console."""
 
     def send_alert(self, alert: PostCallAlert) -> bool:
+        from agent.telemetry import redact_phone
+
         logger.info(
-            "================ POST-CALL OWNER ALERT ================\n"
-            "TO: %s\n"
-            "SUBJECT: %s\n"
-            "URGENCY: %s\n"
-            "CALLER: %s (%s)\n"
-            "ADDRESS: %s\n"
-            "ACTION ITEMS:\n%s\n"
-            "-------------------------------------------------------\n"
-            "%s\n"
-            "=======================================================",
+            "POST-CALL OWNER ALERT: to=%s subject=%s urgency=%s caller_phone=%s",
             alert.recipient_email,
             alert.subject,
             alert.urgency.upper(),
-            alert.caller_name,
-            alert.caller_phone,
-            alert.address or "None provided",
-            "\n".join(f"  • {item}" for item in alert.action_items),
-            alert.plain_text,
+            redact_phone(alert.caller_phone),
         )
         return True
 
@@ -196,6 +186,16 @@ def build_post_call_alert(record: CallRecord, config: BusinessConfig) -> PostCal
         "#ecfdf5" if urgency == "normal" else "#fffbeb" if urgency == "urgent" else "#fef2f2"
     )
 
+    safe_business = html.escape(config.business)
+    safe_call_id = html.escape(record.call_id)
+    safe_caller_name = html.escape(caller_name)
+    safe_caller_phone = html.escape(caller_phone)
+    safe_address = html.escape(address) if address else "<em>None specified</em>"
+    safe_issue = html.escape(issue_desc)
+    safe_items_html = "".join(
+        f'<li style="margin-bottom: 4px;">{html.escape(item)}</li>' for item in action_items
+    )
+
     html_body = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -205,33 +205,33 @@ def build_post_call_alert(record: CallRecord, config: BusinessConfig) -> PostCal
       <span style="background: {urgency_bg}; color: {urgency_color}; font-weight: bold; font-size: 12px; padding: 4px 10px; border-radius: 9999px; text-transform: uppercase;">
         {urgency.upper()} ALERT
       </span>
-      <h2 style="margin: 12px 0 4px 0; color: #111827;">{config.business} Call Notification</h2>
-      <p style="margin: 0; color: #6b7280; font-size: 13px;">Call ID: {record.call_id} &bull; Duration: {record.duration_s}s</p>
+      <h2 style="margin: 12px 0 4px 0; color: #111827;">{safe_business} Call Notification</h2>
+      <p style="margin: 0; color: #6b7280; font-size: 13px;">Call ID: {safe_call_id} &bull; Duration: {record.duration_s}s</p>
     </div>
 
     <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
       <tr>
         <td style="padding: 6px 0; color: #4b5563; width: 120px;"><strong>Caller:</strong></td>
-        <td style="padding: 6px 0; color: #111827;">{caller_name}</td>
+        <td style="padding: 6px 0; color: #111827;">{safe_caller_name}</td>
       </tr>
       <tr>
         <td style="padding: 6px 0; color: #4b5563;"><strong>Callback Phone:</strong></td>
-        <td style="padding: 6px 0; color: #111827;"><a href="tel:{caller_phone}" style="color: #2563eb; font-weight: bold;">{caller_phone}</a></td>
+        <td style="padding: 6px 0; color: #111827;"><a href="tel:{safe_caller_phone}" style="color: #2563eb; font-weight: bold;">{safe_caller_phone}</a></td>
       </tr>
       <tr>
         <td style="padding: 6px 0; color: #4b5563;"><strong>Address:</strong></td>
-        <td style="padding: 6px 0; color: #111827;">{address or '<em>None specified</em>'}</td>
+        <td style="padding: 6px 0; color: #111827;">{safe_address}</td>
       </tr>
     </table>
 
     <div style="background: #f3f4f6; border-left: 4px solid {urgency_color}; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 4px 4px 0;">
       <h4 style="margin: 0 0 6px 0; color: #1f2937; font-size: 13px; text-transform: uppercase;">Issue Description</h4>
-      <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.5;">{issue_desc}</p>
+      <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.5;">{safe_issue}</p>
     </div>
 
     <h4 style="margin: 16px 0 8px 0; color: #1f2937; font-size: 13px; text-transform: uppercase;">Required Action Items</h4>
     <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #374151; font-size: 14px;">
-      {''.join(f'<li style="margin-bottom: 4px;">{item}</li>' for item in action_items)}
+      {safe_items_html}
     </ul>
   </div>
 </body>

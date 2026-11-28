@@ -51,34 +51,40 @@ def create_opt_out_tool(
             )
             with urllib.request.urlopen(req, timeout=3.0) as resp:
                 if resp.status == 200:
-                    logger.info("Successfully registered opt-out via API for %s", phone_number)
+                    from agent.telemetry import redact_phone
+
+                    logger.info(
+                        "Successfully registered opt-out via API for %s",
+                        redact_phone(phone_number),
+                    )
                     return (
                         "I have immediately removed your number from our contact list and recorded your opt-out. "
                         "You will not receive any further automated calls from us. Have a great day, goodbye."
                     )
         except Exception as e:
-            logger.debug("HTTP opt-out failed (%s); trying in-process fallback", e)
-            try:
-                from api.app.core.security import decode_access_token
-                from api.app.db.session import SessionLocal
-                from api.app.services.outbound import record_caller_opt_out
+            logger.warning("HTTP opt-out failed (%s)", e)
+            if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
+                try:
+                    from api.app.core.security import decode_access_token
+                    from api.app.db.session import SessionLocal
+                    from api.app.services.outbound import record_caller_opt_out
 
-                claims = decode_access_token(call_token)
-                if claims and "tenant_id" in claims:
-                    with SessionLocal() as db:
-                        record_caller_opt_out(
-                            db=db,
-                            tenant_id=claims["tenant_id"],
-                            phone_number=phone_number,
-                            reason="opt_out",
-                            notes=f"Voice agent opt-out fallback: {opt_reason}",
+                    claims = decode_access_token(call_token)
+                    if claims and "tenant_id" in claims:
+                        with SessionLocal() as db:
+                            record_caller_opt_out(
+                                db=db,
+                                tenant_id=claims["tenant_id"],
+                                phone_number=phone_number,
+                                reason="opt_out",
+                                notes=f"Voice agent opt-out fallback: {opt_reason}",
+                            )
+                        return (
+                            "I have immediately removed your number from our contact list and recorded your opt-out. "
+                            "You will not receive any further automated calls from us. Have a great day, goodbye."
                         )
-                    return (
-                        "I have immediately removed your number from our contact list and recorded your opt-out. "
-                        "You will not receive any further automated calls from us. Have a great day, goodbye."
-                    )
-            except Exception as inner_e:
-                logger.error("In-process opt-out fallback error: %s", inner_e)
+                except Exception as inner_e:
+                    logger.error("In-process opt-out fallback error: %s", inner_e)
 
         return (
             "I have noted your request and our system will remove your number from our calling list immediately. "

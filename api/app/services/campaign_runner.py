@@ -10,6 +10,7 @@ Adheres strictly to SRS Section 6 (Outbound voice agent):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -27,6 +28,7 @@ from api.app.services.compliance import (
 from api.app.services.outbound import record_caller_opt_out
 
 logger = logging.getLogger("vedavoice.campaign_runner")
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
 
 
 def run_campaign_step(
@@ -88,9 +90,9 @@ def run_campaign_step(
     category = category_map.get(campaign.purpose, "B")
 
     for contact in candidates:
-        # Re-check campaign status before each individual call to support instantaneous pause
-        db.refresh(campaign)
-        if campaign.status != "running":
+        # Re-check campaign status without wiping in-session campaign.completed_contacts
+        live_status = db.scalar(select(VoiceCampaign.status).where(VoiceCampaign.id == campaign_id))
+        if live_status != "running":
             logger.info("Campaign %s paused mid-batch. Halting immediately.", campaign_id)
             break
 
@@ -116,6 +118,18 @@ def run_campaign_step(
                 norm_phone,
                 compliance.reason,
             )
+            transient_reasons = {
+                "outside_calling_window",
+                "concurrency_cap_exceeded",
+                "global_outbound_cap_exceeded",
+                "quiet_day_holiday",
+            }
+            if compliance.reason in transient_reasons:
+                contact.status = "pending"
+                contact.skip_reason = compliance.reason
+                contact.last_outcome = "deferred_compliance"
+                continue
+
             contact.status = "skipped"
             contact.skip_reason = compliance.reason
             contact.last_outcome = "skipped_compliance"
@@ -209,7 +223,7 @@ def run_campaign_step(
                     loop = None
 
                 if loop and loop.is_running():
-                    asyncio.create_task(
+                    task = asyncio.create_task(
                         trigger_func(
                             lk_api=lk_api,
                             tenant_id=campaign.tenant_id,
@@ -219,6 +233,8 @@ def run_campaign_step(
                             lead_metadata=metadata,
                         )
                     )
+                    _BACKGROUND_TASKS.add(task)
+                    task.add_done_callback(_BACKGROUND_TASKS.discard)
                 else:
                     asyncio.run(
                         trigger_func(

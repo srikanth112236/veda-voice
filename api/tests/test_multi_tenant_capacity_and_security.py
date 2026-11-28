@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent.records import CallRecord, FileCallStore
+from api.app.core.config import settings
 from api.app.core.security import create_access_token
 from api.app.db.session import SessionLocal
 from api.app.main import app
@@ -148,6 +149,7 @@ def test_tenant_capacity_isolation_no_leakage(isolated_tenants: dict[str, Any]) 
     # 1. Tenant A starts Call 1 -> Approved
     resp1 = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={"dialed_number": phone_a, "caller_number": "+15551112222", "call_id": call_id_a1},
     )
     assert resp1.status_code == 200
@@ -160,6 +162,7 @@ def test_tenant_capacity_isolation_no_leakage(isolated_tenants: dict[str, Any]) 
     # 2. Tenant A starts Call 2 -> Approved (Cap reached: 2 of 2)
     resp2 = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={"dialed_number": phone_a, "caller_number": "+15553334444", "call_id": call_id_a2},
     )
     assert resp2.status_code == 200
@@ -169,6 +172,7 @@ def test_tenant_capacity_isolation_no_leakage(isolated_tenants: dict[str, Any]) 
     # 3. Tenant A attempts Call 3 -> Throttled (Tenant concurrency exceeded)
     resp3 = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={"dialed_number": phone_a, "caller_number": "+15555556666", "call_id": call_id_a3},
     )
     assert resp3.status_code == 200
@@ -180,6 +184,7 @@ def test_tenant_capacity_isolation_no_leakage(isolated_tenants: dict[str, Any]) 
     # 4. ZERO CAPACITY LEAKAGE: Tenant B places a call simultaneously -> MUST SUCCEED
     resp_b = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={"dialed_number": phone_b, "caller_number": "+15557778888", "call_id": call_id_b1},
     )
     assert resp_b.status_code == 200
@@ -208,6 +213,7 @@ def test_tenant_capacity_isolation_no_leakage(isolated_tenants: dict[str, Any]) 
     # 6. Tenant A can now place Call 3 successfully!
     resp3_retry = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={"dialed_number": phone_a, "caller_number": "+15555556666", "call_id": call_id_a3},
     )
     assert resp3_retry.status_code == 200
@@ -224,6 +230,7 @@ def test_outbound_capacity_gate(isolated_tenants: dict[str, Any]) -> None:
     # Outbound call 1 -> Approved
     r1 = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={
             "dialed_number": phone_a,
             "caller_number": phone_a,
@@ -237,6 +244,7 @@ def test_outbound_capacity_gate(isolated_tenants: dict[str, Any]) -> None:
     # Outbound call 2 -> Throttled (max_concurrent_outbound is 1)
     r2 = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={
             "dialed_number": phone_a,
             "caller_number": phone_a,
@@ -261,6 +269,7 @@ def test_call_scoped_token_tampering_cross_tenant_rejected(
     # Start call for Tenant A -> get Token A
     resp_a = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={"dialed_number": phone_a, "caller_number": "+15551111111", "call_id": call_id_a},
     )
     token_a = resp_a.json()["call_token"]
@@ -268,6 +277,7 @@ def test_call_scoped_token_tampering_cross_tenant_rejected(
     # Start call for Tenant B
     resp_b = client.post(
         "/api/v1/internal/calls/start",
+        headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
         json={"dialed_number": phone_b, "caller_number": "+15552222222", "call_id": call_id_b},
     )
     assert resp_b.json()["allow"] is True

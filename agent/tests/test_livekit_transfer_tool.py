@@ -50,7 +50,7 @@ async def test_transfer_tool_happy_path() -> None:
     )
 
     result = await tool(reason="caller_requested_human", priority="normal")
-    assert "Transfer initiated to specialist at +15125559876" in result
+    assert "Transfer initiated to on-call specialist at +15125559876" in result
     assert len(session.spoken_phrases) == 1
     assert (
         "Please hold on for just a moment while I transfer your call" in session.spoken_phrases[0]
@@ -82,8 +82,8 @@ async def test_transfer_tool_emergency_reassurance() -> None:
     )
 
     result = await tool(reason="emergency_gas_leak", priority="emergency")
-    assert "Transfer initiated to specialist" in result
-    assert "on-call specialist" in session.spoken_phrases[0]
+    assert "Transfer initiated to on-call specialist" in result
+    assert "on-call technician" in session.spoken_phrases[0]
 
 
 @pytest.mark.asyncio

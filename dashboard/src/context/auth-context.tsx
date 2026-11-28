@@ -32,11 +32,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 2-second hard timeout to guarantee loading never gets stuck
-      const timer = setTimeout(() => {
-        if (active) setLoading(false);
-      }, 2000);
-
       api
         .getMe()
         .then((profile) => {
@@ -45,11 +40,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .catch(() => {
           if (typeof window !== "undefined") {
             localStorage.removeItem("vedavoice_token");
+            localStorage.removeItem("vedavoice_admin_token");
           }
           if (active) setUser(null);
         })
         .finally(() => {
-          clearTimeout(timer);
           if (active) setLoading(false);
         });
     } catch {
@@ -70,6 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     localStorage.removeItem("vedavoice_token");
+    localStorage.removeItem("vedavoice_admin_token");
     setUser(null);
     window.location.href = "/login";
   };

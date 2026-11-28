@@ -1,18 +1,74 @@
 """FastAPI dependencies for database sessions and authentication guards."""
 
+import ipaddress
+import socket
 from typing import Annotated
+from urllib.parse import urlparse
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from api.app.core.config import settings
 from api.app.core.security import decode_access_token
 from api.app.db.session import get_db
 from api.app.models.tenant import Tenant
 from api.app.models.user import User
 
 security_scheme = HTTPBearer(auto_error=False)
+
+
+def validate_public_webhook_url(url: str) -> str:
+    """Reject non-HTTP(S) or private/loopback/link-local webhook URLs (SSRF guard)."""
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Webhook URL must be a valid http(s) URL.",
+        )
+    host = parsed.hostname.lower()
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "169.254.169.254"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Private or loopback webhook URLs are not allowed.",
+        )
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Private or reserved IP webhook URLs are not allowed.",
+            )
+    except ValueError:
+        try:
+            for info in socket.getaddrinfo(host, None):
+                resolved_ip = ipaddress.ip_address(info[4][0])
+                if (
+                    resolved_ip.is_private
+                    or resolved_ip.is_loopback
+                    or resolved_ip.is_link_local
+                    or resolved_ip.is_reserved
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="Webhook hostname resolves to a private or reserved IP.",
+                    )
+        except socket.gaierror:
+            pass
+    return url.strip()
+
+
+def build_oauth_redirect_url(request: Request, path_with_query: str) -> str:
+    """Build safe dashboard redirect URL for browser OAuth callbacks."""
+    host_name = request.headers.get("host", "").split(":")[0].lower()
+    dashboard_url = (
+        "http://localhost:3000"
+        if host_name in ("localhost", "127.0.0.1")
+        else settings.DASHBOARD_URL.rstrip("/")
+    )
+    suffix = path_with_query if path_with_query.startswith("/") else f"/{path_with_query}"
+    return f"{dashboard_url}{suffix}"
 
 
 def get_current_user(
@@ -85,6 +141,13 @@ def require_platform_admin(
     return current_user
 
 
+def _set_pg_tenant_rls(db: Session, tenant_id: str) -> None:
+    """Activate PostgreSQL row-level security context for the current transaction."""
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        db.execute(text("SET LOCAL app.current_tenant_id = :tid"), {"tid": tenant_id})
+
+
 def get_current_tenant(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
@@ -107,6 +170,7 @@ def get_current_tenant(
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="No active tenants found"
                 )
+            _set_pg_tenant_rls(db, fallback_tenant.id)
             return fallback_tenant
 
     if not target_tenant_id:
@@ -122,4 +186,5 @@ def get_current_tenant(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tenant organization not found"
         )
 
+    _set_pg_tenant_rls(db, target_tenant.id)
     return target_tenant

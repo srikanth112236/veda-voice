@@ -120,12 +120,14 @@ def _call_internal_calendar_api(
             data = json.loads(resp.read().decode("utf-8"))
             return dict(data) if isinstance(data, dict) else {}
     except Exception as e:
-        logger.debug("HTTP call to internal calendar endpoint failed: %s; trying in-process", e)
-        try:
-            return _execute_in_process_calendar_call(endpoint_path, payload, call_token)
-        except Exception as inner_e:
-            logger.error("In-process internal calendar execution failed: %s", inner_e)
-            raise inner_e
+        logger.warning("HTTP call to internal calendar endpoint failed: %s", e)
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
+            try:
+                return _execute_in_process_calendar_call(endpoint_path, payload, call_token)
+            except Exception as inner_e:
+                logger.error("In-process internal calendar execution failed: %s", inner_e)
+                raise inner_e from e
+        raise
 
 
 def check_availability(

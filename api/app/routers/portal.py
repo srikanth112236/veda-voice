@@ -362,18 +362,20 @@ def create_test_call_session(
     room_name = f"in-portal-{session_id}"
     call_id = room_name
 
-    lk_url: str = str(
-        os.getenv("LIVEKIT_URL")
-        or getattr(settings, "LIVEKIT_URL", "wss://steyzi-xvk89l73.livekit.cloud")
-    )
-    lk_key: str = str(
-        os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", "") or "devkey"
-    )
+    lk_url: str = str(os.getenv("LIVEKIT_URL") or getattr(settings, "LIVEKIT_URL", ""))
+    lk_key: str = str(os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", ""))
     lk_secret: str = str(
-        os.getenv("LIVEKIT_API_SECRET")
-        or getattr(settings, "LIVEKIT_API_SECRET", "")
-        or "devsecret32bytesminimumforlivekitcloudauth"
+        os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", "")
     )
+    if (not lk_key or not lk_secret) and (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING")):
+        lk_url = lk_url or "wss://test.livekit.invalid"
+        lk_key = lk_key or "test-livekit-key"
+        lk_secret = lk_secret or "test-livekit-secret-32bytes-minimum!"
+    elif not lk_url or not lk_key or not lk_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LiveKit credentials are not configured.",
+        )
 
     token = ""
     try:
@@ -732,6 +734,7 @@ def get_call_recording(
 def stream_call_audio(
     call_id: str,
     request: Request,
+    tenant: Tenant = Depends(get_current_tenant),
     db: Session = Depends(get_db),
 ) -> Response:
     """Stream PCM WAV telephony audio for call recording playback with full Range request support."""
@@ -740,7 +743,14 @@ def stream_call_audio(
     import struct
     import wave
 
-    call = db.scalar(select(Call).where((Call.id == call_id) | (Call.call_id == call_id)))
+    call = db.scalar(
+        select(Call).where(
+            Call.tenant_id == tenant.id,
+            (Call.id == call_id) | (Call.call_id == call_id),
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
     call_dur = int(call.duration_s) if call and call.duration_s > 0 else 10
     duration = min(60, max(6, call_dur))
 
@@ -1012,10 +1022,16 @@ async def get_live_active_calls(
     calls = list(db.scalars(stmt).all())
     existing_call_ids = {c.call_id for c in calls}
 
-    # 2b. Auto-discover active LiveKit Cloud rooms (console/playground/carrier calls)
+    # 2b. Auto-discover active LiveKit Cloud rooms belonging to this tenant
     if live_lk_room_names is not None:
         for r in active_cloud_rooms:
             if r.name not in existing_call_ids and getattr(r, "num_participants", 0) > 0:
+                try:
+                    room_meta = json.loads(getattr(r, "metadata", "") or "{}")
+                except Exception:
+                    room_meta = {}
+                if room_meta.get("tenant_id") != tenant.id:
+                    continue
                 existing = db.scalar(
                     select(Call).where((Call.call_id == r.name) | (Call.id == r.name))
                 )
@@ -1258,15 +1274,20 @@ async def get_supervision_token(
     user_suffix = current_user.email.split("@")[0] if current_user.email else "user"
     supervisor_identity = f"supervisor-{current_user.id[:8]}-{user_suffix}"
 
-    livekit_url = settings.LIVEKIT_URL or os.getenv(
-        "LIVEKIT_URL", "wss://steyzi-xvk89l73.livekit.cloud"
-    )
-    api_key = os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", "") or "devkey"
-    api_secret = (
-        os.getenv("LIVEKIT_API_SECRET")
-        or getattr(settings, "LIVEKIT_API_SECRET", "")
-        or "devsecret32bytesminimumforlivekitcloudauth"
-    )
+    livekit_url = str(os.getenv("LIVEKIT_URL") or getattr(settings, "LIVEKIT_URL", ""))
+    api_key = str(os.getenv("LIVEKIT_API_KEY") or getattr(settings, "LIVEKIT_API_KEY", ""))
+    api_secret = str(os.getenv("LIVEKIT_API_SECRET") or getattr(settings, "LIVEKIT_API_SECRET", ""))
+    if (not api_key or not api_secret) and (
+        os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING")
+    ):
+        livekit_url = livekit_url or "wss://test.livekit.invalid"
+        api_key = api_key or "test-livekit-key"
+        api_secret = api_secret or "test-livekit-secret-32bytes-minimum!"
+    elif not livekit_url or not api_key or not api_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LiveKit credentials are not configured.",
+        )
 
     token = ""
     try:
@@ -1507,8 +1528,18 @@ async def websocket_call_supervision(websocket: WebSocket, call_id: str) -> None
             await websocket.close(code=status.WS_1000_NORMAL_CLOSURE)
             return
 
-        # Multi-tenancy isolation check
-        if user.role != "platform_admin" and call.tenant_id != user.tenant_id:
+        # Multi-tenancy isolation check (supports impersonation tokens)
+        effective_tenant_id = (
+            payload.get("tenant_id") if payload.get("is_impersonated") else user.tenant_id
+        )
+        if (
+            user.role != "platform_admin"
+            and not payload.get("is_impersonated")
+            and call.tenant_id != effective_tenant_id
+        ):
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        if payload.get("is_impersonated") and call.tenant_id != effective_tenant_id:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 

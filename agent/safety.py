@@ -22,10 +22,17 @@ class SystemClock:
     """Standard monotonic wall-clock."""
 
     def __init__(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
-        self.loop = loop or asyncio.get_event_loop()
+        self.loop = loop
 
     def now(self) -> float:
-        return self.loop.time()
+        if self.loop is not None:
+            return self.loop.time()
+        try:
+            return asyncio.get_running_loop().time()
+        except RuntimeError:
+            import time
+
+            return time.monotonic()
 
 
 class SimulatedClock:

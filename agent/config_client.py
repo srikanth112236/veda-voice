@@ -141,11 +141,7 @@ class InternalApiClient:
             base_url
             or (os.getenv("API_BASE_URL") if not is_test else "")
             or (os.getenv("PROD_API_URL") if not is_test else "")
-            or (
-                "http://127.0.0.1:8000"
-                if is_test
-                else "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
-            )
+            or "http://127.0.0.1:8000"
         )
         self.base_url: str = raw_url.rstrip("/")
         self.timeout = timeout
@@ -261,27 +257,10 @@ class InternalApiClient:
                     return tenant
         except Exception as e:
             logger.warning(
-                "HTTP tenant resolution failed for '%s' (%s); attempting fallback", norm, e
+                "HTTP tenant resolution failed for '%s' (%s); attempting cache fallback", norm, e
             )
 
-        # 2. In-process fallback (for unit tests / co-located processes)
-        try:
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import resolve_tenant_by_number
-
-            with SessionLocal() as db:
-                resp_obj = resolve_tenant_by_number(norm, db=db)
-                if resp_obj:
-                    raw_dict = resp_obj.model_dump()
-                    tenant = parse_tenant_config_from_dict(raw_dict, dialed_number=norm)
-                    self._memory_cache[norm] = (now + self._cache_ttl, tenant)
-                    self._memory_cache[tenant.tenant_id] = (now + self._cache_ttl, tenant)
-                    self._save_last_known_config(tenant, dialed_number=norm)
-                    return tenant
-        except Exception:
-            pass
-
-        # 3. Disk cache fallback (last-known good config)
+        # Disk cache fallback (last-known good config)
         cached = self._load_last_known_config(norm)
         if cached:
             logger.info("Using cached last-known configuration for '%s'", norm)
@@ -301,24 +280,6 @@ class InternalApiClient:
             if now < exp:
                 return cfg
 
-        # In test mode without custom URL, resolve via test session DB directly
-        is_test = bool(os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"))
-        if is_test and not getattr(self, "_is_custom_base_url", False):
-            try:
-                from api.app.db.session import SessionLocal
-                from api.app.routers.internal import get_tenant_config_by_id
-
-                with SessionLocal() as db:
-                    resp_obj = get_tenant_config_by_id(clean_id, db=db)
-                    if resp_obj:
-                        raw_dict = resp_obj.model_dump()
-                        tenant = parse_tenant_config_from_dict(raw_dict)
-                        self._memory_cache[clean_id] = (now + self._cache_ttl, tenant)
-                        self._save_last_known_config(tenant)
-                        return tenant
-            except Exception:
-                pass
-
         endpoint = f"{self.base_url}/api/v1/internal/tenants/{urllib.parse.quote(clean_id)}"
         req = urllib.request.Request(endpoint, headers=self._get_headers())
 
@@ -332,22 +293,6 @@ class InternalApiClient:
                     return tenant
         except Exception as e:
             logger.warning("HTTP tenant resolution by ID failed for '%s': %s", clean_id, e)
-
-        # In-process fallback
-        try:
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import get_tenant_config_by_id
-
-            with SessionLocal() as db:
-                resp_obj = get_tenant_config_by_id(clean_id, db=db)
-                if resp_obj:
-                    raw_dict = resp_obj.model_dump()
-                    tenant = parse_tenant_config_from_dict(raw_dict)
-                    self._memory_cache[clean_id] = (now + self._cache_ttl, tenant)
-                    self._save_last_known_config(tenant)
-                    return tenant
-        except Exception:
-            pass
 
         cached = self._load_last_known_config(clean_id)
         if cached:
@@ -406,24 +351,7 @@ class InternalApiClient:
                     )
                     return cast(dict[str, Any], data)
         except Exception as e:
-            logger.warning("HTTP start_call handshake failed (%s); trying in-process fallback", e)
-
-        # In-process fallback
-        try:
-            from api.app.db.session import SessionLocal
-            from api.app.routers.internal import CallStartRequest, start_call
-
-            with SessionLocal() as db:
-                req_obj = CallStartRequest(
-                    dialed_number=dialed_number,
-                    caller_number=caller_number,
-                    call_id=call_id,
-                    direction=direction,
-                )
-                resp_obj = start_call(req_obj, db=db)
-                return cast(dict[str, Any], resp_obj.model_dump())
-        except Exception as inner_e:
-            logger.error("In-process start_call fallback failed: %s", inner_e)
+            logger.warning("HTTP start_call handshake failed (%s); returning offline failsafe", e)
 
         # Failsafe default response if API is unreachable
         return {
@@ -468,12 +396,7 @@ class InternalApiClient:
             req = urllib.request.Request(
                 url,
                 data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Call-Token": call_token,
-                    "Authorization": f"Bearer {call_token}",
-                    "User-Agent": "LiveKit-Agent-Worker/1.0",
-                },
+                headers=self._get_headers(call_token),
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
@@ -481,36 +404,7 @@ class InternalApiClient:
                     logger.info("Successfully audited call transfer for call %s", call_id)
                     return True
         except Exception as e:
-            logger.debug("HTTP call transfer audit failed (%s); trying in-process fallback", e)
-            try:
-                import asyncio
-
-                from api.app.db.session import SessionLocal
-                from api.app.routers.internal import CallTransferRequest, handle_call_transfer
-
-                with SessionLocal() as db:
-                    req_obj = CallTransferRequest(
-                        call_id=call_id,
-                        target_number=target_number,
-                        reason=reason,
-                        priority=priority,
-                        notes=notes,
-                        whisper_briefing=whisper_briefing,
-                        caller_name=caller_name,
-                        caller_phone=caller_phone,
-                        service_address=service_address,
-                        emergency_details=emergency_details or {},
-                    )
-                    coro = handle_call_transfer(req_obj, x_call_token=call_token, db=db)
-                    try:
-                        loop = asyncio.get_running_loop()
-                        future = asyncio.run_coroutine_threadsafe(coro, loop)
-                        future.result(timeout=5.0)
-                    except RuntimeError:
-                        asyncio.run(coro)
-                    return True
-            except Exception as inner_e:
-                logger.error("In-process call transfer audit failed: %s", inner_e)
+            logger.warning("HTTP call transfer audit failed (%s)", e)
 
         return False
 

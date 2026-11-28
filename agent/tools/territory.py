@@ -89,8 +89,14 @@ def _call_internal_territory_api(
             data = json.loads(resp.read().decode("utf-8"))
             return dict(data) if isinstance(data, dict) else {}
     except Exception as e:
-        logger.debug("HTTP call to internal territory endpoint failed: %s; trying in-process", e)
-        return _execute_in_process_territory_resolve(payload, call_token)
+        logger.warning("HTTP call to internal territory endpoint failed: %s", e)
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
+            return _execute_in_process_territory_resolve(payload, call_token)
+        return {
+            "serviced": False,
+            "is_out_of_area": True,
+            "message": "Territory verification temporarily unavailable.",
+        }
 
 
 def create_territory_tools(call_token: str, caller_phone: str = "") -> list[FunctionTool]:

@@ -56,8 +56,13 @@ def test_google_calendar_two_way_sync_diagnostics() -> None:
     pre_test = client.post("/api/v1/portal/calendar/sync-test", headers=headers)
     assert pre_test.status_code == 400
 
-    # Simulate OAuth callback with mock authorization code
-    cb_res = client.get(f"/api/v1/portal/calendar/callback?code=mock_code_test&state={tenant_id}")
+    # Simulate OAuth callback with signed state and mock authorization code
+    connect_res = client.get("/api/v1/portal/calendar/connect", headers=headers)
+    assert connect_res.status_code == 200
+    signed_state = connect_res.json()["state"]
+    cb_res = client.get(
+        f"/api/v1/portal/calendar/callback?code=mock_code_test&state={signed_state}"
+    )
     assert cb_res.status_code == 200
     assert cb_res.json()["status"] == "connected"
 

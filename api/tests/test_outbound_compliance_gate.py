@@ -110,6 +110,7 @@ def test_compliance_gate_calling_window_standard_and_strict() -> None:
             tenant_id=tenant_id,
             to_phone="+12125550199",
             from_phone=caller_id,
+            has_consent=True,
             current_time=ny_night_utc,
         )
         assert res_ny.passed is False
@@ -123,6 +124,7 @@ def test_compliance_gate_calling_window_standard_and_strict() -> None:
             tenant_id=tenant_id,
             to_phone="+13055550199",
             from_phone=caller_id,
+            has_consent=True,
             current_time=fl_eve_utc,
         )
         assert res_fl.passed is False
@@ -136,6 +138,7 @@ def test_compliance_gate_calling_window_standard_and_strict() -> None:
             tenant_id=tenant_id,
             to_phone="+15125550199",
             from_phone=caller_id,
+            has_consent=True,
             current_time=tx_day_utc,
         )
         assert res_tx.passed is True
@@ -157,6 +160,7 @@ def test_compliance_gate_suppression_and_opt_out() -> None:
             tenant_id=tenant_id,
             to_phone=target_phone,
             from_phone=caller_id,
+            has_consent=True,
             current_time=fixture_time,
         )
         assert res1.passed is True
@@ -175,6 +179,7 @@ def test_compliance_gate_suppression_and_opt_out() -> None:
             tenant_id=tenant_id,
             to_phone=target_phone,
             from_phone=caller_id,
+            has_consent=True,
             current_time=fixture_time,
         )
         assert res2.passed is False
@@ -219,6 +224,7 @@ def test_compliance_gate_frequency_caps() -> None:
             tenant_id=tenant_id,
             to_phone=target_phone,
             from_phone=caller_id,
+            has_consent=True,
             current_time=fixture_time,
         )
         assert res.passed is False
@@ -264,6 +270,7 @@ def test_compliance_gate_concurrency_caps() -> None:
                 tenant_id=tenant_id,
                 to_phone="+15125550183",
                 from_phone=caller_id,
+                has_consent=True,
                 current_time=fixture_time,
             )
             assert res.passed is False

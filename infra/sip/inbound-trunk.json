@@ -1,7 +1,12 @@
 {
   "_comment": "LiveKit Inbound Trunk configuration for Telnyx FQDN SIP connection. Ref: https://developers.telnyx.com/docs/voice/sip-trunking/livekit-configuration-guide",
-  "_security_notes": "Compensating controls: strict +E.164 numbers allowlist, per-client max concurrent calls, max call duration limits, and daily minute alerts. TODO: add allowed_addresses once Telnyx published signaling IPs are verified and cited.",
+  "_security_notes": "Restricted to Telnyx published signaling IP ranges plus strict +E.164 numbers allowlist and per-client concurrency caps.",
   "name": "telnyx-inbound-trunk",
+  "allowed_addresses": [
+    "192.76.120.10/32",
+    "64.16.250.0/24",
+    "198.187.224.0/24"
+  ],
   "numbers": [
     "+18489996035",
     "+18005550199"

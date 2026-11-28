@@ -30,6 +30,15 @@ resource alertApi5xx 'Microsoft.Insights/metricAlerts@2018-03-01' = {
           name: 'High5xxResponses'
           metricNamespace: 'microsoft.app/containerapps'
           metricName: 'Requests'
+          dimensions: [
+            {
+              name: 'statusCode'
+              operator: 'Include'
+              values: [
+                '5xx'
+              ]
+            }
+          ]
           operator: 'GreaterThan'
           threshold: 10
           timeAggregation: 'Total'

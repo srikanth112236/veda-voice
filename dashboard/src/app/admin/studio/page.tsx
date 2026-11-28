@@ -50,6 +50,7 @@ export default function HiddenAdminStudioPage() {
 
   const loadTenantStudio = async (tenantId: string) => {
     if (!tenantId) return;
+    setNotice(null);
     const res = await fetch(`/api/v1/admin/studio/tenants/${tenantId}`, {
       headers: authHeaders(),
     });
@@ -58,6 +59,8 @@ export default function HiddenAdminStudioPage() {
       setResolved(data.resolved);
       setOverrideData(data.client_override || {});
       setIndustrySlug(data.industry_slug || "");
+    } else {
+      setNotice(`Failed to load tenant studio (${res.status}).`);
     }
   };
 
@@ -79,7 +82,6 @@ export default function HiddenAdminStudioPage() {
       prev
         ? {
             ...prev,
-            resolved: undefined,
             [section]: {
               ...(prev[section] || {}),
               [key]: value,
@@ -131,6 +133,8 @@ export default function HiddenAdminStudioPage() {
         setOverrideData(data.client_override || {});
         setIndustrySlug(data.industry_slug || slug);
         setNotice(`Applied '${slug}' industry preset.`);
+      } else {
+        setNotice(`Failed to apply '${slug}' preset (${res.status}).`);
       }
     } finally {
       setSaving(false);

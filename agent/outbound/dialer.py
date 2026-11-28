@@ -83,3 +83,23 @@ def resolve_outbound_branch_and_script(
         script = next(iter(outbound_scripts.values()), "")
 
     return caller_id, loc_id, script
+
+
+if __name__ == "__main__":
+    import asyncio
+    import signal
+
+    logging.basicConfig(level=logging.INFO)
+    stop_event = asyncio.Event()
+
+    async def _run_dialer_worker() -> None:
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, stop_event.set)
+            except NotImplementedError:
+                pass
+        logger.info("Outbound dialer worker online and awaiting dispatch jobs.")
+        await stop_event.wait()
+
+    asyncio.run(_run_dialer_worker())

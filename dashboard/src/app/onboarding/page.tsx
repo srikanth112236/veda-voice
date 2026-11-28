@@ -54,19 +54,22 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    if (hash.startsWith("#google_token=")) {
-      const tok = decodeURIComponent(hash.slice("#google_token=".length));
+    const params = new URLSearchParams(window.location.search);
+    const gCode = params.get("google_code");
+    if (gCode) {
       window.history.replaceState(null, "", window.location.pathname);
-      if (!tok) return;
-      fetch(`/api/v1/auth/google/onboarding-session?token=${encodeURIComponent(tok)}`)
+      fetch("/api/v1/auth/google/onboarding-exchange", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: gCode }),
+      })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
-          if (!data?.email) {
+          if (!data?.email || !data?.google_token) {
             setError("Google session expired. Please sign in with Google again.");
             return;
           }
-          setGoogleToken(tok);
+          setGoogleToken(data.google_token);
           setGoogleProfile({
             name: data.name || "",
             email: data.email,
@@ -1248,8 +1251,16 @@ export default function OnboardingPage() {
                 return (
                   <div
                     key={voice.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setFormData({ ...formData, tts_voice: voice.id, agent_name: voice.name })}
-                    className={`p-4 rounded-xl border text-left cursor-pointer transition-all space-y-2 relative group ${
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setFormData({ ...formData, tts_voice: voice.id, agent_name: voice.name });
+                      }
+                    }}
+                    className={`p-4 rounded-xl border text-left cursor-pointer transition-all space-y-2 relative group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] ${
                       isSelected
                         ? "border-zinc-900 bg-zinc-900 text-white shadow-md ring-2 ring-zinc-900"
                         : "border-zinc-200 bg-white text-zinc-800 hover:border-zinc-400 hover:shadow-sm"

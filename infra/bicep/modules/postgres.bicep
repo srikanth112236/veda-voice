@@ -73,13 +73,16 @@ resource configPgBouncer 'Microsoft.DBforPostgreSQL/flexibleServers/configuratio
   }
 }
 
-// Allow Azure internal services and Container Apps to connect
-resource allowAzureIps 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
+@description('Optional explicit client IP CIDR start for firewall rule (empty = disabled)')
+param allowedClientIp string = ''
+
+// Optional explicit firewall rule instead of 0.0.0.0 AllowAllAzureServicesAndResources
+resource allowClientIpRule 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = if (!empty(allowedClientIp)) {
   parent: postgresServer
-  name: 'AllowAllAzureServicesAndResources'
+  name: 'AllowConfiguredClientIp'
   properties: {
-    startIpAddress: '0.0.0.0'
-    endIpAddress: '0.0.0.0'
+    startIpAddress: allowedClientIp
+    endIpAddress: allowedClientIp
   }
 }
 

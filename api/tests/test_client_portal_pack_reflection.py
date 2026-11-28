@@ -265,8 +265,12 @@ def test_end_to_end_portal_and_runtime_reflection(portal_reflection_setup: dict[
     assert sandbox_data["detected_emergency"] is True
     assert sandbox_data["emergency_trigger"] == "severe head trauma"
 
+    from api.app.core.config import settings
+
+    internal_headers = {"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY}
+
     # Step 8: Live Call Runtime Reflection - GET /internal/tenants/{tenant_id}
-    call_config_res = client.get(f"/api/v1/internal/tenants/{tenant_id}")
+    call_config_res = client.get(f"/api/v1/internal/tenants/{tenant_id}", headers=internal_headers)
     assert call_config_res.status_code == 200
     cfg = call_config_res.json()
     assert cfg["industry_pack_slug"] == pack_slug
@@ -274,7 +278,9 @@ def test_end_to_end_portal_and_runtime_reflection(portal_reflection_setup: dict[
     assert cfg["industry_pack_intake_schema"]["title"] == "Spine Intake v1.1"
 
     # Also verify resolution by E.164 phone number for inbound carrier SIP trunk
-    by_num_res = client.get(f"/api/v1/internal/tenants/by-number/{phone_number}")
+    by_num_res = client.get(
+        f"/api/v1/internal/tenants/by-number/{phone_number}", headers=internal_headers
+    )
     assert by_num_res.status_code == 200
     cfg_num = by_num_res.json()
     assert cfg_num["industry_pack_slug"] == pack_slug

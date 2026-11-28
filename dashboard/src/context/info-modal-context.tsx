@@ -260,7 +260,7 @@ export const INFO_TOPICS: Record<string, InfoTopicDetails> = {
       "1. End-of-Utterance (EOU) Detection: Silero VAD detects speech pause (tuned to 750ms).",
       "2. LLM Time to First Token (TTFT): Gemini 2.5 Flash / Gemma generates first conversational token (<350ms).",
       "3. Voice TTS Time to First Byte (TTFB): Inworld / Rime synthesizes voice audio frames (<250ms).",
-      "Target End-to-End Latency: p50 under 1,100ms, p95 under 1,400ms for seamless human-like pacing.",
+      "Target End-to-End Latency: p50 under 1,100ms, p95 under 1,400ms for natural conversational pacing.",
     ],
   },
 

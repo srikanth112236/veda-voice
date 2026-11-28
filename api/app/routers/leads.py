@@ -33,8 +33,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
-from api.app.core.deps import get_current_user
+from api.app.core.deps import get_current_tenant, get_current_user, validate_public_webhook_url
 from api.app.db.session import get_db
+from api.app.models.call import Call
 from api.app.models.crm import Contact, ContactTimelineEvent
 from api.app.models.lead_form import Lead
 from api.app.models.outbound import ConsentRecord, SuppressionRecord
@@ -348,11 +349,11 @@ async def ingest_lead_webhook(
     if tenant.status != "active":
         raise HTTPException(status_code=403, detail="Tenant account is suspended or inactive.")
 
-    # Secret verification if configured on tenant
+    # Secret verification (fail closed in production or when configured)
     configured_secret = (tenant.config or {}).get("webhook_secret")
-    if configured_secret:
-        client_secret = x_vedavoice_secret or secret
-        if client_secret != configured_secret:
+    if configured_secret or settings.ENVIRONMENT.lower() in ("prod", "production"):
+        client_secret = x_vedavoice_secret or secret or ""
+        if not configured_secret or not hmac.compare_digest(client_secret, configured_secret):
             raise HTTPException(status_code=401, detail="Unauthorized: Webhook secret mismatch.")
 
     # Multi-format content parsing (JSON, form-urlencoded, or multipart/form-data)
@@ -416,6 +417,8 @@ async def ingest_google_sheets_row(
     tenant_id: str,
     request: Request,
     auto_dial: bool = Query(True),
+    secret: str | None = Query(None, description="Optional webhook secret"),
+    x_vedavoice_secret: str | None = Header(None, alias="X-Vedavoice-Secret"),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Ingest a new row from Google Sheets and immediately trigger speed-to-lead outbound call."""
@@ -424,6 +427,12 @@ async def ingest_google_sheets_row(
         raise HTTPException(status_code=404, detail="Tenant not found.")
     if tenant.status != "active":
         raise HTTPException(status_code=403, detail="Tenant account is suspended or inactive.")
+
+    configured_secret = (tenant.config or {}).get("webhook_secret")
+    if configured_secret or settings.ENVIRONMENT.lower() in ("prod", "production"):
+        client_secret = x_vedavoice_secret or secret or ""
+        if not configured_secret or not hmac.compare_digest(client_secret, configured_secret):
+            raise HTTPException(status_code=401, detail="Unauthorized: Webhook secret mismatch.")
 
     content_type = request.headers.get("content-type", "").lower()
     raw_payload: dict[str, Any] = {}
@@ -475,9 +484,18 @@ async def trigger_sheets_writeback(
         None, description="Destination Google Apps Script Webhook URL"
     ),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Execute two-way post-call writeback of summary, recording, duration & sentiment to client Google Sheet."""
+    call = db.scalar(
+        select(Call).where(
+            Call.tenant_id == tenant.id,
+            (Call.id == call_id) | (Call.call_id == call_id),
+        )
+    )
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found for this tenant.")
+
     res = sync_call_result_to_sheets(call_id=call_id, db=db)
     if res.get("status") != "success":
         raise HTTPException(
@@ -488,6 +506,8 @@ async def trigger_sheets_writeback(
     target_url = writeback_url or (res["writeback"].get("custom_columns") or {}).get(
         "writeback_url"
     )
+    if target_url:
+        target_url = validate_public_webhook_url(target_url)
     delivered = await execute_sheet_writeback(writeback_data, writeback_url=target_url)
     return {
         "success": True,
@@ -529,11 +549,19 @@ async def ingest_meta_lead_ad(
     """Receive instant lead notification from Facebook/Instagram Lead Ads with HMAC-SHA256 signature verification."""
     body = await request.body()
 
-    # FR-INT-7: Meta HMAC-SHA256 signature verification
-    if x_hub_signature_256 or settings.META_APP_SECRET:
-        secret = settings.META_APP_SECRET or "vedavoice_meta_secret"
-        expected = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-        if not x_hub_signature_256 or not hmac.compare_digest(x_hub_signature_256, expected):
+    # FR-INT-7: Meta HMAC-SHA256 signature verification (fail closed when configured or in prod)
+    if (
+        settings.META_APP_SECRET
+        or x_hub_signature_256
+        or settings.ENVIRONMENT.lower() in ("prod", "production")
+    ):
+        if not settings.META_APP_SECRET or not x_hub_signature_256:
+            raise HTTPException(status_code=403, detail="Missing Meta webhook signature or secret.")
+        expected = (
+            "sha256="
+            + hmac.new(settings.META_APP_SECRET.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        )
+        if not hmac.compare_digest(x_hub_signature_256, expected):
             raise HTTPException(status_code=403, detail="Invalid Meta webhook signature.")
 
     try:
@@ -550,13 +578,7 @@ async def ingest_meta_lead_ad(
         # Support flat test payload format
         if "phone_number" in data or "phone" in data:
             if not target_tenant:
-                target_tenant = db.scalar(
-                    select(Tenant)
-                    .where(Tenant.status == "active")
-                    .order_by(Tenant.created_at.asc())
-                )
-            if not target_tenant:
-                raise HTTPException(status_code=400, detail="No active tenant found.")
+                raise HTTPException(status_code=400, detail="Explicit tenant_id is required.")
             res = _process_inbound_lead(
                 db=db,
                 tenant=target_tenant,
@@ -583,12 +605,6 @@ async def ingest_meta_lead_ad(
             tenant = target_tenant
             if entry_tenant_id and not tenant:
                 tenant = db.scalar(select(Tenant).where(Tenant.id == entry_tenant_id))
-            if not tenant:
-                tenant = db.scalar(
-                    select(Tenant)
-                    .where(Tenant.status == "active")
-                    .order_by(Tenant.created_at.asc())
-                )
 
             if not tenant:
                 logger.warning("No active tenant found to handle Meta leadgen %s", leadgen_id)

@@ -82,7 +82,12 @@ async def process_outbox_batch(
     if tenant_id:
         stmt = stmt.where(CRMSyncOutbox.tenant_id == tenant_id)
 
-    jobs = db.scalars(stmt.order_by(CRMSyncOutbox.created_at.asc()).limit(batch_size)).all()
+    stmt = stmt.order_by(CRMSyncOutbox.created_at.asc()).limit(batch_size)
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        stmt = stmt.with_for_update(skip_locked=True)
+
+    jobs = db.scalars(stmt).all()
 
     if not jobs:
         return {"processed": 0, "succeeded": 0, "failed": 0, "dead": 0}

@@ -170,28 +170,11 @@ def sync_call_record_to_api(
             targets.append(prod_url)
         if main_url and main_url not in targets:
             targets.append(main_url)
-        prod_fallback = "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io"
-        if prod_fallback not in targets:
-            targets.append(prod_fallback)
         if not targets:
             targets.append("http://127.0.0.1:8000")
 
-    # Ensure a valid token if not explicitly provided
-    token = call_token
-    if not token and record.tenant_id and record.tenant_id != "unassigned":
-        try:
-            from api.app.core.security import create_access_token
-
-            token = create_access_token(
-                {
-                    "sub": "livekit-agent",
-                    "role": "agent",
-                    "tenant_id": record.tenant_id,
-                    "call_id": record.call_id,
-                }
-            )
-        except Exception:
-            token = ""
+    token = call_token or ""
+    internal_secret = os.getenv("INTERNAL_SIGNING_KEY", "")
 
     payload = {
         "call_id": record.call_id,
@@ -228,6 +211,7 @@ def sync_call_record_to_api(
                 data=json.dumps(payload).encode("utf-8"),
                 headers={
                     "Authorization": f"Bearer {token}" if token else "",
+                    "X-Internal-Secret": internal_secret,
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                     "User-Agent": "LiveKit-Agent-Worker/1.0",
@@ -281,30 +265,30 @@ def sync_call_record_to_api(
     if synced_any:
         return True
 
-    # In-process fallback when running in tests or within same Python interpreter
-    try:
-        from fastapi import BackgroundTasks
+    if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
+        try:
+            from fastapi import BackgroundTasks
 
-        from api.app.db.session import SessionLocal
-        from api.app.routers.internal import (
-            CallCompletionPayload,
-            save_call_record_from_agent,
-        )
-
-        with SessionLocal() as db:
-            bg = BackgroundTasks()
-            auth_header = f"Bearer {token}" if token else None
-            completion_payload = CallCompletionPayload.model_validate(payload)
-            res = save_call_record_from_agent(
-                payload=completion_payload,
-                background_tasks=bg,
-                authorization=auth_header,
-                db=db,
+            from api.app.db.session import SessionLocal
+            from api.app.routers.internal import (
+                CallCompletionPayload,
+                save_call_record_from_agent,
             )
-            if res.get("status") == "ok":
-                logger.info("In-process synced call record %s to database", record.call_id)
-                return True
-    except Exception as inner_e:
-        logger.warning("Failed to sync call record %s to live DB: %s", record.call_id, inner_e)
 
+            with SessionLocal() as db:
+                bg = BackgroundTasks()
+                auth_header = f"Bearer {token}" if token else None
+                completion_payload = CallCompletionPayload.model_validate(payload)
+                res = save_call_record_from_agent(
+                    payload=completion_payload,
+                    background_tasks=bg,
+                    authorization=auth_header,
+                    db=db,
+                )
+                if res.get("status") == "ok":
+                    return True
+        except Exception as inner_e:
+            logger.warning("Test in-process call record sync failed: %s", inner_e)
+
+    logger.warning("Failed to sync call record %s to control plane API", record.call_id)
     return False

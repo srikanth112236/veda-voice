@@ -421,10 +421,10 @@ def evaluate_compliance_gate_v2(
             next_date.month,
             next_date.day,
             start_hour,
-            start_min + 5,
+            start_min,
             0,
             tzinfo=recipient_tz,
-        )
+        ) + timedelta(minutes=5)
         next_dt_utc = next_dt_local.astimezone(UTC)
         checks["calling_window"]["scheduled_for"] = next_dt_utc.isoformat()
 
@@ -508,7 +508,9 @@ def evaluate_compliance_gate_v2(
     # Point 8: Quiet Days & Holiday Check
     # =========================================================================
     # Federal holidays where telemarketing is prohibited (New Year, July 4, Thanksgiving, Xmas)
-    holiday_dates = {(1, 1), (7, 4), (11, 26), (12, 25)}
+    nov_first = datetime(local_dt.year, 11, 1)
+    thanksgiving_day = 22 + (3 - nov_first.weekday()) % 7
+    holiday_dates = {(1, 1), (7, 4), (11, thanksgiving_day), (12, 25)}
     if (local_dt.month, local_dt.day) in holiday_dates:
         logger.warning("Compliance rejection: Date %s is a holiday", local_dt.date())
         return ComplianceGateResult(
@@ -667,7 +669,7 @@ def evaluate_compliance_gate(
 ) -> ComplianceGateResult:
     """Legacy wrapper for evaluate_compliance_gate_v2."""
     category = "C" if purpose in ("lead_followup", "web_inquiry") else "B"
-    effective_consent = True if has_consent is None else has_consent
+    effective_consent = has_consent
     return evaluate_compliance_gate_v2(
         db=db,
         tenant_id=tenant_id,

@@ -457,10 +457,15 @@ def test_minute_vs_second_telecom_billing_mode() -> None:
         db.add(pn)
         db.commit()
 
+    from api.app.core.config import settings
+
+    internal_headers = {"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY}
+
     # 1. Test 60-second minute rounding mode (default)
     call_id_1 = f"call_min_{uuid.uuid4().hex[:8]}"
     start_res = client.post(
         "/api/v1/internal/calls/start",
+        headers=internal_headers,
         json={
             "call_id": call_id_1,
             "caller_number": "+15125551234",
@@ -469,10 +474,12 @@ def test_minute_vs_second_telecom_billing_mode() -> None:
         },
     )
     assert start_res.status_code == 200
+    call_token_1 = start_res.json()["call_token"]
 
     # End call with duration 75.0s (in 60s rounding, this rounds up to 2.0 billable minutes)
     end_res_1 = client.post(
         "/api/v1/internal/calls/complete",
+        headers={"Authorization": f"Bearer {call_token_1}"},
         json={
             "call_id": call_id_1,
             "caller_number": "+15125551234",
@@ -504,6 +511,7 @@ def test_minute_vs_second_telecom_billing_mode() -> None:
     call_id_2 = f"call_sec_{uuid.uuid4().hex[:8]}"
     start_res_2 = client.post(
         "/api/v1/internal/calls/start",
+        headers=internal_headers,
         json={
             "call_id": call_id_2,
             "caller_number": "+15125551234",
@@ -512,9 +520,11 @@ def test_minute_vs_second_telecom_billing_mode() -> None:
         },
     )
     assert start_res_2.status_code == 200
+    call_token_2 = start_res_2.json()["call_token"]
 
     end_res_2 = client.post(
         "/api/v1/internal/calls/complete",
+        headers={"Authorization": f"Bearer {call_token_2}"},
         json={
             "call_id": call_id_2,
             "caller_number": "+15125551234",

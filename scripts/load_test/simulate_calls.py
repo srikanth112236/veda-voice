@@ -171,10 +171,13 @@ async def simulate_caller_worker(
     tenant_id = tenant_info["tenant_id"]
 
     # 1. Start Call (POST /internal/calls/start)
+    from api.app.core.config import settings
+
     t0 = time.perf_counter()
     try:
         start_resp = await client.post(
             "/api/v1/internal/calls/start",
+            headers={"X-Internal-Secret": settings.INTERNAL_SIGNING_KEY},
             json={
                 "call_id": call_id,
                 "dialed_number": phone,

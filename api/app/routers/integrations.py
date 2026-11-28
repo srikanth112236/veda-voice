@@ -22,7 +22,11 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
-from api.app.core.deps import get_current_user
+from api.app.core.deps import (
+    build_oauth_redirect_url,
+    get_current_user,
+    validate_public_webhook_url,
+)
 from api.app.core.security import (
     compute_key_fingerprint,
     create_access_token,
@@ -121,13 +125,9 @@ def get_hubspot_auth_url(
 def _maybe_redirect_to_integrations(request: Request, provider: str) -> RedirectResponse | None:
     """Redirect browser OAuth callbacks back to the dashboard integrations page."""
     if "text/html" in request.headers.get("accept", ""):
-        host = request.headers.get("host", "")
-        dashboard_url = (
-            "http://localhost:3000"
-            if ("localhost" in host or "127.0.0.1" in host)
-            else settings.DASHBOARD_URL.rstrip("/")
+        return RedirectResponse(
+            url=build_oauth_redirect_url(request, f"/portal/integrations?crm_connected={provider}")
         )
-        return RedirectResponse(url=f"{dashboard_url}/portal/integrations?crm_connected={provider}")
     return None
 
 
@@ -789,10 +789,11 @@ def create_webhook_subscription(
 ) -> dict[str, Any]:
     """Register a new outbound webhook target for Zapier/Make automation."""
     tenant_id = resolve_tenant_id(user, db)
+    safe_url = validate_public_webhook_url(req.target_url)
 
     hook = WebhookSubscription(
         tenant_id=tenant_id,
-        target_url=req.target_url,
+        target_url=safe_url,
         secret=req.secret,
         events=req.events,
         is_active=True,
@@ -866,13 +867,13 @@ def test_webhook_dispatch(
 
 
 @router.post("/calendly/webhook")
-def handle_calendly_webhook_alias(
-    payload: dict[str, Any],
+async def handle_calendly_webhook_alias(
+    request: Request,
     tenant_id: str | None = None,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Alias for Calendly webhook ingestion under /api/v1/integrations/calendly/webhook."""
-    resp = handle_calendly_inbound_webhook(payload=payload, tenant_id=tenant_id, db=db)
+    resp = await handle_calendly_inbound_webhook(request=request, tenant_id=tenant_id, db=db)
     if isinstance(resp, dict):
         return resp
     return {"status": "received"}

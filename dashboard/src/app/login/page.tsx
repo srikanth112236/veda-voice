@@ -231,8 +231,8 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Operational Inspection Card with 21st.dev/Aceternity Spotlight */}
-          <CardSpotlight className="max-w-xl space-y-4" color="#6366f1">
+          {/* Operational Inspection Card with Spotlight */}
+          <CardSpotlight className="max-w-xl space-y-4" color="oklch(52% 0.15 158 / 0.16)">
             <div className="flex items-center justify-between pb-3.5 border-b border-zinc-100 text-xs font-mono">
               <div className="flex items-center gap-2 text-zinc-900 font-semibold">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -334,37 +334,39 @@ export default function LoginPage() {
             {/* Credentials Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-800 block">
+                <label htmlFor="login-email" className="text-xs font-semibold text-zinc-800 block">
                   Email Address
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3 pointer-events-none" />
                   <input
+                    id="login-email"
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@vedavoice.io"
-                    className="w-full rounded-xl border border-zinc-200 bg-white pl-10 pr-3.5 py-2.5 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 font-mono transition-all shadow-sm"
+                    placeholder="owner@company.example"
+                    className="w-full min-h-[44px] rounded-xl border border-zinc-200 bg-[var(--surface-panel)] pl-10 pr-3.5 py-2.5 text-xs text-zinc-900 placeholder-zinc-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] font-mono transition-all shadow-sm"
                   />
                 </div>
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-zinc-800 block">
+                  <label htmlFor="login-password" className="text-xs font-semibold text-zinc-800 block">
                     Password
                   </label>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-zinc-400 absolute left-3.5 top-3 pointer-events-none" />
                   <input
+                    id="login-password"
                     type="password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••••••"
-                    className="w-full rounded-xl border border-zinc-200 bg-white pl-10 pr-3.5 py-2.5 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 font-mono transition-all shadow-sm"
+                    className="w-full min-h-[44px] rounded-xl border border-zinc-200 bg-[var(--surface-panel)] pl-10 pr-3.5 py-2.5 text-xs text-zinc-900 placeholder-zinc-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)] font-mono transition-all shadow-sm"
                   />
                 </div>
               </div>
@@ -372,7 +374,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={submitting || googleLoading}
-                className="w-full py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 shadow-sm"
+                className="w-full min-h-[44px] py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-[var(--accent-signal-ink)] text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
               >
                 {submitting ? "Authenticating..." : "Sign in to Control Plane"}
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -382,7 +384,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={handleGoogleLogin}
                 disabled={submitting || googleLoading}
-                className="w-full py-2.5 rounded-xl bg-white border border-zinc-200 hover:bg-zinc-50 hover:border-zinc-300 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 shadow-xs"
+                className="w-full min-h-[44px] py-2.5 rounded-xl bg-[var(--surface-panel)] border border-zinc-200 hover:bg-zinc-50 hover:border-zinc-300 text-zinc-800 text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -394,49 +396,51 @@ export default function LoginPage() {
               </button>
             </form>
 
-            {/* Instant Verified Roles */}
-            <div className="pt-5 border-t border-zinc-100 space-y-2.5">
-              <span className="text-[10px] uppercase font-mono font-bold tracking-wider text-zinc-400 block">
-                Instant Verified Demo Access
-              </span>
+            {/* Instant Verified Roles (dev/demo mode only) */}
+            {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
+              <div className="pt-5 border-t border-zinc-100 space-y-2.5">
+                <span className="text-[10px] uppercase font-mono font-bold tracking-wider text-zinc-500 block">
+                  Instant Verified Demo Access
+                </span>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickLogin("admin@vedavoice.io", "Admin@VedaVoice2026!")
-                  }
-                  className="p-3 rounded-xl border border-zinc-200 bg-zinc-50/70 hover:bg-white hover:border-zinc-300 text-left transition-all active:scale-[0.98] group shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
-                >
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900">
-                    <ShieldCheck className="w-3.5 h-3.5 text-zinc-700 group-hover:text-zinc-950" />
-                    <span>Agency Admin</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                    Fleet Management
-                  </div>
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleQuickLogin("admin@vedavoice.io", "Admin@VedaVoice2026!")
+                    }
+                    className="min-h-[44px] p-3 rounded-xl border border-zinc-200 bg-zinc-50/70 hover:bg-white hover:border-zinc-300 text-left transition-all active:scale-[0.98] group shadow-[0_1px_2px_rgba(0,0,0,0.03)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900">
+                      <ShieldCheck className="w-3.5 h-3.5 text-zinc-700 group-hover:text-zinc-950" />
+                      <span>Agency Admin</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                      Fleet Management
+                    </div>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickLogin(
-                      "owner@apexplumbing.com",
-                      "ApexOwner2026!"
-                    )
-                  }
-                  className="p-3 rounded-xl border border-zinc-200 bg-zinc-50/70 hover:bg-white hover:border-zinc-300 text-left transition-all active:scale-[0.98] group shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
-                >
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900">
-                    <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Client Tenant</span>
-                  </div>
-                  <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                    Apex Plumbing
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleQuickLogin(
+                        "owner@northstar-service.example",
+                        "DemoOwner2026!"
+                      )
+                    }
+                    className="min-h-[44px] p-3 rounded-xl border border-zinc-200 bg-zinc-50/70 hover:bg-white hover:border-zinc-300 text-left transition-all active:scale-[0.98] group shadow-[0_1px_2px_rgba(0,0,0,0.03)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900">
+                      <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Client Tenant</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                      Sample Workspace
+                    </div>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Onboarding Wizard Link */}
             <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200/80 flex items-center justify-between">

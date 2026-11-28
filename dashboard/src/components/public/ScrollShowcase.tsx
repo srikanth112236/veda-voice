@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef } from "react";
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion, useScroll, useTransform, useReducedMotion } from "framer-motion";
 import { PhoneCall, ShieldCheck, Calendar, Headphones } from "lucide-react";
 
 export function ParallaxFrame({
@@ -12,12 +12,13 @@ export function ParallaxFrame({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const prefersReduced = useReducedMotion();
   const { scrollYProgress } = useScroll({
     target: ref,
     offset: ["start end", "end start"],
   });
-  const y = useTransform(scrollYProgress, [0, 1], [24, -24]);
-  const scale = useTransform(scrollYProgress, [0, 0.5, 1], [0.97, 1.01, 0.99]);
+  const y = useTransform(scrollYProgress, [0, 1], prefersReduced ? [0, 0] : [24, -24]);
+  const scale = useTransform(scrollYProgress, [0, 0.5, 1], prefersReduced ? [1, 1, 1] : [0.97, 1.01, 0.99]);
 
   return (
     <div ref={ref} className={`overflow-hidden ${className}`}>

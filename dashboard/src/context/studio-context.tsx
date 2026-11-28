@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { useAuth } from "@/context/auth-context";
 
 export interface StudioConfigData {
   terminology: Record<string, string>;
@@ -32,11 +33,20 @@ const StudioContext = createContext<StudioContextValue>({
 });
 
 export function StudioProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [studio, setStudio] = useState<StudioConfigData | null>(null);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("vedavoice_token") : null;
-    if (!token) return;
+    if (!token || !user) {
+      setStudio(null);
+      const root = document.documentElement.style;
+      root.removeProperty("--accent-signal");
+      root.removeProperty("--accent-signal-ink");
+      root.removeProperty("--surface-canvas");
+      root.removeProperty("--surface-panel");
+      return;
+    }
 
     fetch("/api/v1/portal/studio", {
       headers: { Authorization: `Bearer ${token}` },
@@ -58,7 +68,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {
         // Fallback silently to default labels
       });
-  }, []);
+  }, [user?.tenant_id, user?.id]);
 
   const t = (key: string, fallback: string): string =>
     studio?.terminology?.[key] || fallback;

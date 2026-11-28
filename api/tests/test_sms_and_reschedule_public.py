@@ -131,8 +131,8 @@ def test_public_reschedule_execution(test_setup_booking: dict[str, Any]) -> None
     token = test_setup_booking["token"]
     booking_id = test_setup_booking["booking_id"]
 
-    # Pick a unique future weekday between 9 AM and 5 PM
-    unique_day_offset = 20 + (uuid.uuid4().int % 30)
+    # Pick a unique future weekday between 9 AM and 5 PM (far enough out to avoid existing DB slots)
+    unique_day_offset = 60 + (uuid.uuid4().int % 180)
     candidate = datetime.now(UTC) + timedelta(days=unique_day_offset)
     while candidate.weekday() >= 5:
         candidate += timedelta(days=1)

@@ -156,9 +156,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (loading || !user || user.role !== "platform_admin") {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#f8fafc] font-mono text-xs text-slate-500">
-        <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-white border border-slate-200 shadow-xs">
-          <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse" />
+      <div className="flex h-screen w-full items-center justify-center bg-[var(--surface-canvas)] font-mono text-xs text-[var(--ink-muted)]">
+        <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[var(--surface-panel)] border border-[var(--border-hairline)] shadow-xs">
+          <span className="w-2 h-2 rounded-full bg-[var(--accent-signal)] animate-pulse" />
           <span>Authenticating platform super-admin...</span>
         </div>
       </div>
@@ -166,16 +166,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans flex flex-col">
+    <div className="min-h-screen bg-[var(--surface-canvas)] text-[var(--ink-primary)] font-sans flex flex-col">
       {/* Mobile Sticky Header (< 1024px) */}
-      <header className="lg:hidden sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 py-3 flex items-center justify-between shadow-2xs">
+      <header className="lg:hidden sticky top-0 z-40 bg-[var(--surface-panel)] border-b border-[var(--border-hairline)] px-4 py-3 flex items-center justify-between shadow-2xs">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-700">
+          <div className="p-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700">
             <ShieldAlert className="w-4 h-4" />
           </div>
           <div>
             <h2 className="text-xs font-bold text-slate-900 leading-tight">VedaVoice Platform</h2>
-            <div className="text-[10px] text-purple-700 font-mono font-semibold">Super-Admin Plane</div>
+            <div className="text-[10px] text-emerald-700 font-mono font-semibold">Super-Admin Plane</div>
           </div>
         </div>
 
@@ -183,7 +183,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           type="button"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-label="Toggle admin menu"
-          className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
+          className="touch-target flex items-center justify-center p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-signal)]"
         >
           {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>

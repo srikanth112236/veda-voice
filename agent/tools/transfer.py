@@ -134,13 +134,14 @@ def create_transfer_tool(
                 f"Emergency transfer from {c_name} ({c_phone}){addr_str}. Reason: {reason}."
             )
 
+        from agent.telemetry import redact_phone
+
         logger.info(
-            "Transferring call %s to human specialist at %s (reason: %s, priority: %s, whisper: %s)",
+            "Transferring call %s to human specialist at %s (reason: %s, priority: %s)",
             call_id or "live_call",
-            target_number,
+            redact_phone(target_number),
             reason,
             priority,
-            effective_whisper,
         )
 
         # 1. Spoken verbal hold notice
@@ -158,7 +159,10 @@ def create_transfer_tool(
 
         # 2. Audit transfer event and trigger SMS dispatch to control plane
         if config.call_token:
-            default_api_client.record_call_transfer(
+            import asyncio
+
+            await asyncio.to_thread(
+                default_api_client.record_call_transfer,
                 call_id=call_id or "call",
                 target_number=target_number,
                 call_token=config.call_token,

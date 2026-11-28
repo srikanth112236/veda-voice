@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from api.app.core.deps import get_current_user
+from api.app.core.deps import get_current_tenant, get_current_user
 from api.app.db.session import get_db
 from api.app.models.call import Call
 from api.app.models.compliance import PlatformSuppression
@@ -407,6 +407,16 @@ def list_contacts(
         query.order_by(desc(Contact.last_contact_at)).offset(offset).limit(limit)
     ).all()
 
+    contact_ids = [c.id for c in contacts]
+    call_counts: dict[str, int] = {}
+    if contact_ids:
+        rows = db.execute(
+            select(Call.contact_id, func.count(Call.id))
+            .where(Call.tenant_id == tenant_id, Call.contact_id.in_(contact_ids))
+            .group_by(Call.contact_id)
+        ).all()
+        call_counts = {str(r[0]): int(r[1] or 0) for r in rows if r[0]}
+
     return {
         "total": total,
         "limit": limit,
@@ -426,7 +436,7 @@ def list_contacts(
                 "custom_fields": c.custom_fields,
                 "first_contact_at": c.first_contact_at.isoformat() if c.first_contact_at else None,
                 "last_contact_at": c.last_contact_at.isoformat() if c.last_contact_at else None,
-                "call_count": len(c.calls),
+                "call_count": call_counts.get(c.id, 0),
             }
             for c in contacts
         ],
@@ -454,6 +464,16 @@ def get_pipeline_stages(
     # Fallback bucket if contact has an orphaned stage
     fallback_key = stage_keys[0] if stage_keys else "new_lead"
 
+    contact_ids = [c.id for c in contacts]
+    call_counts: dict[str, int] = {}
+    if contact_ids:
+        rows = db.execute(
+            select(Call.contact_id, func.count(Call.id))
+            .where(Call.tenant_id == tenant_id, Call.contact_id.in_(contact_ids))
+            .group_by(Call.contact_id)
+        ).all()
+        call_counts = {str(r[0]): int(r[1] or 0) for r in rows if r[0]}
+
     for c in contacts:
         dest_key = c.stage if c.stage in stages else fallback_key
         if dest_key not in stages:
@@ -470,7 +490,7 @@ def get_pipeline_stages(
                 "lead_score": c.lead_score,
                 "is_callable": c.is_callable,
                 "last_contact_at": c.last_contact_at.isoformat() if c.last_contact_at else None,
-                "call_count": len(c.calls),
+                "call_count": call_counts.get(c.id, 0),
             }
         )
 
@@ -640,18 +660,15 @@ def get_contact_detail(
 def create_contact(
     req: CreateContactRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Manually add a contact to the CRM."""
-    if not user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant context required.")
-
     norm_phone = normalize_e164_phone(req.phone)
     if not norm_phone:
         raise HTTPException(status_code=422, detail="Invalid phone number.")
 
     existing = db.scalar(
-        select(Contact).where(Contact.tenant_id == user.tenant_id, Contact.phone == norm_phone)
+        select(Contact).where(Contact.tenant_id == tenant.id, Contact.phone == norm_phone)
     )
     if existing:
         raise HTTPException(
@@ -660,7 +677,7 @@ def create_contact(
 
     now = datetime.now(UTC)
     contact = Contact(
-        tenant_id=user.tenant_id,
+        tenant_id=tenant.id,
         name=req.name,
         phone=norm_phone,
         email=req.email,
@@ -677,7 +694,7 @@ def create_contact(
     db.flush()
 
     event = ContactTimelineEvent(
-        tenant_id=user.tenant_id,
+        tenant_id=tenant.id,
         contact_id=contact.id,
         event_type="note_added",
         title="Contact Profile Created",
@@ -696,14 +713,11 @@ def update_contact(
     contact_id: str,
     req: UpdateContactRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Update contact attributes or transition pipeline stage."""
-    if not user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant context required.")
-
     contact = db.scalar(
-        select(Contact).where(Contact.id == contact_id, Contact.tenant_id == user.tenant_id)
+        select(Contact).where(Contact.id == contact_id, Contact.tenant_id == tenant.id)
     )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found.")
@@ -731,7 +745,7 @@ def update_contact(
     if req.stage is not None and req.stage != old_stage:
         contact.stage = req.stage
         event = ContactTimelineEvent(
-            tenant_id=user.tenant_id,
+            tenant_id=tenant.id,
             contact_id=contact.id,
             event_type="stage_changed",
             title=f"Stage changed: {old_stage.replace('_', ' ').title()} → {req.stage.replace('_', ' ').title()}",
@@ -757,14 +771,11 @@ def update_contact(
 def delete_contact(
     contact_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ) -> dict[str, Any]:
     """Delete a contact and its timeline."""
-    if not user.tenant_id:
-        raise HTTPException(status_code=400, detail="Tenant context required.")
-
     contact = db.scalar(
-        select(Contact).where(Contact.id == contact_id, Contact.tenant_id == user.tenant_id)
+        select(Contact).where(Contact.id == contact_id, Contact.tenant_id == tenant.id)
     )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found.")

@@ -660,6 +660,7 @@ async def google_login_callback(
 
     user = db.scalar(select(User).where(User.email == email, User.is_active.is_(True)))
     if not user:
+        onboarding_code = secrets.token_urlsafe(32)
         onboarding_token = create_access_token(
             {
                 "flow": "google_onboarding",
@@ -671,9 +672,8 @@ async def google_login_callback(
             },
             expires_delta=timedelta(minutes=15),
         )
-        return RedirectResponse(
-            url=f"{dashboard_origin}/onboarding#google_token={onboarding_token}"
-        )
+        _GOOGLE_ONBOARDING_CODES[onboarding_code] = onboarding_token
+        return RedirectResponse(url=f"{dashboard_origin}/onboarding?google_code={onboarding_code}")
 
     jwt_token = create_access_token(
         {
@@ -684,6 +684,41 @@ async def google_login_callback(
         }
     )
     return RedirectResponse(url=f"{dashboard_origin}/login#token={jwt_token}")
+
+
+_GOOGLE_ONBOARDING_CODES: dict[str, str] = {}
+
+
+class GoogleOnboardingExchangeRequest(BaseModel):
+    code: str
+
+
+@router.post("/google/onboarding-exchange")
+def exchange_google_onboarding_code(req: GoogleOnboardingExchangeRequest) -> dict[str, str]:
+    """Exchange one-time Google onboarding code for profile and short-lived registration token."""
+    token = _GOOGLE_ONBOARDING_CODES.pop(req.code, None)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google onboarding code.",
+        )
+    payload = decode_access_token(token)
+    if (
+        not payload
+        or payload.get("flow") != "google_onboarding"
+        or payload.get("email_verified") is not True
+        or not payload.get("email")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google onboarding session.",
+        )
+    return {
+        "google_token": token,
+        "email": str(payload["email"]),
+        "name": str(payload.get("name") or ""),
+        "picture": str(payload.get("picture") or ""),
+    }
 
 
 @router.get("/google/onboarding-session")

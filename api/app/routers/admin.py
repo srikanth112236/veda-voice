@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from api.app.core.config import settings
@@ -236,24 +236,47 @@ def list_tenants(
         "scale": 999.00,
     }
 
+    # Grouped queries to avoid N+1 per-tenant queries
+    from api.app.models.subscription import Subscription
+
+    call_stats_rows = db.execute(
+        select(
+            Call.tenant_id,
+            func.count(Call.id),
+            func.sum(case((Call.urgency == "emergency", 1), else_=0)),
+            func.coalesce(func.sum(Call.duration_s), 0.0),
+        ).group_by(Call.tenant_id)
+    ).all()
+    call_stats_map: dict[str, tuple[int, int, float]] = {
+        str(r[0]): (int(r[1] or 0), int(r[2] or 0), float(r[3] or 0.0)) for r in call_stats_rows
+    }
+
+    sub_rows = db.scalars(select(Subscription)).all()
+    sub_tier_map: dict[str, str] = {str(s.tenant_id): str(s.tier or "growth") for s in sub_rows}
+
+    pack_map: dict[str, tuple[str | None, str | None]] = {}
+    try:
+        pack_rows = db.execute(
+            select(
+                TenantPackApplication.tenant_id,
+                IndustryPack.slug,
+                IndustryPackVersion.version_semver,
+            )
+            .join(IndustryPack, IndustryPack.id == TenantPackApplication.pack_id)
+            .join(IndustryPackVersion, IndustryPackVersion.id == TenantPackApplication.version_id)
+        ).all()
+        for r in pack_rows:
+            pack_map[str(r[0])] = (r[1], r[2])
+    except Exception as pack_err:
+        logger.warning("Could not resolve pack applications: %s", pack_err)
+
     for t in tenants:
         phone_nums = [p.e164 for p in t.phone_numbers if p.status == "active"]
-        call_count = db.scalar(select(func.count(Call.id)).where(Call.tenant_id == t.id)) or 0
-        emergency_count = (
-            db.scalar(
-                select(func.count(Call.id)).where(
-                    Call.tenant_id == t.id, Call.urgency == "emergency"
-                )
-            )
-            or 0
-        )
-        tenant_seconds = (
-            db.scalar(select(func.sum(Call.duration_s)).where(Call.tenant_id == t.id)) or 0.0
-        )
+        call_count, emergency_count, tenant_seconds = call_stats_map.get(str(t.id), (0, 0, 0.0))
         tenant_mins = round(tenant_seconds / 60.0, 1)
 
-        # Plan revenue & COGS calculations
-        plan_code = getattr(t, "plan", "growth") or "growth"
+        # Plan revenue & COGS calculations (from Subscription.tier)
+        plan_code = sub_tier_map.get(str(t.id), "growth")
         base_fee = plan_pricing.get(plan_code.lower(), 399.00)
         overage_mins = max(0.0, tenant_mins - float(t.monthly_minute_quota or 500))
         overage_fee = round(overage_mins * 0.35, 2)
@@ -268,24 +291,7 @@ def list_tenants(
             round(((total_rev - total_cogs) / total_rev) * 100, 1) if total_rev > 0 else 95.0
         )
 
-        applied_slug = None
-        applied_ver = None
-        try:
-            pack_app = db.scalar(
-                select(TenantPackApplication).where(TenantPackApplication.tenant_id == t.id)
-            )
-            if pack_app:
-                p_obj = db.scalar(select(IndustryPack).where(IndustryPack.id == pack_app.pack_id))
-                v_obj = db.scalar(
-                    select(IndustryPackVersion).where(IndustryPackVersion.id == pack_app.version_id)
-                )
-                if p_obj:
-                    applied_slug = p_obj.slug
-                if v_obj:
-                    applied_ver = v_obj.version_semver
-        except Exception as pack_err:
-            logger.warning("Could not resolve pack application for tenant %s: %s", t.id, pack_err)
-            db.rollback()
+        applied_slug, applied_ver = pack_map.get(str(t.id), (None, None))
 
         results.append(
             TenantSummaryResponse(

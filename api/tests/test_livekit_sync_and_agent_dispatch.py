@@ -3,6 +3,7 @@
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -72,7 +73,7 @@ def test_onboarding_auto_creates_livekit_agent_config(tmp_path: Path) -> None:
 def test_portal_profile_update_syncs_livekit_agent_config() -> None:
     """Verify that updating receptionist settings in client portal immediately syncs LiveKit Agent."""
     unique_suffix = uuid.uuid4().hex[:6]
-    test_number = f"+1512{uuid.uuid4().int % 9000000 + 1000000}"
+    test_number = f"+1{uuid.uuid4().int % 700 + 200}{uuid.uuid4().int % 8000000 + 2000000}"
     email = f"sync_portal_{unique_suffix}@example.com"
 
     reg_res = client.post(
@@ -150,8 +151,12 @@ def test_dynamic_api_resolution_for_livekit_worker() -> None:
     assert resolved.agent_name == "Dennis"
 
 
-def test_livekit_webhook_lifecycle_and_call_reconciliation() -> None:
+def test_livekit_webhook_lifecycle_and_call_reconciliation(monkeypatch: Any) -> None:
     """Verify that LiveKit webhook room_started and room_finished events record and reconcile calls."""
+    from api.app.core.config import settings
+
+    monkeypatch.setattr(settings, "LIVEKIT_API_KEY", "")
+    monkeypatch.setattr(settings, "LIVEKIT_API_SECRET", "")
     room_id = f"test-room-{uuid.uuid4().hex[:8]}"
 
     # 1. room_started event
