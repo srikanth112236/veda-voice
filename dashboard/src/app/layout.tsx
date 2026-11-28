@@ -28,7 +28,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://dashboard.kindstone-eaab21b4.eastus2.azurecontainerapps.io"),
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
+  ),
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

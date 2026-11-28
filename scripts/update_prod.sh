@@ -86,14 +86,18 @@ for app_name in api dashboard agent; do
   fi
 done
 
+: "${LIVEKIT_URL:?Set LIVEKIT_URL}"
+: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}"
+: "${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}"
+
 az containerapp update \
   --name api \
   --resource-group "$RESOURCE_GROUP" \
   --image "${ACR_LOGIN_SERVER}/api:${IMAGE_TAG}" \
   --set-env-vars \
-    LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
-    LIVEKIT_API_KEY="APIUJck6jdupFvT" \
-    LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA"
+    LIVEKIT_URL="$LIVEKIT_URL" \
+    LIVEKIT_API_KEY="$LIVEKIT_API_KEY" \
+    LIVEKIT_API_SECRET="$LIVEKIT_API_SECRET"
 
 az containerapp update \
   --name dashboard \
@@ -109,9 +113,9 @@ if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/n
     --resource-group "$RESOURCE_GROUP" \
     --image "${ACR_LOGIN_SERVER}/agent:${IMAGE_TAG}" \
     --set-env-vars \
-      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
-      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
-      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+      LIVEKIT_URL="$LIVEKIT_URL" \
+      LIVEKIT_API_KEY="$LIVEKIT_API_KEY" \
+      LIVEKIT_API_SECRET="$LIVEKIT_API_SECRET" \
       API_BASE_URL="$API_URL" \
       PROD_API_URL="$API_URL" 2>/dev/null || {
         echo "    Recreating 'agent' container app cleanly..."
@@ -127,10 +131,10 @@ if az containerapp show --name agent --resource-group "$RESOURCE_GROUP" &>/dev/n
           --registry-password "$ACR_PASS" \
           --cpu 0.5 --memory 1.0Gi \
           --min-replicas 1 --max-replicas 5 \
-          --env-vars \
-            LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
-            LIVEKIT_API_KEY="APIUJck6jdupFvT" \
-            LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+            --env-vars \
+              LIVEKIT_URL="$LIVEKIT_URL" \
+              LIVEKIT_API_KEY="$LIVEKIT_API_KEY" \
+              LIVEKIT_API_SECRET="$LIVEKIT_API_SECRET" \
             API_BASE_URL="$API_URL" \
             PROD_API_URL="$API_URL" || true
       }
@@ -148,9 +152,9 @@ else
     --cpu 0.5 --memory 1.0Gi \
     --min-replicas 1 --max-replicas 5 \
     --env-vars \
-      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
-      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
-      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+      LIVEKIT_URL="$LIVEKIT_URL" \
+      LIVEKIT_API_KEY="$LIVEKIT_API_KEY" \
+      LIVEKIT_API_SECRET="$LIVEKIT_API_SECRET" \
       API_BASE_URL="$API_URL" \
       PROD_API_URL="$API_URL" || true
 fi

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     )
 
     # API
+    ENVIRONMENT: str = "development"
     API_TITLE: str = "VedaVoice API"
     API_VERSION: str = "0.1.0"
     API_BASE_URL: str = "http://localhost:8001"
@@ -52,9 +53,9 @@ class Settings(BaseSettings):
     GLOBAL_MAX_OUTBOUND: int = 10
 
     # LiveKit SIP Trunking & Carrier Telephony
-    LIVEKIT_URL: str = "wss://steyzi-xvk89l73.livekit.cloud"
-    LIVEKIT_API_KEY: str = "APIUJck6jdupFvT"
-    LIVEKIT_API_SECRET: str = "JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA"
+    LIVEKIT_URL: str = ""
+    LIVEKIT_API_KEY: str = ""
+    LIVEKIT_API_SECRET: str = ""
     LIVEKIT_SIP_INBOUND_TRUNK_ID: str = "ST_inbound_livekit_scale"
     LIVEKIT_SIP_OUTBOUND_TRUNK_ID: str = "ST_outbound_twilio_elastic"
     LIVEKIT_SIP_DISPATCH_RULE_NAME: str = "all-tenants-inbound"
@@ -106,6 +107,26 @@ class Settings(BaseSettings):
     TELNYX_PUBLIC_KEY: str = ""
     TELNYX_AUTO_ASSIGN_SIP: bool = True
     TELNYX_DEFAULT_COUNTRY_CODE: str = "US"
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> "Settings":
+        """Fail fast in production if default/placeholder secrets are still active."""
+        if self.ENVIRONMENT.lower() in ("prod", "production"):
+            insecure = []
+            if not self.JWT_SECRET or "fake-local-dev" in self.JWT_SECRET:
+                insecure.append("JWT_SECRET")
+            if not self.INTERNAL_SIGNING_KEY or "fake-local-dev" in self.INTERNAL_SIGNING_KEY:
+                insecure.append("INTERNAL_SIGNING_KEY")
+            if not self.ENCRYPTION_SECRET or "envelope-secret-key" in self.ENCRYPTION_SECRET:
+                insecure.append("ENCRYPTION_SECRET")
+            if (
+                not self.PLATFORM_ADMIN_PASSWORD
+                or self.PLATFORM_ADMIN_PASSWORD == "Admin@VedaVoice2026!"
+            ):
+                insecure.append("PLATFORM_ADMIN_PASSWORD")
+            if insecure:
+                raise ValueError(f"Insecure or missing production secrets: {', '.join(insecure)}")
+        return self
 
 
 settings = Settings()

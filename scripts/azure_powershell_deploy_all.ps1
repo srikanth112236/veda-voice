@@ -10,12 +10,16 @@ param(
     [string]$ResourceGroupName = "rg-vagency-prod",
     [string]$Location = "eastus2",
     [string]$GitHubRepo = "",
-    [string]$JwtSecret = "KxYj9m/uxTtrKBvPCmWYqUCbz97BxDParzOHgc3Ze38=",
-    [string]$InternalSigningKey = "ur+yG4Asx1ZPR9hHz2zlwpvv+JCHcNQYqxnTlHy3roQ=",
-    [string]$PostgresPassword = "VedaVoicec10074782763451f!2026",
+    [string]$JwtSecret = $env:PROD_JWT_SECRET,
+    [string]$InternalSigningKey = $env:PROD_INTERNAL_SIGNING_KEY,
+    [string]$PostgresPassword = $env:PROD_PG_PASSWORD,
     [string]$AppName = "vagency",
     [string]$Environment = "prod"
 )
+
+if (-not $JwtSecret -or -not $InternalSigningKey -or -not $PostgresPassword) {
+    throw "Set PROD_JWT_SECRET, PROD_INTERNAL_SIGNING_KEY, and PROD_PG_PASSWORD (or pass as parameters)."
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -173,7 +177,7 @@ Write-Host "   - Key Vault:          $KeyVaultUri" -ForegroundColor White
 Write-Host "`n2. Initial Platform Login:"
 Write-Host "   - URL:                $DashboardUrl" -ForegroundColor White
 Write-Host "   - Admin Email:        admin@vedavoice.io" -ForegroundColor White
-Write-Host "   - Admin Password:     Admin@VedaVoice2026!" -ForegroundColor White
+Write-Host "   - Admin Password:     <set via PLATFORM_ADMIN_PASSWORD>" -ForegroundColor White
 Write-Host "`n3. Add these exact variables to GitHub Actions:"
 Write-Host "   (https://github.com/$GitHubRepo/settings/secrets/actions)"
 Write-Host "`n   [Repository Variables (Vars)]:" -ForegroundColor Yellow

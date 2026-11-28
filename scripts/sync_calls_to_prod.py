@@ -79,8 +79,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--secret",
-        default=os.getenv("JWT_SECRET") or "KxYj9m/uxTtrKBvPCmWYqUCbz97BxDParzOHgc3Ze38=",
-        help="JWT Secret used by the API",
+        default=os.getenv("JWT_SECRET", ""),
+        help="JWT Secret used by the API (defaults to JWT_SECRET env var)",
     )
     parser.add_argument(
         "--calls-dir",

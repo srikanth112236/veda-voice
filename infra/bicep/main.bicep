@@ -26,6 +26,17 @@ param jwtSecret string
 @secure()
 param internalSigningKey string
 
+@description('LiveKit Cloud WebSocket URL')
+param livekitUrl string = ''
+
+@description('LiveKit API Key')
+@secure()
+param livekitApiKey string = ''
+
+@description('LiveKit API Secret')
+@secure()
+param livekitApiSecret string = ''
+
 @description('Action Group resource ID for alerts (optional)')
 param alertActionGroupId string = ''
 
@@ -136,6 +147,9 @@ module containerAppsModule 'modules/containerapps.bicep' = {
     databaseUrl: databaseUrl
     jwtSecret: jwtSecret
     internalSigningKey: internalSigningKey
+    livekitUrl: livekitUrl
+    livekitApiKey: livekitApiKey
+    livekitApiSecret: livekitApiSecret
   }
 }
 

@@ -10,7 +10,7 @@ const getApiBase = () => {
   if (envUrl && envUrl.trim() !== "") {
     return envUrl.replace(/\/+$/, "");
   }
-  return "https://api.kindstone-eaab21b4.eastus2.azurecontainerapps.io";
+  return "http://127.0.0.1:8000";
 };
 
 async function handleProxy(

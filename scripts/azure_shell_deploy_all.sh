@@ -15,10 +15,13 @@ RESOURCE_GROUP="${1:-rg-vagency-prod}"
 LOCATION="${2:-eastus2}"
 GITHUB_REPO="${3:-}"
 
-# Production secrets supplied by user
-JWT_SECRET="${JWT_SECRET:-KxYj9m/uxTtrKBvPCmWYqUCbz97BxDParzOHgc3Ze38=}"
-INTERNAL_SIGNING_KEY="${INTERNAL_SIGNING_KEY:-ur+yG4Asx1ZPR9hHz2zlwpvv+JCHcNQYqxnTlHy3roQ=}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-VedaVoicec10074782763451f!2026}"
+# Production secrets must be supplied via environment variables
+: "${JWT_SECRET:?Set JWT_SECRET}"
+: "${INTERNAL_SIGNING_KEY:?Set INTERNAL_SIGNING_KEY}"
+: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
+: "${LIVEKIT_URL:?Set LIVEKIT_URL}"
+: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}"
+: "${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}"
 APP_NAME="vagency"
 ENVIRONMENT="prod"
 
@@ -270,9 +273,9 @@ az containerapp update \
     --name api \
     --resource-group "$RESOURCE_GROUP" \
     --set-env-vars \
-      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
-      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
-      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+      LIVEKIT_URL="$LIVEKIT_URL" \
+      LIVEKIT_API_KEY="$LIVEKIT_API_KEY" \
+      LIVEKIT_API_SECRET="$LIVEKIT_API_SECRET" \
     --output none 2>/dev/null || true
 
 az containerapp update \
@@ -281,9 +284,9 @@ az containerapp update \
     --min-replicas 1 \
     --max-replicas 5 \
     --set-env-vars \
-      LIVEKIT_URL="wss://steyzi-xvk89l73.livekit.cloud" \
-      LIVEKIT_API_KEY="APIUJck6jdupFvT" \
-      LIVEKIT_API_SECRET="JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA" \
+      LIVEKIT_URL="$LIVEKIT_URL" \
+      LIVEKIT_API_KEY="$LIVEKIT_API_KEY" \
+      LIVEKIT_API_SECRET="$LIVEKIT_API_SECRET" \
       API_BASE_URL="$API_URL" \
       PROD_API_URL="$API_URL" \
     --output none 2>/dev/null || true
@@ -321,7 +324,7 @@ echo ""
 echo "2. Initial Platform Login:"
 echo "   - URL:                $DASHBOARD_URL"
 echo "   - Admin Email:        admin@vedavoice.io"
-echo "   - Admin Password:     Admin@VedaVoice2026!"
+echo "   - Admin Password:     <set via PLATFORM_ADMIN_PASSWORD>"
 echo ""
 echo "3. Add these exact variables to GitHub Actions:"
 echo "   (Go to: https://github.com/$GITHUB_REPO/settings/secrets/actions)"

@@ -7,6 +7,7 @@ dispatch endpoints are healthy and responsive after deployment.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from typing import Any
@@ -46,10 +47,15 @@ def test_health(client: httpx.Client, base_url: str) -> None:
 
 def test_admin_login(client: httpx.Client, base_url: str) -> str | None:
     print("--> [2/4] Testing Admin Authentication (/api/v1/auth/login)...")
+    admin_email = os.getenv("PLATFORM_ADMIN_EMAIL", "admin@vedavoice.io")
+    admin_password = os.getenv("PLATFORM_ADMIN_PASSWORD", "")
+    if not admin_password:
+        print("    [SKIP] PLATFORM_ADMIN_PASSWORD not set.")
+        return None
     url = f"{base_url.rstrip('/')}/api/v1/auth/login"
     login_payload = {
-        "email": "admin@vedavoice.io",
-        "password": "Admin@VedaVoice2026!",
+        "email": admin_email,
+        "password": admin_password,
     }
     resp = client.post(url, json=login_payload)
     if resp.status_code == 200:

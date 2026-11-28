@@ -39,6 +39,17 @@ param jwtSecret string
 @secure()
 param internalSigningKey string
 
+@description('LiveKit Cloud WebSocket URL')
+param livekitUrl string = ''
+
+@description('LiveKit API Key')
+@secure()
+param livekitApiKey string = ''
+
+@description('LiveKit API Secret')
+@secure()
+param livekitApiSecret string = ''
+
 @description('LiveKit SIP Inbound Trunk ID')
 param livekitInboundTrunkId string = 'ST_inbound_livekit_scale'
 
@@ -96,6 +107,14 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
           name: 'signing-key'
           value: internalSigningKey
         }
+        {
+          name: 'livekit-api-key'
+          value: livekitApiKey
+        }
+        {
+          name: 'livekit-api-secret'
+          value: livekitApiSecret
+        }
       ]
       registries: [
         {
@@ -137,15 +156,15 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
             {
               name: 'LIVEKIT_URL'
-              value: 'wss://steyzi-xvk89l73.livekit.cloud'
+              value: livekitUrl
             }
             {
               name: 'LIVEKIT_API_KEY'
-              value: 'APIUJck6jdupFvT'
+              secretRef: 'livekit-api-key'
             }
             {
               name: 'LIVEKIT_API_SECRET'
-              value: 'JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA'
+              secretRef: 'livekit-api-secret'
             }
           ]
         }
@@ -246,6 +265,14 @@ resource dialerApp 'Microsoft.App/containerApps@2023-05-01' = {
         {
           name: 'signing-key'
           value: internalSigningKey
+        }
+        {
+          name: 'livekit-api-key'
+          value: livekitApiKey
+        }
+        {
+          name: 'livekit-api-secret'
+          value: livekitApiSecret
         }
       ]
       registries: [
@@ -359,6 +386,14 @@ resource agentApp 'Microsoft.App/containerApps@2023-05-01' = {
           name: 'signing-key'
           value: internalSigningKey
         }
+        {
+          name: 'livekit-api-key'
+          value: livekitApiKey
+        }
+        {
+          name: 'livekit-api-secret'
+          value: livekitApiSecret
+        }
       ]
       registries: [
         {
@@ -380,15 +415,15 @@ resource agentApp 'Microsoft.App/containerApps@2023-05-01' = {
           env: [
             {
               name: 'LIVEKIT_URL'
-              value: 'wss://steyzi-xvk89l73.livekit.cloud'
+              value: livekitUrl
             }
             {
               name: 'LIVEKIT_API_KEY'
-              value: 'APIUJck6jdupFvT'
+              secretRef: 'livekit-api-key'
             }
             {
               name: 'LIVEKIT_API_SECRET'
-              value: 'JDwzAVyTe1j51GoaeG1kUZjfcGgRyzS52wKERIqbKTMA'
+              secretRef: 'livekit-api-secret'
             }
             {
               name: 'API_BASE_URL'
